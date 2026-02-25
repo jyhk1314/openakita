@@ -384,7 +384,9 @@ class BrowserManager:
                     logger.info(f"[Browser] Using bundled playwright-browsers: {bundled}")
                     return
 
-        browsers_dir = Path.home() / ".openakita" / "modules" / "browser" / "browsers"
+        _root = os.environ.get("OPENAKITA_ROOT", "").strip()
+        _base = Path(_root) if _root else Path.home() / ".openakita"
+        browsers_dir = _base / "modules" / "browser" / "browsers"
         if browsers_dir.is_dir():
             os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(browsers_dir)
             logger.info(f"[Browser] Using external Chromium: {browsers_dir}")

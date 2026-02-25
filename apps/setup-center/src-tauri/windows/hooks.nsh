@@ -14,26 +14,43 @@
   ${EndIf}
 !macroend
 
-!macro _OpenAkita_KillAllServicePids
-  ; ~/.openakita/run/openakita-*.pid
-  ; 先构建基础目录路径，再拼接通配符
-  ExpandEnvStrings $R7 "%USERPROFILE%\\.openakita\\run"
-  FindFirst $R1 $R2 "$R7\\openakita-*.pid"
+; 读取 custom_root.txt 获取实际数据根目录，结果写入 $R9
+; 该文件由 Tauri 端在设置自定义路径时同步写入（纯文本，仅包含路径）
+; 如果文件不存在或内容为空，$R9 = 默认路径
+!macro _OpenAkita_ResolveRoot
+  ExpandEnvStrings $R9 "%USERPROFILE%\.openakita"
+  IfFileExists "$R9\custom_root.txt" +1 +8
+  ClearErrors
+  FileOpen $R8 "$R9\custom_root.txt" "r"
+  IfErrors +5 0
+  FileRead $R8 $R7
+  FileClose $R8
+  StrCmp $R7 "" +2 0
+  StrCpy $R9 $R7
+!macroend
+
+!macro _OpenAkita_KillServicePidsIn dir
+  FindFirst $R1 $R2 "${dir}\openakita-*.pid"
   ${DoWhile} $R2 != ""
-    ; 读 pid 文件（$R2 是文件名，$R7 是目录，拼接完整路径）
-    FileOpen $R4 "$R7\\$R2" "r"
+    FileOpen $R4 "${dir}\$R2" "r"
     ${IfNot} ${Errors}
       FileRead $R4 $R5
       FileClose $R4
-      ; $R5 可能带 \r\n，截取前 32 字符
       StrCpy $R6 $R5 32
-      ; kill
       !insertmacro _OpenAkita_KillPid $R6
     ${EndIf}
-    ; next
     FindNext $R1 $R2
   ${Loop}
   FindClose $R1
+!macroend
+
+!macro _OpenAkita_KillAllServicePids
+  ; 解析实际数据根目录并清理 PID 文件
+  !insertmacro _OpenAkita_ResolveRoot
+  !insertmacro _OpenAkita_KillServicePidsIn "$R9\run"
+  ; 始终也检查默认路径（兼容残留，重复检查是无害的）
+  ExpandEnvStrings $R0 "%USERPROFILE%\.openakita\run"
+  !insertmacro _OpenAkita_KillServicePidsIn $R0
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
@@ -51,7 +68,9 @@
 !macro NSIS_HOOK_POSTINSTALL
   ; 安装完成后：写入版本信息到 state.json（供 App 环境检测用）
   ; 注意：state.json 可能已存在（升级安装），仅更新版本字段
-  ExpandEnvStrings $R0 "%USERPROFILE%\.openakita"
+  ; 解析实际数据根目录（可能被用户自定义到其他磁盘）
+  !insertmacro _OpenAkita_ResolveRoot
+  StrCpy $R0 $R9
   CreateDirectory "$R0"
 
   ; 写入 cli.json（供 Rust get_cli_status 读取）
@@ -104,16 +123,26 @@
   ; 这里无需额外操作，RunMainBinary 已带 --first-run
 !macroend
 
+!macro _OpenAkita_ForceRemoveDir dir
+  System::Call 'kernel32::SetEnvironmentVariable(t "NSIS_DEL_PATH", t "${dir}")'
+  ExecWait 'powershell -NoProfile -WindowStyle Hidden -Command "Remove-Item -LiteralPath $env:NSIS_DEL_PATH -Recurse -Force -ErrorAction SilentlyContinue"' $0
+  ${If} $0 != 0
+    ExecWait 'cmd /c rd /s /q "${dir}"'
+  ${EndIf}
+!macroend
+
 !macro NSIS_HOOK_POSTUNINSTALL
-  ; 勾选"清理用户数据"时：删除 ~/.openakita；优先 PowerShell 不弹窗，失败则兜底 cmd（会闪黑框）
-  ; 仅在非更新模式下清理（与默认行为保持一致）
+  ; 勾选"清理用户数据"时：删除数据目录
+  ; 同时清理自定义路径和默认路径（重复删除无害）
+  ; 仅在非更新模式下清理
   ${If} $DeleteAppDataCheckboxState = 1
   ${AndIf} $UpdateMode <> 1
-    ExpandEnvStrings $R0 "%USERPROFILE%\\.openakita"
-    System::Call 'kernel32::SetEnvironmentVariable(t "NSIS_DEL_PATH", t R0)'
-    ExecWait 'powershell -NoProfile -WindowStyle Hidden -Command "Remove-Item -LiteralPath $env:NSIS_DEL_PATH -Recurse -Force -ErrorAction SilentlyContinue"' $0
-    ${If} $0 != 0
-      ExecWait 'cmd /c rd /s /q "$R0"'
-    ${EndIf}
+    ; 先读取自定义路径（在删除默认目录之前，因为 custom_root.txt 在默认目录里）
+    !insertmacro _OpenAkita_ResolveRoot
+    ; 清理自定义路径（如果有）
+    !insertmacro _OpenAkita_ForceRemoveDir $R9
+    ; 始终清理默认路径（包含 root_config.json 和 custom_root.txt）
+    ExpandEnvStrings $R0 "%USERPROFILE%\.openakita"
+    !insertmacro _OpenAkita_ForceRemoveDir $R0
   ${EndIf}
 !macroend

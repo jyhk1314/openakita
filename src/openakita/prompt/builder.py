@@ -422,6 +422,7 @@ def _build_runtime_section() -> str:
 - **当前时间**: {current_time}
 - **操作系统**: {platform.system()} {platform.release()} ({platform.machine()})
 - **当前工作目录**: {os.getcwd()}
+- **OpenAkita 数据根目录**: {settings.openakita_home}
 - **工作区信息**: 需要操作系统文件（日志/配置/数据/截图等）时，先调用 `get_workspace_map` 获取目录布局
 - **临时目录**: data/temp/{shell_hint}
 

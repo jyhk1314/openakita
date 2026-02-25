@@ -32,7 +32,15 @@
     "autoStartFail": "Auto-start failed. Please start manually.",
     "startFail": "Service failed to start. Check config.",
     "disconnect": "Disconnect",
-    "disconnected": "Disconnected from service"
+    "disconnected": "Disconnected from service",
+    "switchWorkspace": "Switch workspace",
+    "quickCreateWs": "New workspace",
+    "quickCreateWsPlaceholder": "Workspace name",
+    "quickCreateWsOk": "Create",
+    "quickCreateWsCancel": "Cancel",
+    "noWorkspaces": "No workspaces",
+    "switchWorkspaceDone": "Switched workspace: {{id}}",
+    "switchWorkspaceDoneRestart": "Switched workspace: {{id}} (backend still on old workspace, restart service to apply)"
   },
   "tokenStats": {
     "serviceNotRunning": "Service not running, unable to view stats",
@@ -770,7 +778,16 @@
       "serviceDetected": "Running service detected",
       "serviceDetectedDesc": "A local OpenAkita service is already running (version {{version}}). You can connect to it directly.",
       "connectExisting": "Connect to existing service",
-      "continueSetup": "Continue setup (ignore)"
+      "continueSetup": "Continue setup (ignore)",
+      "customRootToggle": "Custom data storage path",
+      "customRootHint": "Data is stored in your home directory by default. Change this to store data on another drive.",
+      "customRootPlaceholder": "e.g. D:\\MyData\\.openakita",
+      "customRootApply": "Apply",
+      "customRootApplied": "Custom storage path set: {{path}}",
+      "customRootDefault": "Use default path",
+      "customRootInvalid": "Invalid path format",
+      "customRootCurrent": "Current data directory: {{path}}",
+      "customRootMigrate": "Migrate existing data to new path"
     },
     "skipHint": "You can skip this step and complete the setup later in the Settings panel.",
     "llm": {

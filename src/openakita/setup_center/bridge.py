@@ -546,10 +546,14 @@ def _resolve_skills_dir(workspace_dir: str) -> Path:
     """计算技能安装目录。
 
     优先使用 Tauri 传入的 workspace_dir（支持多工作区），
-    若参数为空则回退到 ~/.openakita/workspaces/default/skills。
+    若参数为空则使用 OPENAKITA_ROOT 环境变量确定根目录，最后回退到默认路径。
     """
     if workspace_dir and workspace_dir.strip():
         return Path(workspace_dir).expanduser().resolve() / "skills"
+    import os
+    root = os.environ.get("OPENAKITA_ROOT", "").strip()
+    if root:
+        return Path(root) / "workspaces" / "default" / "skills"
     return Path.home() / ".openakita" / "workspaces" / "default" / "skills"
 
 

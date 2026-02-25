@@ -16,6 +16,23 @@ from .registry import SkillRegistry
 
 logger = logging.getLogger(__name__)
 
+def _resolve_user_workspace_skills() -> Path:
+    """动态解析当前用户工作区的技能目录。
+
+    生产模式下使用 config.settings.skills_path（自动适配当前工作区和自定义根目录），
+    导入失败时回退到基于 OPENAKITA_ROOT / 默认路径。
+    """
+    try:
+        from ..config import settings
+        return settings.skills_path
+    except Exception:
+        import os
+        root = os.environ.get("OPENAKITA_ROOT", "").strip()
+        if root:
+            return Path(root) / "workspaces" / "default" / "skills"
+        return Path.home() / ".openakita" / "workspaces" / "default" / "skills"
+
+
 def _builtin_skills_root() -> Path | None:
     """
     返回内置技能目录（随 wheel 分发）。
@@ -36,8 +53,8 @@ def _builtin_skills_root() -> Path | None:
 SKILL_DIRECTORIES = [
     # 内置系统技能（随 pip 包分发，优先级最高）
     "__builtin__",
-    # 用户工作区（用户安装/创建的技能，打包版本的主技能目录）
-    "~/.openakita/workspaces/default/skills",
+    # 用户工作区（运行时根据当前工作区动态解析）
+    "__user_workspace__",
     # 项目级别（开发模式下仍可扫描）
     ".cursor/skills",
     ".claude/skills",
@@ -116,7 +133,9 @@ class SkillLoader:
                     logger.debug(f"Found builtin skill directory: {builtin}")
                 continue
 
-            if skill_dir.startswith("~"):
+            if skill_dir == "__user_workspace__":
+                path = _resolve_user_workspace_skills()
+            elif skill_dir.startswith("~"):
                 path = Path(skill_dir).expanduser()
             else:
                 path = base_path / skill_dir

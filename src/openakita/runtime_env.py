@@ -220,7 +220,14 @@ def get_configured_venv_path() -> str | None:
 
 
 def _get_openakita_root() -> Path:
-    """获取 ~/.openakita 根目录路径 (避免循环导入 config)"""
+    """获取 OpenAkita 根目录路径 (避免循环导入 config)。
+
+    优先使用 OPENAKITA_ROOT 环境变量，默认 ~/.openakita。
+    """
+    import os
+    env_root = os.environ.get("OPENAKITA_ROOT", "").strip()
+    if env_root:
+        return Path(env_root)
     return Path.home() / ".openakita"
 
 

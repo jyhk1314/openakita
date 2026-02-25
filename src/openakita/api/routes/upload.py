@@ -27,9 +27,10 @@ def get_upload_dir() -> Path:
     """Get or create the upload directory."""
     global UPLOAD_DIR
     if UPLOAD_DIR is None:
-        # Default to ~/.openakita/uploads
-        home = Path.home()
-        UPLOAD_DIR = home / ".openakita" / "uploads"
+        import os
+        root = os.environ.get("OPENAKITA_ROOT", "").strip()
+        base = Path(root) if root else Path.home() / ".openakita"
+        UPLOAD_DIR = base / "uploads"
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     return UPLOAD_DIR
 

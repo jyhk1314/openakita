@@ -95,7 +95,7 @@ class SkillManager:
         extra_files: list[str] | None = None,
     ) -> str:
         """
-        安装技能到用户技能目录 (~/.openakita/workspaces/default/skills/)。
+        安装技能到当前工作区的技能目录。
 
         支持:
         1. Git 仓库 URL

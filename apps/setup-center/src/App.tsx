@@ -996,6 +996,19 @@ export function App() {
   const [obCliAddToPath, setObCliAddToPath] = useState(true);
   const [obAutostart, setObAutostart] = useState(true); // 开机自启，默认勾选
   const [obAgreementInput, setObAgreementInput] = useState("");
+
+  // Custom root directory
+  const [obShowCustomRoot, setObShowCustomRoot] = useState(false);
+  const [obCustomRootInput, setObCustomRootInput] = useState("");
+  const [obCustomRootApplied, setObCustomRootApplied] = useState(false);
+  const [obCustomRootMigrate, setObCustomRootMigrate] = useState(false);
+  const [obCurrentRoot, setObCurrentRoot] = useState("");
+  const [obCustomRootBusy, setObCustomRootBusy] = useState(false);
+
+  // Quick workspace switcher
+  const [wsDropdownOpen, setWsDropdownOpen] = useState(false);
+  const [wsQuickCreateOpen, setWsQuickCreateOpen] = useState(false);
+  const [wsQuickName, setWsQuickName] = useState("");
   const [obAgreementError, setObAgreementError] = useState(false);
 
   /** 探测本地是否有后端服务在运行（用于 onboarding 前提示用户） */
@@ -1749,10 +1762,15 @@ export function App() {
     setBusy("切换工作区...");
     setError(null);
     try {
+      const wasRunning = serviceStatus?.running;
       await invoke("set_current_workspace", { id });
       await refreshAll();
       envLoadedForWs.current = null;
-      setNotice(`已切换当前工作区：${id}`);
+      if (wasRunning) {
+        setNotice(t("topbar.switchWorkspaceDoneRestart", { id }));
+      } else {
+        setNotice(t("topbar.switchWorkspaceDone", { id }));
+      }
     } finally {
       setBusy(null);
     }
@@ -8134,7 +8152,7 @@ export function App() {
       setBusy("删除运行环境目录...");
       try {
         await invoke("remove_openakita_runtime", { removeVenv: true, removeEmbeddedPython: true });
-        setNotice("已删除 ~/.openakita/venv 与 ~/.openakita/runtime（工作区配置保留）。");
+        setNotice("已删除 venv 与 runtime 运行环境（工作区配置保留）。");
       } catch (e) {
         setError(String(e));
       } finally {
@@ -8187,7 +8205,7 @@ export function App() {
           <div className="card">
             <div className="label">清理运行环境（可选）</div>
             <div className="cardHint" style={{ marginTop: 8 }}>
-              删除 `~/.openakita/venv` 与 `~/.openakita/runtime`（会丢失已安装依赖与内置 Python），但**保留 workspaces 配置**。
+              删除数据目录下的 `venv` 与 `runtime`（会丢失已安装依赖与内置 Python），但**保留 workspaces 配置**。
             </div>
             <div className="divider" />
             <label className="pill" style={{ cursor: "pointer" }}>
@@ -8314,7 +8332,7 @@ export function App() {
     setObDetailLog([]);
     setObHasErrors(false);
 
-    // 安装配置日志：单独写入 ~/.openakita/logs/onboarding-日期.log，便于排查
+    // 安装配置日志：单独写入 {data_root}/logs/onboarding-日期.log，便于排查
     const dateLabel = new Date().toISOString().slice(0, 19).replace("T", "_").replace(/:/g, "-");
     let obLogPath: string | null = null;
     try {
@@ -8704,6 +8722,106 @@ export function App() {
                   </button>
                 </div>
               )}
+
+              {/* Custom data storage path (advanced) */}
+              <div style={{ width: "100%", maxWidth: 460, marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="obLinkBtn"
+                  style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}
+                  onClick={async () => {
+                    if (!obShowCustomRoot) {
+                      try {
+                        const info = await invoke<{ defaultRoot: string; currentRoot: string; customRoot: string | null }>("get_root_dir_info");
+                        setObCurrentRoot(info.currentRoot);
+                        if (info.customRoot) {
+                          setObCustomRootInput(info.customRoot);
+                          setObCustomRootApplied(true);
+                        }
+                      } catch {}
+                    }
+                    setObShowCustomRoot((v) => !v);
+                  }}
+                >
+                  {obShowCustomRoot ? "▾" : "▸"} {t("onboarding.welcome.customRootToggle")}
+                </button>
+                {obShowCustomRoot && (
+                  <div style={{ background: "var(--card-bg, rgba(255,255,255,0.72))", border: "1px solid var(--line)", borderRadius: 8, padding: 12, marginTop: 4 }}>
+                    <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>{t("onboarding.welcome.customRootHint")}</p>
+                    {obCurrentRoot && (
+                      <p style={{ fontSize: 11, opacity: 0.6, margin: "0 0 8px", wordBreak: "break-all" }}>
+                        {t("onboarding.welcome.customRootCurrent", { path: obCurrentRoot })}
+                      </p>
+                    )}
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <input
+                        style={{ flex: 1, fontSize: 13 }}
+                        value={obCustomRootInput}
+                        onChange={(e) => { setObCustomRootInput(e.target.value); setObCustomRootApplied(false); }}
+                        placeholder={t("onboarding.welcome.customRootPlaceholder")}
+                      />
+                      <button
+                        className="btnPrimary"
+                        style={{ fontSize: 12, padding: "4px 12px", whiteSpace: "nowrap" }}
+                        disabled={!obCustomRootInput.trim() || obCustomRootApplied || obCustomRootBusy}
+                        onClick={async () => {
+                          if (obCustomRootBusy) return;
+                          setObCustomRootBusy(true);
+                          try {
+                            const info = await invoke<{ defaultRoot: string; currentRoot: string; customRoot: string | null }>(
+                              "set_custom_root_dir", { path: obCustomRootInput.trim(), migrate: obCustomRootMigrate }
+                            );
+                            setObCurrentRoot(info.currentRoot);
+                            setObCustomRootApplied(true);
+                            setNotice(t("onboarding.welcome.customRootApplied", { path: info.currentRoot }));
+                            obLoadEnvCheck();
+                          } catch (e: any) {
+                            setError(String(e));
+                          } finally {
+                            setObCustomRootBusy(false);
+                          }
+                        }}
+                      >
+                        {obCustomRootBusy ? "..." : t("onboarding.welcome.customRootApply")}
+                      </button>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>
+                      <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4, cursor: "pointer", opacity: 0.8 }}>
+                        <input
+                          type="checkbox"
+                          checked={obCustomRootMigrate}
+                          onChange={(e) => setObCustomRootMigrate(e.target.checked)}
+                        />
+                        {t("onboarding.welcome.customRootMigrate")}
+                      </label>
+                    </div>
+                    {obCustomRootApplied && obCustomRootInput.trim() && (
+                      <button
+                        type="button"
+                        className="obLinkBtn"
+                        style={{ fontSize: 11, marginTop: 6, opacity: 0.6 }}
+                        onClick={async () => {
+                          try {
+                            const info = await invoke<{ defaultRoot: string; currentRoot: string; customRoot: string | null }>(
+                              "set_custom_root_dir", { path: null, migrate: false }
+                            );
+                            setObCurrentRoot(info.currentRoot);
+                            setObCustomRootInput("");
+                            setObCustomRootApplied(false);
+                            setNotice(t("onboarding.welcome.customRootDefault") + ": " + info.currentRoot);
+                            obLoadEnvCheck();
+                          } catch (e: any) {
+                            setError(String(e));
+                          }
+                        }}
+                      >
+                        {t("onboarding.welcome.customRootDefault")}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <button
                 className="btnPrimary obBtn"
                 onClick={async () => {
@@ -9733,7 +9851,116 @@ export function App() {
         {/* Compact status bar */}
         <div className="topbar">
           <div className="topbarStatusRow">
-            <span className="topbarWs">{currentWorkspaceId || "default"}</span>
+            {/* Workspace quick switcher */}
+            <span className="topbarWs" style={{ position: "relative", cursor: "pointer", userSelect: "none" }}>
+              <span
+                onClick={() => setWsDropdownOpen((v) => !v)}
+                title={t("topbar.switchWorkspace")}
+                style={{ display: "inline-flex", alignItems: "center", gap: 3 }}
+              >
+                {currentWorkspaceId || "default"}
+                <span style={{ fontSize: 8, opacity: 0.6 }}>▾</span>
+              </span>
+              {wsDropdownOpen && (
+                <div
+                  style={{
+                    position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 999,
+                    background: "var(--card-bg, #fff)", border: "1px solid var(--line)", borderRadius: 8,
+                    boxShadow: "0 4px 16px rgba(0,0,0,0.12)", minWidth: 220, padding: "6px 0",
+                  }}
+                  onMouseLeave={() => setWsDropdownOpen(false)}
+                >
+                  {workspaces.length === 0 && (
+                    <div style={{ padding: "8px 14px", fontSize: 12, opacity: 0.5 }}>{t("topbar.noWorkspaces")}</div>
+                  )}
+                  {workspaces.map((w) => (
+                    <div
+                      key={w.id}
+                      style={{
+                        padding: "7px 14px", cursor: "pointer", fontSize: 13,
+                        background: w.isCurrent ? "rgba(14,165,233,0.08)" : "transparent",
+                        fontWeight: w.isCurrent ? 700 : 400,
+                        display: "flex", justifyContent: "space-between", alignItems: "center",
+                      }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(14,165,233,0.12)"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = w.isCurrent ? "rgba(14,165,233,0.08)" : "transparent"; }}
+                      onClick={async () => {
+                        if (w.isCurrent) { setWsDropdownOpen(false); return; }
+                        setWsDropdownOpen(false);
+                        await doSetCurrentWorkspace(w.id);
+                      }}
+                    >
+                      <span>{w.name} <span style={{ opacity: 0.5, fontSize: 11 }}>({w.id})</span></span>
+                      {w.isCurrent && <span style={{ color: "var(--brand)", fontSize: 11 }}>✓</span>}
+                    </div>
+                  ))}
+                  <div style={{ borderTop: "1px solid var(--line)", margin: "4px 0" }} />
+                  {!wsQuickCreateOpen ? (
+                    <div
+                      style={{ padding: "7px 14px", cursor: "pointer", fontSize: 12, color: "var(--brand)", fontWeight: 600 }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(14,165,233,0.08)"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                      onClick={() => { setWsQuickCreateOpen(true); setWsQuickName(""); }}
+                    >
+                      + {t("topbar.quickCreateWs")}
+                    </div>
+                  ) : (
+                    <div style={{ padding: "6px 12px" }}>
+                      <input
+                        autoFocus
+                        style={{ width: "100%", fontSize: 12, marginBottom: 6 }}
+                        value={wsQuickName}
+                        onChange={(e) => setWsQuickName(e.target.value)}
+                        placeholder={t("topbar.quickCreateWsPlaceholder")}
+                        onKeyDown={async (e) => {
+                          if (e.key === "Enter" && wsQuickName.trim()) {
+                            const raw = wsQuickName.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "_").replace(/^_+|_+$/g, "").slice(0, 32);
+                            const id = raw && /[a-z0-9]/.test(raw) ? raw : `ws_${Date.now()}`;
+                            try {
+                              await invoke("create_workspace", { id, name: wsQuickName.trim(), setCurrent: true });
+                              await refreshAll();
+                              setCurrentWorkspaceId(id);
+                              envLoadedForWs.current = null;
+                              setNotice(`${wsQuickName.trim()} (${id})`);
+                            } catch (err: any) { setError(String(err)); }
+                            setWsQuickCreateOpen(false);
+                            setWsDropdownOpen(false);
+                          } else if (e.key === "Escape") {
+                            setWsQuickCreateOpen(false);
+                          }
+                        }}
+                      />
+                      <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                        <button style={{ fontSize: 11, padding: "2px 8px" }} onClick={() => setWsQuickCreateOpen(false)}>
+                          {t("topbar.quickCreateWsCancel")}
+                        </button>
+                        <button
+                          className="btnPrimary"
+                          style={{ fontSize: 11, padding: "2px 8px" }}
+                          disabled={!wsQuickName.trim()}
+                          onClick={async () => {
+                            const name = wsQuickName.trim();
+                            const rawId = name.toLowerCase().replace(/[^a-z0-9_-]/g, "_").replace(/^_+|_+$/g, "").slice(0, 32);
+                            const id = rawId && /[a-z0-9]/.test(rawId) ? rawId : `ws_${Date.now()}`;
+                            try {
+                              await invoke("create_workspace", { id, name, setCurrent: true });
+                              await refreshAll();
+                              setCurrentWorkspaceId(id);
+                              envLoadedForWs.current = null;
+                              setNotice(`${name} (${id})`);
+                            } catch (err: any) { setError(String(err)); }
+                            setWsQuickCreateOpen(false);
+                            setWsDropdownOpen(false);
+                          }}
+                        >
+                          {t("topbar.quickCreateWsOk")}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </span>
             <span className="topbarIndicator">
               {serviceStatus?.running ? <DotGreen /> : <DotGray />}
               <span>{serviceStatus?.running ? t("topbar.running") : t("topbar.stopped")}</span>

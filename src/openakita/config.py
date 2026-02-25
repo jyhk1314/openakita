@@ -436,13 +436,26 @@ class Settings(BaseSettings):
 
     @property
     def openakita_home(self) -> Path:
-        """用户数据根目录 ~/.openakita"""
+        """用户数据根目录，优先使用 OPENAKITA_ROOT 环境变量，默认 ~/.openakita"""
+        import os
+        env_root = os.environ.get("OPENAKITA_ROOT", "").strip()
+        if env_root:
+            return Path(env_root)
         return Path.home() / ".openakita"
 
     @property
     def user_workspace_path(self) -> Path:
-        """用户工作区路径 ~/.openakita/workspaces/default"""
-        return self.openakita_home / "workspaces" / "default"
+        """当前用户工作区路径。
+
+        如果 project_root 位于 openakita_home/workspaces/ 下（生产模式），
+        直接使用 project_root 作为工作区路径；否则（开发模式）回退到 default。
+        """
+        ws_dir = self.openakita_home / "workspaces"
+        try:
+            self.project_root.resolve().relative_to(ws_dir.resolve())
+            return self.project_root.resolve()
+        except ValueError:
+            return ws_dir / "default"
 
     @property
     def skills_path(self) -> Path:

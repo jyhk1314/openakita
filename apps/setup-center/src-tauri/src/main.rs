@@ -37,6 +37,9 @@ static MANAGED_CHILD: Lazy<Mutex<Option<ManagedProcess>>> = Lazy::new(|| Mutex::
 /// 前端可查询该标记以显示"正在自动启动服务"并禁用启动/重启按钮。
 static AUTO_START_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
+static ROOT_CONFIG_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+static STATE_FILE_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PlatformInfo {
@@ -101,10 +104,78 @@ struct WorkspaceMeta {
     name: String,
 }
 
-fn openakita_root_dir() -> PathBuf {
+fn default_root_dir() -> PathBuf {
     home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".openakita")
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct RootConfig {
+    #[serde(default)]
+    custom_root: Option<String>,
+}
+
+fn root_config_path() -> PathBuf {
+    default_root_dir().join("root_config.json")
+}
+
+fn read_root_config() -> RootConfig {
+    let p = root_config_path();
+    let Ok(content) = fs::read_to_string(&p) else {
+        return RootConfig::default();
+    };
+    match serde_json::from_str(&content) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("warning: failed to parse {}: {e}, using defaults", p.display());
+            RootConfig::default()
+        }
+    }
+}
+
+fn write_root_config(config: &RootConfig) -> Result<(), String> {
+    let default_dir = default_root_dir();
+    fs::create_dir_all(&default_dir).map_err(|e| format!("create default root dir failed: {e}"))?;
+
+    let p = root_config_path();
+    let data = serde_json::to_string_pretty(config).map_err(|e| format!("serialize root config failed: {e}"))?;
+    fs::write(&p, data).map_err(|e| format!("write root_config.json failed: {e}"))?;
+
+    // 同步写入纯文本文件，供 NSIS 安装脚本简单读取（无需解析 JSON）
+    let txt_path = default_dir.join("custom_root.txt");
+    match &config.custom_root {
+        Some(path) if !path.is_empty() => {
+            fs::write(&txt_path, path.trim()).map_err(|e| format!("write custom_root.txt failed: {e}"))?;
+        }
+        _ => {
+            let _ = fs::remove_file(&txt_path);
+        }
+    }
+    Ok(())
+}
+
+fn openakita_root_dir() -> PathBuf {
+    if let Ok(val) = std::env::var("OPENAKITA_ROOT") {
+        if !val.is_empty() {
+            return PathBuf::from(val);
+        }
+    }
+    let config = read_root_config();
+    if let Some(ref custom) = config.custom_root {
+        if !custom.is_empty() {
+            let p = PathBuf::from(custom);
+            // 如果自定义路径所在的父目录都不可访问（如磁盘断开），回退到默认路径
+            if p.exists() || p.parent().map(|parent| parent.exists()).unwrap_or(false) {
+                return p;
+            }
+            eprintln!(
+                "WARNING: custom root dir '{}' is not accessible, falling back to default",
+                custom
+            );
+        }
+    }
+    default_root_dir()
 }
 
 fn run_dir() -> PathBuf {
@@ -663,6 +734,108 @@ fn uninstall_module(module_id: String) -> Result<String, String> {
     Ok(format!("{} 已卸载", module_id))
 }
 
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct RootDirInfo {
+    default_root: String,
+    current_root: String,
+    custom_root: Option<String>,
+}
+
+#[tauri::command]
+fn get_root_dir_info() -> RootDirInfo {
+    RootDirInfo {
+        default_root: default_root_dir().to_string_lossy().to_string(),
+        current_root: openakita_root_dir().to_string_lossy().to_string(),
+        custom_root: read_root_config().custom_root,
+    }
+}
+
+#[tauri::command]
+fn set_custom_root_dir(path: Option<String>, migrate: bool) -> Result<RootDirInfo, String> {
+    let _lock = ROOT_CONFIG_LOCK.lock().map_err(|e| format!("lock failed: {e}"))?;
+    let clean_path = path.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty()).map(String::from);
+
+    if let Some(ref p) = clean_path {
+        let target = PathBuf::from(p);
+        if !target.is_absolute() {
+            return Err("请使用绝对路径（如 D:\\MyData\\.openakita 或 /data/openakita）".into());
+        }
+        if target.exists() && !target.is_dir() {
+            return Err("指定的路径已存在但不是目录".into());
+        }
+        fs::create_dir_all(&target).map_err(|e| format!("无法创建目标目录: {e}"))?;
+        // 验证目录可写
+        let test_file = target.join(".openakita_write_test");
+        fs::write(&test_file, "test").map_err(|e| format!("目标目录无写入权限: {e}"))?;
+        let _ = fs::remove_file(&test_file);
+    }
+
+    if migrate {
+        if let Some(ref new_root) = clean_path {
+            let old_root = openakita_root_dir();
+            let new_root_path = PathBuf::from(new_root);
+            if old_root != new_root_path && old_root.exists() {
+                for entry_name in &["workspaces", "venv", "runtime", "run", "logs", "modules", "bin"] {
+                    let src = old_root.join(entry_name);
+                    let dst = new_root_path.join(entry_name);
+                    if src.exists() && src.is_dir() && !dst.exists() {
+                        if let Err(e) = copy_dir_recursive(&src, &dst) {
+                            eprintln!("migrate dir {}: {}", entry_name, e);
+                        }
+                    }
+                }
+                for file_name in &["state.json", "cli.json"] {
+                    let src = old_root.join(file_name);
+                    let dst = new_root_path.join(file_name);
+                    if src.exists() && src.is_file() && !dst.exists() {
+                        if let Err(e) = fs::copy(&src, &dst) {
+                            eprintln!("migrate file {}: {}", file_name, e);
+                        }
+                    }
+                }
+            }
+            if !new_root_path.exists() || !new_root_path.is_dir() {
+                return Err("迁移完成后目标目录不可访问，未更改配置。请检查磁盘连接后重试。".into());
+            }
+        }
+    }
+
+    let config = RootConfig { custom_root: clean_path };
+    write_root_config(&config)?;
+
+    Ok(RootDirInfo {
+        default_root: default_root_dir().to_string_lossy().to_string(),
+        current_root: openakita_root_dir().to_string_lossy().to_string(),
+        custom_root: config.custom_root,
+    })
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
+    fs::create_dir_all(dst).map_err(|e| format!("create dir {}: {e}", dst.display()))?;
+    let entries = fs::read_dir(src).map_err(|e| format!("read dir {}: {e}", src.display()))?;
+    for entry in entries.flatten() {
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        // file_type() 不跟随符号链接（区别于 metadata()），能正确识别 symlink
+        let ft = match entry.file_type() {
+            Ok(ft) => ft,
+            Err(_) => continue,
+        };
+        if ft.is_symlink() {
+            continue;
+        }
+        if ft.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else if ft.is_file() {
+            if let Err(e) = fs::copy(&src_path, &dst_path) {
+                eprintln!("copy file {} -> {}: {e}", src_path.display(), dst_path.display());
+            }
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn is_first_run() -> bool {
     let state = read_state_file();
@@ -798,7 +971,15 @@ fn force_remove_dir(path: &std::path::Path) -> Result<(), String> {
             return Ok(());
         }
     }
-    // 最终检查
+    #[cfg(not(windows))]
+    {
+        let _ = Command::new("chmod").args(["-R", "u+w"]).arg(path).status();
+        let status = Command::new("rm").args(["-rf"]).arg(path).status()
+            .map_err(|e| format!("rm -rf failed: {e}"))?;
+        if status.success() || !path.exists() {
+            return Ok(());
+        }
+    }
     if path.exists() {
         Err(format!("无法删除目录: {}", path.display()))
     } else {
@@ -1145,25 +1326,44 @@ fn get_process_create_time(pid: u32) -> Option<u64> {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 fn get_process_create_time(pid: u32) -> Option<u64> {
-    // On Unix, read /proc/{pid}/stat field 22 (starttime in clock ticks)
-    // comm field (index 1) can contain spaces/parens, so we find the last ')' first
     let stat = fs::read_to_string(format!("/proc/{}/stat", pid)).ok()?;
-    let after_comm = stat.rfind(')')? + 2; // skip ") "
+    let after_comm = stat.rfind(')')? + 2;
     if after_comm >= stat.len() {
         return None;
     }
-    // Fields after comm start at index 2; starttime is field 22 (index 20 after comm = 22-2)
     let fields: Vec<&str> = stat[after_comm..].split_whitespace().collect();
-    let starttime = fields.get(19)?.parse::<u64>().ok()?; // field 22 → index 19 after comm
-    let clk_tck: u64 = 100; // typical default
-    // Read uptime to compute boot time
+    let starttime = fields.get(19)?.parse::<u64>().ok()?;
+    let clk_tck: u64 = 100;
     let uptime_str = fs::read_to_string("/proc/uptime").ok()?;
     let uptime_secs: f64 = uptime_str.split_whitespace().next()?.parse().ok()?;
     let now = now_epoch_secs();
     let boot_time = now.saturating_sub(uptime_secs as u64);
     Some(boot_time + starttime / clk_tck)
+}
+
+#[cfg(target_os = "macos")]
+fn get_process_create_time(pid: u32) -> Option<u64> {
+    let output = Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "lstart="])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let lstart = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if lstart.is_empty() {
+        return None;
+    }
+    // lstart format: "Wed Jan  1 08:00:00 2025"
+    // Parse with chrono-less manual approach: use `date -jf` on macOS
+    let date_out = Command::new("date")
+        .args(["-jf", "%a %b %d %T %Y", &lstart, "+%s"])
+        .output()
+        .ok()?;
+    let epoch_str = String::from_utf8_lossy(&date_out.stdout).trim().to_string();
+    epoch_str.parse::<u64>().ok()
 }
 
 /// 验证 PID 文件中的 started_at 是否与实际进程创建时间匹配（允许 5 秒误差）
@@ -1381,13 +1581,22 @@ fn is_openakita_process(pid: u32) -> bool {
         }
         false
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
     {
-        // Unix: 检查 /proc/{pid}/cmdline 或用 ps
         if let Ok(cmdline) = fs::read_to_string(format!("/proc/{}/cmdline", pid)) {
             return cmdline.to_lowercase().contains("openakita");
         }
-        // fallback: ps
+        let output = Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "args="])
+            .output();
+        if let Ok(out) = output {
+            let s = String::from_utf8_lossy(&out.stdout).to_lowercase();
+            return s.contains("openakita");
+        }
+        false
+    }
+    #[cfg(target_os = "macos")]
+    {
         let output = Command::new("ps")
             .args(["-p", &pid.to_string(), "-o", "args="])
             .output();
@@ -1804,17 +2013,41 @@ fn list_workspaces() -> Result<Vec<WorkspaceSummary>, String> {
     Ok(out)
 }
 
-#[tauri::command]
-fn create_workspace(id: String, name: String, set_current: bool) -> Result<WorkspaceSummary, String> {
-    if id.trim().is_empty() {
+fn validate_workspace_id(id: &str) -> Result<(), String> {
+    let id = id.trim();
+    if id.is_empty() {
         return Err("workspace id is empty".into());
     }
+    if id.len() > 64 {
+        return Err("workspace id too long (max 64 chars)".into());
+    }
+    if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        return Err("workspace id can only contain a-z, A-Z, 0-9, _ and -".into());
+    }
+    if !id.chars().any(|c| c.is_ascii_alphanumeric()) {
+        return Err("workspace id must contain at least one letter or digit".into());
+    }
+    const RESERVED: &[&str] = &[
+        "con", "prn", "aux", "nul",
+        "com1","com2","com3","com4","com5","com6","com7","com8","com9",
+        "lpt1","lpt2","lpt3","lpt4","lpt5","lpt6","lpt7","lpt8","lpt9",
+    ];
+    if RESERVED.contains(&id.to_ascii_lowercase().as_str()) {
+        return Err("workspace id conflicts with a reserved system name".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn create_workspace(id: String, name: String, set_current: bool) -> Result<WorkspaceSummary, String> {
+    validate_workspace_id(&id)?;
     if name.trim().is_empty() {
         return Err("workspace name is empty".into());
     }
 
     fs::create_dir_all(workspaces_dir()).map_err(|e| format!("create workspaces dir failed: {e}"))?;
 
+    let _lock = STATE_FILE_LOCK.lock().map_err(|e| format!("state lock failed: {e}"))?;
     let mut state = read_state_file();
     if state.workspaces.iter().any(|w| w.id == id) {
         return Err("workspace id already exists".into());
@@ -1843,9 +2076,15 @@ fn create_workspace(id: String, name: String, set_current: bool) -> Result<Works
 
 #[tauri::command]
 fn set_current_workspace(id: String) -> Result<(), String> {
+    let _lock = STATE_FILE_LOCK.lock().map_err(|e| format!("state lock failed: {e}"))?;
     let mut state = read_state_file();
     if !state.workspaces.iter().any(|w| w.id == id) {
         return Err("workspace id not found".into());
+    }
+    let dir = workspace_dir(&id);
+    if !dir.exists() {
+        eprintln!("workspace dir missing, recreating scaffold: {}", dir.display());
+        ensure_workspace_scaffold(&dir)?;
     }
     state.current_workspace_id = Some(id);
     write_state_file(&state)?;
@@ -2023,6 +2262,8 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             get_platform_info,
+            get_root_dir_info,
+            set_custom_root_dir,
             list_workspaces,
             create_workspace,
             set_current_workspace,
@@ -2371,6 +2612,7 @@ fn openakita_service_start(venv_dir: String, workspace_id: String) -> Result<Ser
         cmd.env(k, v);
     }
     cmd.env("LLM_ENDPOINTS_CONFIG", ws_dir.join("data").join("llm_endpoints.json"));
+    cmd.env("OPENAKITA_ROOT", openakita_root_dir().to_string_lossy().to_string());
 
     // 设置可选模块路径（已安装的可选模块 site-packages）
     // 重要：不能使用 PYTHONPATH！Python 启动时 PYTHONPATH 会被插入到 sys.path
