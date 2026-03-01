@@ -1423,7 +1423,7 @@ function FlatMessageItem({
                     </div>
                   );
                 }
-                {(() => {
+                return (() => {
                   const FileIcon = getFileTypeIcon(art.name || "");
                   const sizeStr = art.size != null
                     ? art.size > 1048576 ? `${(art.size / 1048576).toFixed(1)} MB` : `${(art.size / 1024).toFixed(1)} KB`
@@ -1477,7 +1477,7 @@ function FlatMessageItem({
                       <IconDownload size={14} style={{ opacity: 0.4, flexShrink: 0 }} />
                     </div>
                   );
-                })()}
+                })()
               })}
             </div>
           )}
