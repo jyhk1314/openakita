@@ -892,6 +892,7 @@ export function AgentManagerView({
             <textarea
               value={editingProfile.custom_prompt}
               onChange={(e) => setEditingProfile((p) => ({ ...p, custom_prompt: e.target.value }))}
+              maxLength={5000}
               rows={6}
               style={{
                 ...inputStyle, resize: "vertical", fontFamily: "inherit",
@@ -899,6 +900,9 @@ export function AgentManagerView({
               }}
               placeholder="Additional system prompt for this agent..."
             />
+            <div style={{ textAlign: "right", fontSize: 12, color: editingProfile.custom_prompt.length > 4500 ? "#e74c3c" : "#999", marginTop: 2 }}>
+              {editingProfile.custom_prompt.length} / 5000
+            </div>
 
             {/* Actions */}
             <div style={{ display: "flex", gap: 8, marginTop: 16 }}>

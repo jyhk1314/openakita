@@ -43,7 +43,7 @@ class ProfileCreateRequest(BaseModel):
     color: str = Field("#6b7280", max_length=20)
     skills: list[str] = Field(default_factory=list)
     skills_mode: str = Field("all")
-    custom_prompt: str = Field("", max_length=2000)
+    custom_prompt: str = Field("", max_length=5000)
     category: str = Field("", max_length=30)
 
 
@@ -54,7 +54,7 @@ class ProfileUpdateRequest(BaseModel):
     color: str | None = Field(None, max_length=20)
     skills: list[str] | None = None
     skills_mode: str | None = None
-    custom_prompt: str | None = Field(None, max_length=2000)
+    custom_prompt: str | None = Field(None, max_length=5000)
     category: str | None = Field(None, max_length=30)
 
 
