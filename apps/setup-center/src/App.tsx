@@ -27,7 +27,7 @@ import {
 } from "./icons";
 import logoUrl from "./assets/logo.png";
 import "highlight.js/styles/github.css";
-import { getThemePref, setThemePref, type Theme } from "./theme";
+import { getThemePref, setThemePref, THEME_CHANGE_EVENT, type Theme } from "./theme";
 // ═══════════════════════════════════════════════════════════════════════
 // 前后端交互路由原则（全局适用）：
 //   后端运行中 → 所有配置读写、模型列表、连接测试 **优先走后端 HTTP API**
@@ -941,13 +941,17 @@ function TroubleshootPanel({ t }: { t: (k: string) => string }) {
 export function App() {
   const { t, i18n } = useTranslation();
   const [themePrefState, setThemePrefState] = useState<Theme>(getThemePref());
+  useEffect(() => {
+    const handler = (e: Event) => setThemePrefState((e as CustomEvent<Theme>).detail);
+    window.addEventListener(THEME_CHANGE_EVENT, handler);
+    return () => window.removeEventListener(THEME_CHANGE_EVENT, handler);
+  }, []);
   const toggleTheme = useCallback(() => {
     let next: Theme = "system";
     if (themePrefState === "system") next = "dark";
     else if (themePrefState === "dark") next = "light";
     else next = "system";
     setThemePref(next);
-    setThemePrefState(next);
   }, [themePrefState]);
   const [info, setInfo] = useState<PlatformInfo | null>(null);
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
