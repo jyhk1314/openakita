@@ -81,8 +81,6 @@ export type PythonContractResult = {
 export type PythonEnvironmentSnapshot = {
   platform: string;
   bundledPythonPath?: string | null;
-  venvPath?: string | null;
-  venvPythonVersion?: string | null;
   openakitaVersion?: string | null;
 };
 

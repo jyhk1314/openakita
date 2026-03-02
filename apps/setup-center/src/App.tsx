@@ -2041,17 +2041,13 @@ export function App() {
     });
 
     try {
-      const forceRebuild = pyDiag?.summary === "healthy"
-        ? confirm(t("adv.repairHealthyConfirm"))
-        : false;
-      if (pyDiag?.summary === "healthy" && !forceRebuild) return;
-      const d = await invoke<NonNullable<typeof pyDiag>>("repair_python_env", { venvDir, forceRebuild });
+      if (pyDiag?.summary === "healthy") return;
+      const d = await invoke<NonNullable<typeof pyDiag>>("repair_python_env", { venvDir });
       setPyDiag(d);
       if (d && d.summary === "healthy") {
         setNotice(t("config.pyRepairDone"));
         setVenvReady(true);
-        const openakitaOk = d.contracts.some((c) => c.id === "C3_OPENAKITA_IN_VENV" && c.status === "pass");
-        setOpenakitaInstalled(openakitaOk);
+        setOpenakitaInstalled(true);
         await persistPythonEnvConfig(venvDir);
         // Re-detect Python candidates
         try {
@@ -6601,7 +6597,7 @@ export function App() {
       } catch (e) { setError(String(e)); } finally { setBusy(null); }
     }
 
-    async function runRepair(forceRebuild = false) {
+    async function runRepair() {
       if (!venvDir) return;
       setBusy(t("adv.repairing"));
       setRepairStage(""); setRepairPercent(0); setRepairDetail("");
@@ -6613,7 +6609,7 @@ export function App() {
         if (p.detail) setRepairDetail(String(p.detail));
       });
       try {
-        const d = await invoke<NonNullable<typeof pyDiag>>("repair_python_env", { venvDir, forceRebuild });
+        const d = await invoke<NonNullable<typeof pyDiag>>("repair_python_env", { venvDir });
         setPyDiag(d);
         if (d && d.summary === "healthy") setNotice(t("adv.repairDone"));
         else if (d) setError(t("adv.repairPartial"));
@@ -6655,44 +6651,6 @@ export function App() {
       } catch (e) { setError(String(e)); }
     }
 
-
-    async function exportEnv() {
-      if (!currentWorkspaceId) return;
-      try {
-        const content = await invoke<string>("workspace_read_file", { workspaceId: currentWorkspaceId, relativePath: ".env" });
-        const blob = new Blob([content], { type: "text/plain" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `openakita-${currentWorkspaceId}.env`;
-        a.click();
-        URL.revokeObjectURL(url);
-        setNotice(t("adv.exportDone"));
-      } catch (e) { setError(String(e)); }
-    }
-
-    async function importEnv() {
-      const input = document.createElement("input");
-      input.type = "file";
-      input.accept = ".env,text/plain";
-      input.onchange = async () => {
-        const file = input.files?.[0];
-        if (!file || !currentWorkspaceId) return;
-        try {
-          const text = await file.text();
-          const parsed = parseEnv(text);
-          setEnvDraft((prev) => {
-            let draft = prev;
-            for (const [k, v] of Object.entries(parsed)) {
-              draft = envSet(draft, k, v);
-            }
-            return draft;
-          });
-          setNotice(t("adv.importDone", { count: Object.keys(parsed).length }));
-        } catch (e) { setError(String(e)); }
-      };
-      input.click();
-    }
 
     const sectionHeader = (key: string, title: string) => (
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 0" }}>
@@ -6764,18 +6722,10 @@ export function App() {
                 <button className="btnSmall" onClick={runDiagnose} disabled={!!busy}>{t("adv.diagnose")}</button>
                 <button
                   className="btnSmall btnSmallPrimary"
-                  onClick={() => {
-                    if (!pyDiag) return;
-                    if (pyDiag.summary === "healthy") {
-                      if (!confirm(t("adv.repairHealthyConfirm"))) return;
-                      runRepair(true);
-                      return;
-                    }
-                    runRepair(false);
-                  }}
-                  disabled={!!busy || !pyDiag}
+                  onClick={() => runRepair()}
+                  disabled={!!busy || !pyDiag || pyDiag.summary === "healthy"}
                 >
-                  {pyDiag?.summary === "healthy" ? t("adv.repairCautious") : t("adv.repair")}
+                  {t("adv.repair")}
                 </button>
                 <button className="btnSmall" onClick={runExportDiagReport} disabled={!!busy}>{t("adv.exportDiagReport")}</button>
                 <button className="btnSmall btnSmallDanger" onClick={() => {
@@ -6816,17 +6766,6 @@ export function App() {
             </div>
         </div>
 
-        {/* ── 配置导出/导入 ── */}
-        <div className="card" style={{ marginTop: 12 }}>
-          {sectionHeader("backup", t("adv.backupTitle"))}
-            <div style={{ paddingLeft: 22 }}>
-              <div className="cardHint" style={{ marginBottom: 8 }}>{t("adv.backupHint")}</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className="btnSmall" onClick={exportEnv} disabled={!currentWorkspaceId || !!busy}>{t("adv.export")}</button>
-                <button className="btnSmall" onClick={importEnv} disabled={!currentWorkspaceId || !!busy}>{t("adv.import")}</button>
-              </div>
-            </div>
-        </div>
       </>
     );
   }

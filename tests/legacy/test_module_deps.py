@@ -526,12 +526,8 @@ class TestMirrorConsistency:
 
         # 契约化错误码（最小覆盖）
         assert '"C1_BUNDLED_RUNTIME"' in content
-        assert '"C2_VENV_HEALTH"' in content
-        assert '"C3_OPENAKITA_IN_VENV"' in content
         assert '"C4_RUNTIME_LAYOUT_COMPAT"' in content
         assert '"PY_BUNDLE_MISSING"' in content
-        assert '"PY_VENV_MISSING"' in content
-        assert '"PY_OPENAKITA_IMPORT_FAIL"' in content
 
         # 已不再依赖 system python 诊断项
         assert "system_python_ok" not in content
