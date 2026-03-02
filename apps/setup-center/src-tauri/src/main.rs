@@ -413,7 +413,7 @@ async fn install_module(
                 return Err(format!("安装包内置 Python 不可用: {}", p.display()));
             }
             let mut ep = Command::new(&p);
-            strip_harmful_python_env(&mut ep);
+            apply_bundled_python_env(&mut ep, &bundled_backend_dir().join("_internal"));
             ep.args(["-m", "ensurepip", "--upgrade"]);
             apply_no_window(&mut ep);
             let _ = ep.output();
@@ -459,7 +459,7 @@ async fn install_module(
             "message": format!("正在安装 {} (离线 wheels) ...", module_id),
         }));
         let mut c = Command::new(&python_exe);
-        strip_harmful_python_env(&mut c);
+        apply_python_env_for(&mut c, &python_exe);
         c.args(["-m", "pip", "install", "--no-index", "--find-links"]);
         c.arg(&bundled_wheels);
         c.arg("--target").arg(&target_dir);
@@ -510,7 +510,7 @@ async fn install_module(
         // 尝试用第一个镜像源预装 torch
         let (first_mirror, ref first_host) = mirror_list[0];
         let mut torch_cmd = Command::new(&python_exe);
-        strip_harmful_python_env(&mut torch_cmd);
+        apply_python_env_for(&mut torch_cmd, &python_exe);
         torch_cmd.args(["-m", "pip", "install", "--target"]);
         torch_cmd.arg(&target_dir);
         torch_cmd.args(["-i", first_mirror]);
@@ -550,7 +550,7 @@ async fn install_module(
         }));
 
         let mut c = Command::new(&python_exe);
-        strip_harmful_python_env(&mut c);
+        apply_python_env_for(&mut c, &python_exe);
         c.args(["-m", "pip", "install", "--target"]);
         c.arg(&target_dir);
         c.args(["-i", mirror_url]);
@@ -2223,14 +2223,15 @@ fn strip_harmful_python_env(cmd: &mut Command) {
 /// 为直接调用 PyInstaller 打包的 `_internal/python.exe` 配置环境。
 ///
 /// PyInstaller 将 `encodings`、`codecs` 等 Python 启动必需的核心模块
-/// 打包在 `base_library.zip` 中，该文件不会被裸调用的 `python.exe` 自动加入
-/// `sys.path`，导致 `init_fs_encoding: No module named 'encodings'` 崩溃。
+/// 打包在 `base_library.zip` 中，裸调用 `python.exe` 时需要将其加入
+/// `sys.path`，否则报 `init_fs_encoding: No module named 'encodings'`。
 ///
-/// 此函数：
-/// 1. 清除外部有害环境变量（Anaconda、用户 PYTHONPATH 等）
-/// 2. 设置 `PYTHONHOME` 使 `sys.prefix` 指向 `_internal`
-/// 3. 设置 `PYTHONPATH` 包含 `base_library.zip`、`Lib`、`DLLs` 等
+/// 采用三层防护：
+/// 1. 确保 `python3XX._pth` 文件存在（最底层，._pth 在 Python 启动最早阶段生效）
+/// 2. 清除外部有害环境变量（Anaconda、用户 PYTHONPATH 等）
+/// 3. 设置 `PYTHONHOME` + `PYTHONPATH` 作为后备（._pth 不存在的旧安装）
 fn apply_bundled_python_env(cmd: &mut Command, internal_dir: &std::path::Path) {
+    ensure_bundled_pth_file(internal_dir);
     strip_harmful_python_env(cmd);
     cmd.env("PYTHONHOME", internal_dir);
     let mut parts: Vec<PathBuf> = vec![];
@@ -2249,6 +2250,75 @@ fn apply_bundled_python_env(cmd: &mut Command, internal_dir: &std::path::Path) {
     }
     if let Ok(joined) = std::env::join_paths(&parts) {
         cmd.env("PYTHONPATH", joined);
+    }
+}
+
+/// 确保 `_internal/` 目录中存在 `python3XX._pth` 文件。
+///
+/// `._pth` 文件是 CPython 最底层的路径配置机制，在 `PYTHONPATH`/`PYTHONHOME`
+/// 之前生效，确保 `base_library.zip` 在 Python 启动最早阶段就能被搜索到。
+/// 对于已有新版构建（build_backend.py 已创建 ._pth）的安装，此函数直接返回；
+/// 对于旧版安装（无 ._pth），此函数动态创建。
+fn ensure_bundled_pth_file(internal_dir: &std::path::Path) {
+    // Detect Python version from DLL (Windows) or shared lib (Unix).
+    let detected_ver: Option<u32> = (8..=15).find(|minor| {
+        let dll = internal_dir.join(format!("python3{}.dll", minor));
+        if dll.exists() {
+            return true;
+        }
+        if let Ok(entries) = std::fs::read_dir(internal_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.starts_with(&format!("libpython3.{}", minor)) && name.contains(".so") {
+                    return true;
+                }
+            }
+        }
+        false
+    });
+    let Some(minor) = detected_ver else { return };
+
+    let pth_name = format!("python3{}._pth", minor);
+    let pth_path = internal_dir.join(&pth_name);
+
+    if pth_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&pth_path) {
+            if content.contains("base_library.zip") {
+                return;
+            }
+        }
+    }
+
+    let mut lines = vec![];
+    if internal_dir.join("base_library.zip").exists() {
+        lines.push("base_library.zip".to_string());
+    }
+    let zip_name = format!("python3{}.zip", minor);
+    if internal_dir.join(&zip_name).exists() {
+        lines.push(zip_name);
+    }
+    lines.push(".".to_string());
+    if internal_dir.join("Lib").is_dir() {
+        lines.push("Lib".to_string());
+    }
+    if internal_dir.join("DLLs").is_dir() {
+        lines.push("DLLs".to_string());
+    }
+    lines.push("import site".to_string());
+    let content = lines.join("\n") + "\n";
+    let _ = std::fs::write(&pth_path, content);
+}
+
+/// 根据 Python 路径自动选择正确的环境配置。
+/// bundled（_internal）Python 需要 apply_bundled_python_env，
+/// venv Python 只需 strip_harmful_python_env。
+fn apply_python_env_for(cmd: &mut Command, py: &std::path::Path) {
+    let internal_dir = bundled_backend_dir().join("_internal");
+    if py.starts_with(&internal_dir) {
+        apply_bundled_python_env(cmd, &internal_dir);
+    } else {
+        strip_harmful_python_env(cmd);
     }
 }
 

@@ -31,6 +31,63 @@ def run_cmd(cmd: list[str], env: dict | None = None, **kwargs) -> subprocess.Com
     return result
 
 
+def ensure_bundled_pth_file(output_dir: Path) -> None:
+    """Create python3XX._pth in _internal/ so standalone python.exe finds modules.
+
+    PyInstaller stores core bootstrap modules (encodings, codecs, etc.) in
+    base_library.zip, but the bare python.exe does not know to look there.
+    A ._pth file is the lowest-level mechanism to configure sys.path and is
+    processed before PYTHONPATH or PYTHONHOME.
+    """
+    internal_dir = output_dir / "_internal"
+    ver = f"{sys.version_info.major}{sys.version_info.minor}"
+    pth_name = f"python{ver}._pth"
+    pth_path = internal_dir / pth_name
+
+    if pth_path.exists():
+        content = pth_path.read_text(encoding="utf-8")
+        if "base_library.zip" in content:
+            print(f"  [OK] {pth_name} already configured")
+            return
+
+    lines = []
+    if (internal_dir / "base_library.zip").exists():
+        lines.append("base_library.zip")
+    zip_name = f"python{ver}.zip"
+    if (internal_dir / zip_name).exists():
+        lines.append(zip_name)
+    lines.append(".")
+    if (internal_dir / "Lib").is_dir():
+        lines.append("Lib")
+    if (internal_dir / "DLLs").is_dir():
+        lines.append("DLLs")
+    lines.append("import site")
+    pth_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"  [OK] Created {pth_name} with entries: {lines}")
+
+
+def _bundled_python_env(internal_dir: Path) -> dict:
+    """Build environment dict for invoking standalone _internal/python.exe."""
+    env = dict(os.environ)
+    for key in ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP",
+                "VIRTUAL_ENV", "CONDA_PREFIX", "CONDA_DEFAULT_ENV"):
+        env.pop(key, None)
+    env["PYTHONHOME"] = str(internal_dir)
+    parts = []
+    base_lib = internal_dir / "base_library.zip"
+    if base_lib.exists():
+        parts.append(str(base_lib))
+    parts.append(str(internal_dir))
+    lib = internal_dir / "Lib"
+    if lib.is_dir():
+        parts.append(str(lib))
+    dlls = internal_dir / "DLLs"
+    if dlls.is_dir():
+        parts.append(str(dlls))
+    env["PYTHONPATH"] = os.pathsep.join(parts)
+    return env
+
+
 def verify_bundled_python_contract(output_dir: Path) -> None:
     """Verify Contract A: onedir backend must include _internal/python* with pip."""
     internal_dir = output_dir / "_internal"
@@ -46,12 +103,14 @@ def verify_bundled_python_contract(output_dir: Path) -> None:
         sys.exit(1)
 
     print(f"  [OK] Bundled Python found: {py_path}")
+    env = _bundled_python_env(internal_dir)
     try:
         result = subprocess.run(
             [str(py_path), "-m", "pip", "--version"],
             capture_output=True,
             text=True,
             timeout=20,
+            env=env,
         )
     except Exception as exc:
         print(f"  [ERROR] Failed to run bundled Python pip check: {exc}")
@@ -265,6 +324,7 @@ def build_backend(mode: str):
         print(f"  [WARN] Exception during verification: {e}")
 
     normalize_macos_bundled_python(OUTPUT_DIR)
+    ensure_bundled_pth_file(OUTPUT_DIR)
     verify_bundled_python_contract(OUTPUT_DIR)
 
     # Calculate size

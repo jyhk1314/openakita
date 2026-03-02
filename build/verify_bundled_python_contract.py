@@ -10,9 +10,32 @@ Contract A requires on all platforms:
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
+
+
+def _bundled_python_env(internal_dir: Path) -> dict:
+    """Build environment dict for invoking standalone _internal/python.exe."""
+    env = dict(os.environ)
+    for key in ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP",
+                "VIRTUAL_ENV", "CONDA_PREFIX", "CONDA_DEFAULT_ENV"):
+        env.pop(key, None)
+    env["PYTHONHOME"] = str(internal_dir)
+    parts = []
+    base_lib = internal_dir / "base_library.zip"
+    if base_lib.exists():
+        parts.append(str(base_lib))
+    parts.append(str(internal_dir))
+    lib = internal_dir / "Lib"
+    if lib.is_dir():
+        parts.append(str(lib))
+    dlls = internal_dir / "DLLs"
+    if dlls.is_dir():
+        parts.append(str(dlls))
+    env["PYTHONPATH"] = os.pathsep.join(parts)
+    return env
 
 
 def main() -> int:
@@ -49,12 +72,14 @@ def main() -> int:
         return 1
     print(f"[OK] bundled python: {py}")
 
+    env = _bundled_python_env(internal)
     try:
         result = subprocess.run(
             [str(py), "-m", "pip", "--version"],
             capture_output=True,
             text=True,
             timeout=20,
+            env=env,
         )
     except Exception as exc:
         print(f"[ERROR] failed to execute bundled python: {exc}")
