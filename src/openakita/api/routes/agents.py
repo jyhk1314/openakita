@@ -1,6 +1,7 @@
 """Agent profile API routes."""
 
 import logging
+from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Request
 
 from pydantic import BaseModel, Field
@@ -535,8 +536,6 @@ async def get_topology(request: Request):
                         if sub_status == "starting":
                             sub_status = "running"
 
-                        # Resolve actual parent node id — the parent node
-                        # may be stored as "{sid}::{profile}" or just "{sid}"
                         from_agent = sub.get("from_agent", "")
                         parent_node_id = sid
                         if from_agent and f"{sid}::{from_agent}" in seen_ids:
@@ -558,44 +557,60 @@ async def get_topology(request: Request):
                             "conversation_title": "",
                         })
                         edges.append({"from": parent_node_id, "to": sub_id, "type": "delegate"})
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(f"[Topology] sub-agent states error for {sid}: {exc}")
 
     # Include sessions from session_manager that aren't in the pool
-    # (e.g. conversations whose agent instances were reaped due to idle timeout)
+    # (e.g. conversations whose agent instances were reaped due to idle timeout).
+    # Use chat_id as node ID to stay consistent with pool-based nodes (which use
+    # conversation_id), ensuring the frontend sees stable node IDs.
     pool_session_ids = {n["id"].split("::")[0] for n in nodes if not n["id"].startswith("dormant::")}
+    _MAX_IDLE_NODES = 3
+    _IDLE_CUTOFF = datetime.now() - timedelta(minutes=30)
+    _idle_added = 0
     if session_manager:
         try:
-            for sess in session_manager.list_sessions(channel="desktop"):
-                if sess.id in pool_session_ids or sess.id in seen_ids:
-                    continue
-                pid = getattr(sess.context, "agent_profile_id", "default") or "default"
-                pinfo = profile_map.get(pid, {"name": pid, "icon": "🤖", "color": "#6b7280"})
+            desktop_sessions = session_manager.list_sessions(channel="desktop")
+            desktop_sessions.sort(key=lambda s: s.last_active, reverse=True)
+            for sess in desktop_sessions:
+                if _idle_added >= _MAX_IDLE_NODES:
+                    break
+                if hasattr(sess, "last_active") and sess.last_active < _IDLE_CUTOFF:
+                    break
+                try:
+                    sid = sess.chat_id if hasattr(sess, "chat_id") else sess.id
+                    if sid in pool_session_ids or sid in seen_ids:
+                        continue
+                    pid = getattr(sess.context, "agent_profile_id", "default") or "default"
+                    pinfo = profile_map.get(pid, {"name": pid, "icon": "🤖", "color": "#6b7280"})
 
-                conv_title = ""
-                msgs = sess.context.messages if hasattr(sess.context, "messages") else []
-                for m in msgs:
-                    if m.get("role") == "user":
-                        conv_title = (m.get("content") or "")[:60]
+                    conv_title = ""
+                    msgs = getattr(sess.context, "messages", None) or []
+                    for m in msgs:
+                        if isinstance(m, dict) and m.get("role") == "user":
+                            conv_title = (m.get("content") or "")[:60]
 
-                seen_ids.add(sess.id)
-                nodes.append({
-                    "id": sess.id,
-                    "profile_id": pid,
-                    "name": pinfo["name"],
-                    "icon": pinfo["icon"],
-                    "color": pinfo["color"],
-                    "status": "idle",
-                    "is_sub_agent": False,
-                    "parent_id": None,
-                    "iteration": 0,
-                    "tools_executed": [],
-                    "tools_total": 0,
-                    "elapsed_s": 0,
-                    "conversation_title": conv_title,
-                })
-        except Exception:
-            pass
+                    seen_ids.add(sid)
+                    nodes.append({
+                        "id": sid,
+                        "profile_id": pid,
+                        "name": pinfo["name"],
+                        "icon": pinfo["icon"],
+                        "color": pinfo["color"],
+                        "status": "idle",
+                        "is_sub_agent": False,
+                        "parent_id": None,
+                        "iteration": 0,
+                        "tools_executed": [],
+                        "tools_total": 0,
+                        "elapsed_s": 0,
+                        "conversation_title": conv_title,
+                    })
+                    _idle_added += 1
+                except Exception as exc:
+                    logger.debug(f"[Topology] skip session {getattr(sess, 'chat_id', '?')}: {exc}")
+        except Exception as exc:
+            logger.warning(f"[Topology] session_manager fallback error: {exc}")
 
     # Always include system presets as dormant neurons when not active
     active_profile_ids = {n["profile_id"] for n in nodes}
