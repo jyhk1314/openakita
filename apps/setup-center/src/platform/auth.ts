@@ -51,8 +51,10 @@ export function isTokenExpiringSoon(token: string, thresholdSeconds = 3600): boo
 
 let _refreshPromise: Promise<string | null> | null = null;
 
+/** Dispatched when refresh fails — App listens and redirects to login. */
+export const AUTH_EXPIRED_EVENT = "openakita-auth-expired";
+
 export async function refreshAccessToken(apiBase = ""): Promise<string | null> {
-  // Deduplicate concurrent refresh calls
   if (_refreshPromise) return _refreshPromise;
 
   _refreshPromise = (async () => {
@@ -64,6 +66,7 @@ export async function refreshAccessToken(apiBase = ""): Promise<string | null> {
       });
       if (!res.ok) {
         clearAccessToken();
+        window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
         return null;
       }
       const data = await res.json();
@@ -71,6 +74,7 @@ export async function refreshAccessToken(apiBase = ""): Promise<string | null> {
         setAccessToken(data.access_token);
         return data.access_token as string;
       }
+      window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
       return null;
     } catch {
       return null;

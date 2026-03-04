@@ -81,14 +81,15 @@ class HubAuthClient:
                     status = data.get("status", "error")
 
                     if status == "ok":
+                        user = data.get("user") or {}
                         return AuthResult(
                             status="ok",
                             api_key=data.get("api_key", ""),
-                            user_id=data.get("user", {}).get("id", ""),
-                            username=data.get("user", {}).get("username", ""),
-                            tier=data.get("user", {}).get("tier", "explorer"),
-                            ap_balance=data.get("user", {}).get("apBalance", 0),
-                            pioneer_number=data.get("user", {}).get("pioneerNumber", 0),
+                            user_id=user.get("id", ""),
+                            username=user.get("username", ""),
+                            tier=user.get("tier", "explorer"),
+                            ap_balance=user.get("apBalance", 0),
+                            pioneer_number=user.get("pioneerNumber", 0),
                         )
                     elif status == "needs_registration":
                         return AuthResult(

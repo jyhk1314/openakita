@@ -1,7 +1,7 @@
 import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke, listen, IS_TAURI, IS_WEB, getAppVersion, onWsEvent } from "./platform";
-import { checkAuth, installFetchInterceptor } from "./platform/auth";
+import { checkAuth, installFetchInterceptor, AUTH_EXPIRED_EVENT } from "./platform/auth";
 import { LoginView } from "./views/LoginView";
 import { ChatView } from "./views/ChatView";
 import { SkillManager } from "./views/SkillManager";
@@ -97,6 +97,9 @@ export function App() {
       setWebAuthed(ok);
       setAuthChecking(false);
     });
+    const onExpired = () => setWebAuthed(false);
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
   }, []);
 
   const [themePrefState, setThemePrefState] = useState<Theme>(getThemePref());
@@ -524,26 +527,33 @@ export function App() {
     }
   }
 
+  // Web mode init: runs after auth is confirmed
+  const webInitDone = useRef(false);
+  useEffect(() => {
+    if (!IS_WEB || !webAuthed || webInitDone.current) return;
+    webInitDone.current = true;
+    let cancelled = false;
+    (async () => {
+      await refreshAll();
+      if (cancelled) return;
+      setApiBaseUrl("");
+      setServiceStatus({ running: true, pid: null, pidFile: "" });
+      try {
+        const hRes = await safeFetch("/api/health", { signal: AbortSignal.timeout(3_000) });
+        const hData = await hRes.json();
+        if (hData.version) setBackendVersion(hData.version);
+      } catch { /* ignore */ }
+      try { await refreshStatus("local", "", true); } catch { /* ignore */ }
+      autoCheckEndpoints("");
+    })();
+    return () => { cancelled = true; };
+  }, [webAuthed]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        // ── Web 模式：简化初始化，后端已在运行 ──
-        if (IS_WEB) {
-          await refreshAll();
-          if (!cancelled) {
-            setApiBaseUrl("");
-            setServiceStatus({ running: true, pid: null, pidFile: "" });
-            try {
-              const hRes = await safeFetch("/api/health", { signal: AbortSignal.timeout(3_000) });
-              const hData = await hRes.json();
-              if (hData.version) setBackendVersion(hData.version);
-            } catch { /* ignore */ }
-            try { await refreshStatus("local", "", true); } catch { /* ignore */ }
-            autoCheckEndpoints("");
-          }
-          return;
-        }
+        if (IS_WEB) return;
 
         // ── Tauri 模式：完整初始化流程 ──
         try {
@@ -3065,14 +3075,26 @@ export function App() {
         if (effectiveDataMode !== "remote" && currentWorkspaceId) {
           try {
             const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_status", { workspaceId: currentWorkspaceId });
-            // Merge PID info but keep running=true since health check passed
             setServiceStatus((prev) => ({
-              running: prev?.running ?? serviceAlive, // health check wins
+              running: prev?.running ?? serviceAlive,
               pid: ss.pid ?? prev?.pid ?? null,
               pidFile: ss.pidFile ?? prev?.pidFile ?? "",
             }));
           } catch { /* keep existing status */ }
         }
+        // IM channels (HTTP API mode)
+        try {
+          const imRes = await fetch(`${effectiveApiBaseUrl}/api/im/channels`, { signal: AbortSignal.timeout(5000) });
+          if (imRes.ok) {
+            const imData = await imRes.json();
+            const channels = imData.channels || [];
+            const h: Record<string, { status: string; error: string | null; lastCheckedAt: string | null }> = {};
+            for (const c of channels) {
+              h[c.channel || c.name] = { status: c.status || "unknown", error: c.error || null, lastCheckedAt: c.last_checked_at || null };
+            }
+            if (Object.keys(h).length > 0) setImHealth(h);
+          }
+        } catch { /* IM status is optional */ }
         return;
       }
 
@@ -7543,9 +7565,8 @@ export function App() {
     }
     return <LoginView apiBaseUrl="" onLoginSuccess={() => {
       installFetchInterceptor();
+      webInitDone.current = false;
       setWebAuthed(true);
-      refreshStatus(undefined, undefined, true);
-      refreshAll();
     }} />;
   }
 

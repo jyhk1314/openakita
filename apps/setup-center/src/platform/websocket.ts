@@ -3,7 +3,7 @@
 // Auto-reconnects on disconnect with exponential backoff.
 
 import { IS_WEB } from "./detect";
-import { getAccessToken } from "./auth";
+import { getAccessToken, isTokenExpiringSoon, refreshAccessToken } from "./auth";
 
 export type WsEventHandler = (event: string, data: unknown) => void;
 
@@ -72,9 +72,13 @@ function _connect(): void {
 
 function _scheduleReconnect(): void {
   if (_reconnectTimer || _intentionallyClosed) return;
-  _reconnectTimer = setTimeout(() => {
+  _reconnectTimer = setTimeout(async () => {
     _reconnectTimer = null;
     _reconnectDelay = Math.min(_reconnectDelay * 2, 30000);
+    const token = getAccessToken();
+    if (!token || isTokenExpiringSoon(token, 60)) {
+      await refreshAccessToken().catch(() => {});
+    }
     _connect();
   }, _reconnectDelay);
 }

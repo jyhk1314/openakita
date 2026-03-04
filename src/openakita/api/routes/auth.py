@@ -22,7 +22,6 @@ from ..auth import (
     REFRESH_COOKIE_NAME,
     REFRESH_TOKEN_TTL,
     WebAccessConfig,
-    _is_local_request,
     _login_limiter,
     get_client_ip,
 )
@@ -147,11 +146,10 @@ async def logout(response: Response):
 async def check_auth(request: Request):
     """Check whether the current request is authenticated."""
     config = _get_config(request)
-    is_local = _is_local_request(request)
-    trust_proxy = os.environ.get("TRUST_PROXY", "").lower() in ("1", "true", "yes")
+    is_local = _is_local_from_real_ip(request)
 
     # Local requests are always authenticated (unless behind proxy)
-    if not trust_proxy and is_local:
+    if is_local:
         return {"authenticated": True, "method": "local"}
 
     # Check bearer token

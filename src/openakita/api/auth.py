@@ -279,6 +279,8 @@ class RateLimiter:
         now = time.time()
         timestamps = self._hits.get(key, [])
         timestamps = [t for t in timestamps if now - t < self._window]
+        if not timestamps:
+            self._hits.pop(key, None)
         if len(timestamps) >= self._max:
             self._hits[key] = timestamps
             return False
