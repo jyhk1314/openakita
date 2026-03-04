@@ -3609,15 +3609,18 @@ create_agent(name="名称", description="描述", skills=["技能"], custom_prom
         if history_messages and history_messages[-1].get("role") == "user":
             history_messages = history_messages[:-1]
 
-        _TOOL_SUMMARY_LEGACY_MARKER = "\n\n[执行摘要]"
+        _STRIP_MARKERS = ["\n\n[子Agent工作总结]", "\n\n[执行摘要]"]
 
         messages: list[dict] = []
         for msg in history_messages:
             role = msg.get("role", "user")
             content = msg.get("content", "")
-            # Strip legacy inline tool summary from old sessions
-            if role == "assistant" and _TOOL_SUMMARY_LEGACY_MARKER in content:
-                content = content[:content.index(_TOOL_SUMMARY_LEGACY_MARKER)]
+            if role == "assistant":
+                for _marker in _STRIP_MARKERS:
+                    if _marker in content:
+                        content = content[:content.index(_marker)]
+                if content.startswith("[执行摘要]") or content.startswith("[子Agent工作总结]"):
+                    content = ""
             if role in ("user", "assistant") and content:
                 if messages and messages[-1]["role"] == role:
                     messages[-1]["content"] += "\n" + content

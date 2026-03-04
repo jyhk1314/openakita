@@ -87,7 +87,7 @@ async def get_session_history(
     if not session:
         return {"messages": []}
 
-    _TOOL_SUMMARY_LEGACY_MARKER = "\n\n[执行摘要]"
+    _STRIP_MARKERS = ["\n\n[子Agent工作总结]", "\n\n[执行摘要]"]
 
     result = []
     for i, msg in enumerate(session.context.messages):
@@ -95,9 +95,12 @@ async def get_session_history(
         content = msg.get("content", "")
         if not isinstance(content, str):
             content = str(content) if content else ""
-        # Strip legacy inline tool summary from old sessions
-        if role == "assistant" and _TOOL_SUMMARY_LEGACY_MARKER in content:
-            content = content[:content.index(_TOOL_SUMMARY_LEGACY_MARKER)]
+        if role == "assistant":
+            for marker in _STRIP_MARKERS:
+                if marker in content:
+                    content = content[:content.index(marker)]
+            if content.startswith("[执行摘要]") or content.startswith("[子Agent工作总结]"):
+                content = ""
         ts = msg.get("timestamp", "")
         epoch_ms = 0
         if ts:

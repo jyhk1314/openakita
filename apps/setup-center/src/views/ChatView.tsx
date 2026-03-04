@@ -44,6 +44,18 @@ import {
 
 let _artifactClickTimer: ReturnType<typeof setTimeout> | null = null;
 
+/** Strip legacy inline execution summaries from assistant message content */
+function stripLegacySummary(content: string): string {
+  if (!content) return content;
+  const markers = ["\n\n[子Agent工作总结]", "\n\n[执行摘要]"];
+  for (const m of markers) {
+    const idx = content.indexOf(m);
+    if (idx !== -1) content = content.substring(0, idx);
+  }
+  if (content.startsWith("[执行摘要]") || content.startsWith("[子Agent工作总结]")) return "";
+  return content;
+}
+
 // ─── 排队消息类型 ───
 type QueuedMessage = {
   id: string;
@@ -1093,10 +1105,10 @@ function MessageBubble({
         )}
 
         {/* Main content (markdown) */}
-        {msg.content && (
+        {msg.content && (isUser ? msg.content : stripLegacySummary(msg.content)) && (
           <div className={isUser ? "chatMdContent chatMdContentUser" : "chatMdContent"}>
             <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-              {msg.content}
+              {isUser ? msg.content : stripLegacySummary(msg.content)}
             </ReactMarkdown>
           </div>
         )}
@@ -1338,10 +1350,10 @@ function FlatMessageItem({
           )}
 
           {/* Main content (markdown) */}
-          {msg.content && (
+          {msg.content && stripLegacySummary(msg.content) && (
             <div className="chatMdContent">
               <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                {msg.content}
+                {stripLegacySummary(msg.content)}
               </ReactMarkdown>
             </div>
           )}
