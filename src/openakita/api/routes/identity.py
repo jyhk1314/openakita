@@ -28,12 +28,12 @@ router = APIRouter(prefix="/api/identity", tags=["identity"])
 # ─── Constants ──────────────────────────────────────────────────────────
 
 _BUDGET_MAP = {
-    "SOUL.md": 960,
-    "runtime/agent.core.md": 192,
-    "runtime/agent.tooling.md": 128,
+    "SOUL.md": 3600,
+    "runtime/agent.core.md": 720,
+    "runtime/agent.tooling.md": 480,
     "runtime/user.summary.md": 300,
     "runtime/persona.custom.md": 150,
-    "prompts/policies.md": 320,
+    "prompts/policies.md": 1200,
 }
 
 _EDITABLE_SOURCE_FILES = [
