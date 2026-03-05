@@ -40,6 +40,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Get version info
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "name=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "code=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION, Build: ${{ github.run_number }}"
+
       - name: Build web assets (Capacitor)
         run: npm run build:cap
 
@@ -70,14 +78,18 @@ jobs:
             -Pandroid.injected.signing.store.file=${{ github.workspace }}/apps/setup-center/android/app/release.keystore \
             -Pandroid.injected.signing.store.password="$ANDROID_KEY_PASSWORD" \
             -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" \
-            -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASSWORD"
+            -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASSWORD" \
+            -Pandroid.injected.version.code=${{ steps.version.outputs.code }} \
+            -Pandroid.injected.version.name=${{ steps.version.outputs.name }}
 
       - name: Build debug APK (fallback)
         if: steps.keystore.outputs.has_keystore == 'false'
         working-directory: apps/setup-center/android
         run: |
           chmod +x ./gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug \
+            -Pandroid.injected.version.code=${{ steps.version.outputs.code }} \
+            -Pandroid.injected.version.name=${{ steps.version.outputs.name }}
 
       - name: Find APK
         id: find_apk
@@ -122,6 +134,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Get version info
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "name=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "code=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION, Build: ${{ github.run_number }}"
+
       - name: Build web assets (Capacitor)
         run: npm run build:cap
 
@@ -149,6 +169,13 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true" "$PLIST" 2>/dev/null || \
           /usr/libexec/PlistBuddy -c "Set :NSAppTransportSecurity:NSAllowsLocalNetworking true" "$PLIST"
           echo "ATS configured to allow HTTP connections"
+
+      - name: Set iOS version
+        run: |
+          PLIST=ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ steps.version.outputs.name }}" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ steps.version.outputs.code }}" "$PLIST"
+          echo "iOS version: ${{ steps.version.outputs.name }} (${{ steps.version.outputs.code }})"
 
       - name: Sync Capacitor iOS
         run: npx cap sync ios
