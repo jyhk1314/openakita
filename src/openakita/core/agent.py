@@ -798,6 +798,8 @@ class Agent:
         # 加载 MCP 配置
         if not lightweight:
             await self._load_mcp_servers()
+        else:
+            await self._start_builtin_mcp_servers()
 
         # 启动记忆会话
         session_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + str(uuid.uuid4())[:8]
@@ -815,6 +817,7 @@ class Agent:
         self._context.system = self._build_system_prompt(base_prompt, use_compiled=True)
 
         if lightweight:
+            self._inject_browser_use_llm_config()
             self._initialized = True
             return
 
@@ -858,36 +861,7 @@ class Agent:
             logger.debug(f"[Persona] trait loading skipped: {e}")
 
         # === browser_task 依赖的 LLM 配置注入 ===
-        # browser_task（browser-use）需要一个 OpenAI-compatible LLM（langchain_openai.ChatOpenAI）。
-        # 项目本身使用 LLMClient（可多端点/故障切换），这里复用当前可用的 openai 协议端点配置。
-        try:
-            if getattr(self, "bu_runner", None):
-                llm_client = getattr(self.brain, "_llm_client", None)
-                provider = None
-                if llm_client:
-                    current = llm_client.get_current_model()
-                    if current and current.name in llm_client.providers:
-                        p = llm_client.providers[current.name]
-                        if getattr(p.config, "api_type", "") == "openai" and p.is_healthy:
-                            provider = p
-                    if provider is None:
-                        for p in llm_client.providers.values():
-                            if getattr(p.config, "api_type", "") == "openai" and p.is_healthy:
-                                provider = p
-                                break
-
-                if provider:
-                    api_key = provider.config.get_api_key()
-                    if api_key:
-                        self.bu_runner.set_llm_config(
-                            {
-                                "model": provider.config.model,
-                                "api_key": api_key,
-                                "base_url": provider.config.base_url.rstrip("/"),
-                            }
-                        )
-        except Exception as e:
-            logger.debug(f"[BrowserUseRunner] LLM config injection skipped/failed: {e}")
+        self._inject_browser_use_llm_config()
 
         self._initialized = True
         total_mcp = self.mcp_catalog.server_count + self._builtin_mcp_count
@@ -1648,6 +1622,37 @@ class Agent:
                 logger.info("Initialized browser service (Playwright)")
         except Exception as e:
             logger.warning(f"Failed to start browser service: {e}")
+
+    def _inject_browser_use_llm_config(self) -> None:
+        """将当前 LLM 端点配置注入 BrowserUseRunner（browser_task 依赖 OpenAI-compatible LLM）。"""
+        try:
+            bu_runner = getattr(self, "bu_runner", None)
+            if not bu_runner:
+                return
+            llm_client = getattr(self.brain, "_llm_client", None)
+            if not llm_client:
+                return
+            provider = None
+            current = llm_client.get_current_model()
+            if current and current.name in llm_client.providers:
+                p = llm_client.providers[current.name]
+                if getattr(p.config, "api_type", "") == "openai" and p.is_healthy:
+                    provider = p
+            if provider is None:
+                for p in llm_client.providers.values():
+                    if getattr(p.config, "api_type", "") == "openai" and p.is_healthy:
+                        provider = p
+                        break
+            if provider:
+                api_key = provider.config.get_api_key()
+                if api_key:
+                    bu_runner.set_llm_config({
+                        "model": provider.config.model,
+                        "api_key": api_key,
+                        "base_url": provider.config.base_url.rstrip("/"),
+                    })
+        except Exception as e:
+            logger.debug(f"[BrowserUseRunner] LLM config injection skipped/failed: {e}")
 
     async def _start_scheduler(self) -> None:
         """启动定时任务调度器"""
