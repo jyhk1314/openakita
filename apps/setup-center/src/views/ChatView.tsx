@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { setThemePref } from "../theme";
 import type { Theme } from "../theme";
 import { invoke, downloadFile, openFileWithDefault, showInFolder, readFileBase64, onDragDrop, IS_TAURI, IS_WEB, onWsEvent, logger } from "../platform";
@@ -1711,6 +1712,7 @@ export function ChatView({
   const [slashSelectedIdx, setSlashSelectedIdx] = useState(0);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [lightbox, setLightbox] = useState<{ url: string; name: string } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{ message: string; onConfirm: () => void } | null>(null);
   const [winSize, setWinSize] = useState({ w: window.innerWidth, h: window.innerHeight });
   useEffect(() => {
     if (!lightbox) return;
@@ -2455,13 +2457,8 @@ export function ChatView({
     }, ...prev]);
   }, [activeConvId, messages, multiAgentEnabled, selectedAgent]);
 
-  // ── 删除对话 ──
-  const deleteConversation = useCallback((convId: string, e?: React.MouseEvent) => {
-    if (e) { e.stopPropagation(); e.preventDefault(); }
-    const conv = conversations.find((c) => c.id === convId);
-    const title = conv?.title || t("chat.defaultTitle");
-    if (!window.confirm(t("chat.confirmDeleteConversation", { title }))) return;
-
+  // ── 删除对话（实际执行） ──
+  const doDeleteConversation = useCallback((convId: string) => {
     try { localStorage.removeItem(STORAGE_KEY_MSGS_PREFIX + convId); } catch {}
     setMessageQueue(prev => prev.filter(m => m.convId !== convId));
     const ctx = streamContexts.current.get(convId);
@@ -2473,14 +2470,12 @@ export function ChatView({
       setStreamingTick(t => t + 1);
     }
 
-    // 通知后端删除（不阻塞 UI）
     if (serviceRunning) {
       safeFetch(`${apiBaseUrl}/api/sessions/${encodeURIComponent(convId)}`, {
         method: "DELETE",
       }).catch(() => {});
     }
 
-    // 如果删除的是当前激活的对话，切换到下一个或清空
     if (convId === activeConvId) {
       setConversations((prev) => {
         const remaining = prev.filter((c) => c.id !== convId);
@@ -2499,7 +2494,18 @@ export function ChatView({
     } else {
       setConversations((prev) => prev.filter((c) => c.id !== convId));
     }
-  }, [activeConvId, conversations, serviceRunning, apiBaseUrl, t]);
+  }, [activeConvId, serviceRunning, apiBaseUrl]);
+
+  // ── 删除对话（弹窗确认） ──
+  const deleteConversation = useCallback((convId: string, e?: React.MouseEvent) => {
+    if (e) { e.stopPropagation(); e.preventDefault(); }
+    const conv = conversations.find((c) => c.id === convId);
+    const title = conv?.title || t("chat.defaultTitle");
+    setConfirmDialog({
+      message: t("chat.confirmDeleteConversation", { title }),
+      onConfirm: () => doDeleteConversation(convId),
+    });
+  }, [conversations, t, doDeleteConversation]);
 
   // ── 置顶/取消置顶 ──
   const togglePinConversation = useCallback((convId: string) => {
@@ -4536,6 +4542,7 @@ export function ChatView({
           </div>
         </div>
       )}
+      <ConfirmDialog dialog={confirmDialog} onClose={() => setConfirmDialog(null)} />
     </div>
   );
 }

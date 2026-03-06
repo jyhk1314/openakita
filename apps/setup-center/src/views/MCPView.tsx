@@ -6,6 +6,7 @@ import {
   DotGreen, DotGray, DotYellow,
 } from "../icons";
 import { safeFetch } from "../providers";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 
 type MCPTool = {
   name: string;
@@ -93,6 +94,7 @@ export function MCPView({ serviceRunning, apiBaseUrl = "http://127.0.0.1:18900" 
   const [form, setForm] = useState<AddServerForm>({ ...emptyForm });
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{ message: string; onConfirm: () => void } | null>(null);
 
   const fetchServers = useCallback(async () => {
     if (!serviceRunning) return;
@@ -150,8 +152,7 @@ export function MCPView({ serviceRunning, apiBaseUrl = "http://127.0.0.1:18900" 
     setBusy(null);
   };
 
-  const removeServer = async (name: string) => {
-    if (!confirm(t("mcp.confirmDelete", { name }))) return;
+  const doRemoveServer = useCallback(async (name: string) => {
     setBusy(name);
     try {
       const res = await safeFetch(`${apiBaseUrl}/api/mcp/servers/${encodeURIComponent(name)}`, { method: "DELETE" });
@@ -166,6 +167,13 @@ export function MCPView({ serviceRunning, apiBaseUrl = "http://127.0.0.1:18900" 
       showMsg(`${t("mcp.deleteFailed")}: ${e}`, false);
     }
     setBusy(null);
+  }, [apiBaseUrl, t, fetchServers]);
+
+  const removeServer = (name: string) => {
+    setConfirmDialog({
+      message: t("mcp.confirmDelete", { name }),
+      onConfirm: () => doRemoveServer(name),
+    });
   };
 
   const addServer = async () => {
@@ -521,6 +529,7 @@ export function MCPView({ serviceRunning, apiBaseUrl = "http://127.0.0.1:18900" 
         <br />
         {t("mcp.helpLine3")}
       </div>
+      <ConfirmDialog dialog={confirmDialog} onClose={() => setConfirmDialog(null)} />
     </div>
   );
 }

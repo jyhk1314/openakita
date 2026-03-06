@@ -4,6 +4,7 @@ import {
   IconSearch, IconBrain, IconLoader,
 } from "../icons";
 import { safeFetch } from "../providers";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 
 type MemoryItem = {
   id: string;
@@ -89,6 +90,7 @@ export function MemoryView({ serviceRunning, apiBaseUrl = "" }: Props) {
   const [reviewResult, setReviewResult] = useState<ReviewResult | null>(null);
   const [error, setError] = useState("");
   const [showReviewConfirm, setShowReviewConfirm] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{ message: string; onConfirm: () => void } | null>(null);
   const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth <= 768);
 
   useEffect(() => {
@@ -139,22 +141,29 @@ export function MemoryView({ serviceRunning, apiBaseUrl = "" }: Props) {
     }
   };
 
-  const handleBatchDelete = async () => {
-    if (selected.size === 0) return;
-    if (!confirm(`确定删除选中的 ${selected.size} 条记忆？`)) return;
+  const doBatchDelete = useCallback(async (ids: string[]) => {
     try {
       await safeFetch(`${API_BASE}/api/memories/batch-delete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: Array.from(selected) }),
+        body: JSON.stringify({ ids }),
       });
-      setMemories(prev => prev.filter(m => !selected.has(m.id)));
+      setMemories(prev => prev.filter(m => !new Set(ids).has(m.id)));
       setSelected(new Set());
       loadStats();
       setError("");
     } catch (e: any) {
       setError(e.message);
     }
+  }, [API_BASE, loadStats]);
+
+  const handleBatchDelete = () => {
+    if (selected.size === 0) return;
+    const ids = Array.from(selected);
+    setConfirmDialog({
+      message: `确定删除选中的 ${ids.length} 条记忆？`,
+      onConfirm: () => doBatchDelete(ids),
+    });
   };
 
   const handleUpdate = async (id: string) => {
@@ -716,6 +725,7 @@ export function MemoryView({ serviceRunning, apiBaseUrl = "" }: Props) {
           </table>
         </div>
       )}
+      <ConfirmDialog dialog={confirmDialog} onClose={() => setConfirmDialog(null)} />
     </div>
   );
 }

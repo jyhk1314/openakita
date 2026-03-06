@@ -1188,7 +1188,7 @@ export function App() {
     }
   }
 
-  async function doRepairPython() {
+  async function executeRepairPython(forceRebuild: boolean) {
     setError(null);
     setNotice(null);
     setRepairStage("");
@@ -1205,10 +1205,6 @@ export function App() {
     });
 
     try {
-      const forceRebuild = pyDiag?.summary === "healthy"
-        ? confirm(t("adv.repairHealthyConfirm"))
-        : false;
-      if (pyDiag?.summary === "healthy" && !forceRebuild) return;
       const d = await invoke<NonNullable<typeof pyDiag>>("repair_python_env", { venvDir, forceRebuild });
       setPyDiag(d);
       if (d && d.summary === "healthy") {
@@ -1217,7 +1213,6 @@ export function App() {
         const openakitaOk = d.contracts.some((c) => c.id === "C3_OPENAKITA_IN_VENV" && c.status === "pass");
         setOpenakitaInstalled(openakitaOk);
         await persistPythonEnvConfig(venvDir);
-        // Re-detect Python candidates
         try {
           const cands = await invoke<PythonCandidate[]>("detect_python");
           setPythonCandidates(cands);
@@ -1234,6 +1229,14 @@ export function App() {
       unlisten();
       setBusy(null);
     }
+  }
+
+  function doRepairPython() {
+    if (pyDiag?.summary === "healthy") {
+      askConfirm(t("adv.repairHealthyConfirm"), () => executeRepairPython(true));
+      return;
+    }
+    executeRepairPython(false);
   }
 
   async function doFetchPypiVersions() {
@@ -5345,13 +5348,9 @@ export function App() {
       } catch (e) { setError(String(e)); } finally { setBusy(null); }
     }
 
-    async function runBackupImport() {
+    async function executeBackupImport(zipPath: string) {
       if (!currentWorkspaceId) return;
       try {
-        const { openFileDialog } = await import("./platform");
-        const zipPath = await openFileDialog({ title: t("adv.backupImport"), filters: [{ name: "Backup", extensions: ["zip"] }] });
-        if (!zipPath) return;
-        if (!confirm(t("adv.backupImportConfirm"))) return;
         setBusy(t("adv.backupExporting"));
         const apiPort = (serviceStatus && "port" in serviceStatus ? serviceStatus.port : undefined) || 18900;
         const result = await invoke<{ status: string; restored_count?: number }>(
@@ -5360,6 +5359,16 @@ export function App() {
         );
         setNotice(t("adv.backupImportDone", { count: result.restored_count ?? 0 }));
       } catch (e) { setError(String(e)); } finally { setBusy(null); }
+    }
+
+    async function runBackupImport() {
+      if (!currentWorkspaceId) return;
+      try {
+        const { openFileDialog } = await import("./platform");
+        const zipPath = await openFileDialog({ title: t("adv.backupImport"), filters: [{ name: "Backup", extensions: ["zip"] }] });
+        if (!zipPath) return;
+        askConfirm(t("adv.backupImportConfirm"), () => executeBackupImport(zipPath));
+      } catch (e) { setError(String(e)); }
     }
 
     async function loadBackupHistory() {
