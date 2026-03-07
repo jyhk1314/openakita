@@ -3551,14 +3551,19 @@ search_github → install_skill → 使用
                     pass
 
             # === 构建 IM 思维链进度回调 ===
+            # 受 im_chain_push 开关控制：默认关闭以减少刷屏，不影响内部 trace 保存
             _progress_cb = None
             if gateway and session:
-                async def _im_chain_progress(text: str) -> None:
-                    try:
-                        await gateway.emit_progress_event(session, text)
-                    except Exception:
-                        pass
-                _progress_cb = _im_chain_progress
+                _chain_push = session.get_metadata("chain_push")
+                if _chain_push is None:
+                    _chain_push = settings.im_chain_push
+                if _chain_push:
+                    async def _im_chain_progress(text: str) -> None:
+                        try:
+                            await gateway.emit_progress_event(session, text)
+                        except Exception:
+                            pass
+                    _progress_cb = _im_chain_progress
 
             # === 核心推理 (同步返回) ===
             response_text = await self._chat_with_tools_and_context(

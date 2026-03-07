@@ -5875,6 +5875,7 @@ export function App() {
 
   function renderIM() {
     const keysIM = [
+      "IM_CHAIN_PUSH",
       "TELEGRAM_ENABLED", "TELEGRAM_BOT_TOKEN", "TELEGRAM_PROXY",
       "TELEGRAM_REQUIRE_PAIRING", "TELEGRAM_PAIRING_CODE", "TELEGRAM_WEBHOOK_URL",
       "FEISHU_ENABLED", "FEISHU_APP_ID", "FEISHU_APP_SECRET",
@@ -6013,6 +6014,10 @@ export function App() {
             ><IconBook size={13} />{t("config.imGuideDoc")}</button>
           </div>
           <div className="cardHint">{t("config.imHint")}</div>
+          <div className="divider" />
+
+          {/* IM 全局设置 */}
+          <FieldBool k="IM_CHAIN_PUSH" label={t("config.imChainPush")} help={t("config.imChainPushHelp")} />
           <div className="divider" />
 
           {channels.map((c) => {
