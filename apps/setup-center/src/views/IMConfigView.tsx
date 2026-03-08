@@ -162,8 +162,8 @@ export function IMConfigView(props: IMConfigViewProps) {
                 <div className="row" style={{ alignItems: "center", gap: 10 }}>
                   {c.logo}
                   <span className="label" style={{ marginBottom: 0 }}>{c.title}</span>
-                  <span className="pill" style={{ fontSize: 10, padding: "1px 6px", background: "#f1f5f9", color: "#475569" }}>{c.appType}</span>
-                  {c.needPublicIp && <span className="pill" style={{ fontSize: 10, padding: "1px 6px", background: "#fef3c7", color: "#92400e" }}>{t("config.imNeedPublicIp")}</span>}
+                  <span className="pill" style={{ fontSize: 10, padding: "1px 6px", background: "var(--bg-subtle, #f1f5f9)", color: "var(--muted)" }}>{c.appType}</span>
+                  {c.needPublicIp && <span className="pill" style={{ fontSize: 10, padding: "1px 6px", background: "var(--warn-bg, #fef3c7)", color: "var(--warn, #92400e)" }}>{t("config.imNeedPublicIp")}</span>}
                 </div>
                 <label className="pill" style={{ cursor: "pointer", userSelect: "none" }}>
                   <input style={{ width: 16, height: 16 }} type="checkbox" checked={enabled}
@@ -191,7 +191,7 @@ export function IMConfigView(props: IMConfigViewProps) {
                       <div key={bot.id} style={{
                         display: "flex", alignItems: "center", gap: 8,
                         padding: "6px 10px", borderRadius: 6,
-                        background: "var(--bg2, #f8fafc)", fontSize: 12,
+                        background: "var(--bg-subtle, #f1f5f9)", fontSize: 12,
                       }}>
                         <span style={{
                           width: 6, height: 6, borderRadius: 3, flexShrink: 0,

@@ -3938,6 +3938,46 @@ button:disabled {
   /* agent orbit: smaller on mobile */
   .agentOrbitNode { width: 26px; height: 26px; }
   .agentOrbitIcon { font-size: 13px; }
+
+  /* ── Config forms: stack grids on mobile ── */
+  .grid2,
+  .grid3 {
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+  }
+
+  /* env field: let long env key names wrap */
+  .labelRow {
+    flex-wrap: wrap;
+    gap: 2px 8px !important;
+  }
+  .labelRow .help {
+    font-size: 9px !important;
+    word-break: break-all;
+  }
+
+  /* endpoint table: horizontal scroll */
+  .epTable {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .epTableHeader,
+  .epTableRow {
+    min-width: 420px;
+  }
+
+  /* identity editor: stack vertically */
+  .identityLayout {
+    flex-direction: column !important;
+  }
+  .identityFileList {
+    width: auto !important;
+    max-height: 140px;
+    border-right: none !important;
+    border-bottom: 1px solid var(--border, #e2e8f0);
+    padding-right: 0 !important;
+    padding-bottom: 8px;
+  }
 }
 
 /* ── Org Editor animations ── */
