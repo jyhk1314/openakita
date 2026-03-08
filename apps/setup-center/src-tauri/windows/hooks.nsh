@@ -224,25 +224,8 @@
     FileClose $R5
   ${EndIf}
 
-  ; 仅当用户在安装页面明确勾选时，以当前用户身份清理 venv/runtime
-  ${If} $EnvCleanVenvChecked == ${BST_CHECKED}
-  ${OrIf} $EnvCleanRuntimeChecked == ${BST_CHECKED}
-    StrCpy $R9 ""
-    ${If} $EnvCleanVenvChecked == ${BST_CHECKED}
-      StrCpy $R9 "venv"
-    ${EndIf}
-    ${If} $EnvCleanRuntimeChecked == ${BST_CHECKED}
-      ${If} $R9 != ""
-        StrCpy $R9 "$R9 runtime"
-      ${Else}
-        StrCpy $R9 "runtime"
-      ${EndIf}
-    ${EndIf}
-    nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" "--clean-env $R9"
-  ${EndIf}
-
-  ; Finish 页面会提供"运行应用程序"选项 (带 --first-run 参数)
-  ; 这里无需额外操作，RunMainBinary 已带 --first-run
+  ; venv/runtime 清理已统一在 NSIS_HOOK_PREINSTALL 中通过 PowerShell 脚本完成，
+  ; 无需再以用户身份单独启动应用执行 --clean-env。
 !macroend
 
 !macro _OpenAkita_ForceRemoveDir dir
