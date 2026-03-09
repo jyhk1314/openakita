@@ -356,6 +356,7 @@ function OrgNodeComponent({ data, selected }: { data: OrgNodeData; selected: boo
           ? "orgNodeWait 3s ease-in-out infinite"
           : "none",
         position: "relative",
+        zIndex: hovered ? 10000 : "auto",
       }}
     >
       <Handle type="target" position={Position.Top} style={{ background: "var(--primary)", width: 8, height: 8 }} />
@@ -501,11 +502,11 @@ function OrgNodeComponent({ data, selected }: { data: OrgNodeData; selected: boo
       {/* Hover tooltip */}
       {hovered && rt && (
         <div style={{
-          position: "absolute", left: "105%", top: 0, zIndex: 100,
+          position: "absolute", left: "105%", top: 0, zIndex: 10000,
           background: "var(--card-bg, #fff)", border: "1px solid var(--line)",
           borderRadius: 6, padding: "8px 10px", minWidth: 140,
-          boxShadow: "0 4px 12px rgba(0,0,0,0.15)", fontSize: 10,
           pointerEvents: "none",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.15)", fontSize: 10,
         }}>
           <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 11 }}>{data.role_title}</div>
           <div style={{ color: "#6b7280", lineHeight: 1.6 }}>
@@ -552,7 +553,7 @@ export function OrgEditorView({
   const [propsTab, setPropsTab] = useState<"basic" | "identity" | "capabilities" | "advanced" | "live">("basic");
   const [fullPromptPreview, setFullPromptPreview] = useState<string | null>(null);
   const [promptPreviewLoading, setPromptPreviewLoading] = useState(false);
-  const [liveMode, setLiveMode] = useState(false);
+  const [liveMode, setLiveMode] = useState(true);
   const [nodeStatuses, setNodeStatuses] = useState<Record<string, string>>({});
   const [inboxOpen, setInboxOpen] = useState(false);
   const [nodeEvents, setNodeEvents] = useState<any[]>([]);
@@ -567,7 +568,7 @@ export function OrgEditorView({
   // Activity feed state
   type ActivityEvent = { id: string; time: number; event: string; data: any };
   const [activityFeed, setActivityFeed] = useState<ActivityEvent[]>([]);
-  const [showActivityFeed, setShowActivityFeed] = useState(false);
+  const [showActivityFeed, setShowActivityFeed] = useState(true);
   const activityFeedRef = useRef<HTMLDivElement>(null);
   const [edgeAnimations, setEdgeAnimations] = useState<Record<string, { color: string; ts: number }>>({});
   const [edgeFlowCounts, setEdgeFlowCounts] = useState<Record<string, number>>({});
@@ -1247,7 +1248,7 @@ export function OrgEditorView({
             >
               <IconSitemap size={12} /> {!isMobile && "布局"}
             </button>
-            {liveMode && currentOrg && (
+            {currentOrg && (
               <>
                 <div style={{ width: 1, height: 20, background: "var(--line)" }} />
                 <button
@@ -1288,27 +1289,27 @@ export function OrgEditorView({
             >
               <IconInbox size={12} /> {!isMobile && "消息"}
             </button>
+            <button
+              className="btnSmall"
+              onClick={() => setShowActivityFeed(!showActivityFeed)}
+              style={{
+                fontWeight: showActivityFeed ? 600 : 400,
+                color: showActivityFeed ? "var(--ok)" : undefined,
+                background: showActivityFeed ? "rgba(34,197,94,0.1)" : undefined,
+                position: "relative",
+              }}
+            >
+              <IconRadar size={12} /> {!isMobile && "动态"}
+              {activityFeed.length > 0 && !showActivityFeed && (
+                <span style={{
+                  position: "absolute", top: -2, right: -2,
+                  width: 6, height: 6, borderRadius: "50%",
+                  background: "var(--ok)", animation: "orgDotPulse 1.5s ease-in-out infinite",
+                }} />
+              )}
+            </button>
             {liveMode && (
               <>
-                <button
-                  className="btnSmall"
-                  onClick={() => setShowActivityFeed(!showActivityFeed)}
-                  style={{
-                    fontWeight: showActivityFeed ? 600 : 400,
-                    color: showActivityFeed ? "var(--ok)" : undefined,
-                    background: showActivityFeed ? "rgba(34,197,94,0.1)" : undefined,
-                    position: "relative",
-                  }}
-                >
-                  <IconRadar size={12} /> {!isMobile && "动态"}
-                  {activityFeed.length > 0 && !showActivityFeed && (
-                    <span style={{
-                      position: "absolute", top: -2, right: -2,
-                      width: 6, height: 6, borderRadius: "50%",
-                      background: "var(--ok)", animation: "orgDotPulse 1.5s ease-in-out infinite",
-                    }} />
-                  )}
-                </button>
                 {orgStats && !isMobile && (
                   <div style={{
                     display: "flex", gap: 8, alignItems: "center",
@@ -2633,15 +2634,25 @@ export function OrgEditorView({
                         .filter((skill) => {
                           if (!skillSearch) return true;
                           const q = skillSearch.toLowerCase();
-                          return (skill.name_i18n || "").toLowerCase().includes(q)
+                          const ni = skill.name_i18n;
+                          const di = skill.description_i18n;
+                          const nameStr = typeof ni === "object" && ni ? ((ni as any).zh || (ni as any).en || "") : (ni || "");
+                          const descStr = typeof di === "object" && di ? ((di as any).zh || (di as any).en || "") : (di || "");
+                          return nameStr.toLowerCase().includes(q)
                             || skill.name.toLowerCase().includes(q)
-                            || (skill.description_i18n || "").toLowerCase().includes(q)
+                            || descStr.toLowerCase().includes(q)
                             || (skill.description || "").toLowerCase().includes(q);
                         })
                         .map((skill) => {
                         const checked = selectedNode.skills.includes(skill.name);
-                        const displayName = skill.name_i18n || skill.name;
-                        const displayDesc = skill.description_i18n || skill.description || "";
+                        const rawName = skill.name_i18n;
+                        const displayName = (typeof rawName === "object" && rawName !== null)
+                          ? (rawName as any).zh || (rawName as any).en || skill.name
+                          : rawName || skill.name;
+                        const rawDesc = skill.description_i18n;
+                        const displayDesc = (typeof rawDesc === "object" && rawDesc !== null)
+                          ? (rawDesc as any).zh || (rawDesc as any).en || skill.description || ""
+                          : rawDesc || skill.description || "";
                         return (
                           <label
                             key={skill.name}
