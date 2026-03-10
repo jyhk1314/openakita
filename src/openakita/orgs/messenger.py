@@ -251,7 +251,13 @@ class OrgMessenger:
             msg.status = "delivered"
 
         if msg.from_node != msg.to_node:
-            self._wait_graph[msg.from_node].add(msg.to_node)
+            if not self._would_create_cycle(msg.from_node, msg.to_node):
+                self._wait_graph[msg.from_node].add(msg.to_node)
+            else:
+                logger.info(
+                    f"[Messenger] Skipped wait-graph edge {msg.from_node} -> {msg.to_node} "
+                    f"(would create cycle)"
+                )
 
         if msg.to_node in self._message_handlers:
             try:
@@ -426,6 +432,22 @@ class OrgMessenger:
     # ------------------------------------------------------------------
     # Deadlock detection
     # ------------------------------------------------------------------
+
+    def _would_create_cycle(self, from_node: str, to_node: str) -> bool:
+        """Check if adding from_node -> to_node would create a cycle via BFS."""
+        if to_node not in self._wait_graph:
+            return False
+        visited: set[str] = set()
+        queue = [to_node]
+        while queue:
+            current = queue.pop(0)
+            if current == from_node:
+                return True
+            if current in visited:
+                continue
+            visited.add(current)
+            queue.extend(self._wait_graph.get(current, set()) - visited)
+        return False
 
     def check_deadlock(self) -> list[list[str]] | None:
         """Check for cycles in the wait-for graph. Returns cycles if found."""

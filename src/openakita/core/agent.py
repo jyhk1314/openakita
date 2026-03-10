@@ -5449,14 +5449,20 @@ NEXT: 建议的下一步（如有）"""
                         )
 
                     new_model = task_monitor.fallback_model
+                    if not new_model:
+                        logger.warning("[ModelSwitch] No fallback model available, aborting task")
+                        return (
+                            "任务失败：所有模型端点均不可用。\n"
+                            "建议：请检查网络连接，或在设置中心确认至少有一个模型配置正确。"
+                        )
                     switch_ok = _switch_llm_endpoint(new_model, reason="task_monitor timeout fallback")
                     if not switch_ok:
                         logger.error(
                             f"[ModelSwitch] switch_model failed for '{new_model}', aborting task"
                         )
                         return (
-                            "❌ 任务失败：模型切换失败，无可用模型。\n"
-                            "💡 建议：请检查网络连接，或在设置中心确认至少有一个模型配置正确。"
+                            "任务失败：模型切换失败，无可用模型。\n"
+                            "建议：请检查网络连接，或在设置中心确认至少有一个模型配置正确。"
                         )
 
                     task_monitor.switch_model(
@@ -5597,15 +5603,20 @@ NEXT: 建议的下一步（如有）"""
                             )
 
                         new_model = task_monitor.fallback_model
+                        if not new_model:
+                            logger.warning("[ModelSwitch] No fallback model available, aborting task")
+                            return (
+                                "任务失败：所有模型端点均不可用。\n"
+                                "建议：请检查网络连接，或在设置中心确认至少有一个模型配置正确。"
+                            )
                         switch_ok = _switch_llm_endpoint(new_model, reason=f"LLM call failed fallback: {e}")
                         if not switch_ok:
-                            # 切换失败，不重置 retry_count，直接终止
                             logger.error(
                                 f"[ModelSwitch] switch_model failed for '{new_model}', aborting task"
                             )
                             return (
-                                "❌ 任务失败：模型切换失败，无可用模型。\n"
-                                "💡 建议：请检查网络连接，或在设置中心确认至少有一个模型配置正确。"
+                                "任务失败：模型切换失败，无可用模型。\n"
+                                "建议：请检查网络连接，或在设置中心确认至少有一个模型配置正确。"
                             )
 
                         task_monitor.switch_model(
@@ -6683,6 +6694,9 @@ NEXT: 建议的下一步（如有）"""
                         )
 
                     new_model = task_monitor.fallback_model
+                    if not new_model:
+                        logger.warning("[ModelSwitch] No fallback model available for sub-agent timeout")
+                        return "任务失败：所有模型端点均不可用，请检查网络连接。"
                     task_monitor.switch_model(
                         new_model,
                         f"任务执行超过 {task_monitor.timeout_seconds} 秒，重试 {task_monitor.retry_count} 次后切换",
@@ -6827,6 +6841,9 @@ NEXT: 建议的下一步（如有）"""
                             )
 
                         new_model = task_monitor.fallback_model
+                        if not new_model:
+                            logger.warning("[ModelSwitch] No fallback model available for sub-agent error")
+                            return "任务失败：所有模型端点均不可用，请检查网络连接。"
                         task_monitor.switch_model(
                             new_model,
                             f"LLM 调用失败，重试 {task_monitor.retry_count} 次后切换: {e}",

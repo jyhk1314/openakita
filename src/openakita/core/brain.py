@@ -101,7 +101,14 @@ class Brain:
         self._compiler_client: LLMClient | None = None
         self._init_compiler_client()
 
-        # 公开属性（从 LLMClient 获取）
+        # Compiler 熔断器状态
+        self._compiler_fail_count: int = 0
+        self._compiler_circuit_open: bool = False
+        self._compiler_circuit_open_at: float = 0.0
+        self._COMPILER_FAIL_THRESHOLD: int = 5
+        self._COMPILER_CIRCUIT_RESET_S: float = 300.0
+
+        # 公开属性（从 LMClient 获取）
         self._update_public_attrs()
 
         # Thinking 模式状态
@@ -147,6 +154,42 @@ class Brain:
         except Exception as e:
             logger.warning(f"Failed to init compiler client: {e}")
 
+    def _compiler_available(self) -> bool:
+        """Check if the compiler client is usable (not circuit-broken)."""
+        if not self._compiler_client:
+            return False
+        if not self._compiler_circuit_open:
+            return True
+        import time
+        elapsed = time.monotonic() - self._compiler_circuit_open_at
+        if elapsed >= self._COMPILER_CIRCUIT_RESET_S:
+            self._compiler_circuit_open = False
+            self._compiler_fail_count = 0
+            logger.info("[Brain] Compiler circuit breaker reset, will retry compiler endpoint")
+            return True
+        return False
+
+    def _compiler_on_success(self) -> None:
+        self._compiler_fail_count = 0
+        if self._compiler_circuit_open:
+            self._compiler_circuit_open = False
+            logger.info("[Brain] Compiler circuit breaker closed (success)")
+
+    def _compiler_on_failure(self) -> None:
+        self._compiler_fail_count += 1
+        if (
+            not self._compiler_circuit_open
+            and self._compiler_fail_count >= self._COMPILER_FAIL_THRESHOLD
+        ):
+            import time
+            self._compiler_circuit_open = True
+            self._compiler_circuit_open_at = time.monotonic()
+            logger.warning(
+                f"[Brain] Compiler circuit breaker OPEN after "
+                f"{self._compiler_fail_count} consecutive failures, "
+                f"skipping compiler for {self._COMPILER_CIRCUIT_RESET_S}s"
+            )
+
     def reload_compiler_client(self) -> bool:
         """热重载编译端点配置。
 
@@ -184,8 +227,7 @@ class Brain:
         """
         messages = [Message(role="user", content=[TextBlock(text=prompt)])]
 
-        # 尝试 compiler 专用端点
-        if self._compiler_client:
+        if self._compiler_available():
             try:
                 response = await self._compiler_client.chat(
                     messages=messages,
@@ -193,9 +235,11 @@ class Brain:
                     enable_thinking=False,
                     max_tokens=2048,
                 )
+                self._compiler_on_success()
                 self._record_usage(response)
                 return self._llm_response_to_response(response)
             except Exception as e:
+                self._compiler_on_failure()
                 logger.warning(f"Compiler LLM failed, falling back to main model: {e}")
 
         # 回退到主模型（同样禁用思考，以节省时间）
@@ -235,11 +279,11 @@ class Brain:
         messages = [Message(role="user", content=[TextBlock(text=prompt)])]
         sys_prompt = system or ""
 
-        # 调试：保存请求
         req_id = self._dump_llm_request(sys_prompt, messages, [], caller="think_lightweight")
 
-        client = self._compiler_client or self._llm_client
-        client_name = "compiler" if client is self._compiler_client else "main"
+        use_compiler = self._compiler_available()
+        client = self._compiler_client if use_compiler else self._llm_client
+        client_name = "compiler" if use_compiler else "main"
 
         try:
             response = await client.chat(
@@ -248,10 +292,12 @@ class Brain:
                 enable_thinking=False,
                 max_tokens=max_tokens,
             )
+            if use_compiler:
+                self._compiler_on_success()
             logger.info(f"[LLM] think_lightweight completed via {client_name} endpoint")
         except Exception as e:
-            if client is not self._llm_client:
-                # compiler 失败，fallback 到主端点
+            if use_compiler:
+                self._compiler_on_failure()
                 logger.warning(f"[LLM] think_lightweight: compiler failed ({e}), falling back to main")
                 response = await self._llm_client.chat(
                     messages=messages,

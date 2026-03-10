@@ -135,6 +135,7 @@ class ToolExecutor:
     _LONG_RUNNING_TOOLS: dict[str, int] = {
         "org_request_meeting": 600,
         "org_broadcast": 300,
+        "delegate_to_agent": 300,
         "browser_navigate": 300,
         "browser_use": 300,
         "run_shell": 300,

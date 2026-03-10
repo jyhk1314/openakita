@@ -695,6 +695,9 @@ export function OrgEditorView({
       setNodes(hasOverlap ? computeTreeLayout(flowNodes, flowEdges) : flowNodes);
       setEdges(flowEdges);
       setSelectedNodeId(null);
+      if (data.status === "active" || data.status === "running") {
+        setLiveMode(true);
+      }
     } catch (e) {
       console.error("Failed to fetch org:", e);
     } finally {
@@ -843,6 +846,10 @@ export function OrgEditorView({
           const ev = parsed.event as string;
           const d = parsed.data;
           if (!d || d.org_id !== currentOrg.id) return;
+
+          if (currentOrg.status !== "active" && currentOrg.status !== "running") {
+            setCurrentOrg((prev) => prev ? { ...prev, status: "active" } : prev);
+          }
 
           if (ev === "org:node_status") {
             const { node_id, status, current_task } = d;
@@ -1774,7 +1781,7 @@ export function OrgEditorView({
                     icon = "→"; color = "var(--primary)";
                     text = `${nodeLabel(ev.data.from_node)} → ${nodeLabel(ev.data.to_node)}：委派「${ev.data.task?.slice(0, 40) || ""}」`;
                   } else if (ev.event === "org:task_delivered") {
-                    icon = "📦"; color = "var(--ok)";
+                    icon = "◆"; color = "var(--ok)";
                     text = `${nodeLabel(ev.data.from_node)} → ${nodeLabel(ev.data.to_node)}：提交交付物`;
                   } else if (ev.event === "org:task_accepted") {
                     icon = "✓"; color = "#22c55e";
@@ -1786,43 +1793,43 @@ export function OrgEditorView({
                     icon = "⬆"; color = "var(--danger)";
                     text = `${nodeLabel(ev.data.from_node)} 上报：${ev.data.content?.slice(0, 40) || ""}`;
                   } else if (ev.event === "org:message") {
-                    icon = "💬"; color = "#a78bfa";
+                    icon = "▸"; color = "#a78bfa";
                     text = `${nodeLabel(ev.data.from_node)} → ${nodeLabel(ev.data.to_node)}：${ev.data.content?.slice(0, 40) || ""}`;
                   } else if (ev.event === "org:broadcast") {
-                    icon = "📢"; color = "#8b5cf6";
+                    icon = "◉"; color = "#8b5cf6";
                     text = `${nodeLabel(ev.data.from_node)} ${ev.data.scope === "department" ? "部门" : "全组织"}广播：${ev.data.content?.slice(0, 40) || ""}`;
                   } else if (ev.event === "org:blackboard_update") {
-                    icon = "📋"; color = "#f59e0b";
+                    icon = "▪"; color = "#f59e0b";
                     text = `${nodeLabel(ev.data.node_id)} 写入${ev.data.scope === "department" ? "部门" : "组织"}黑板`;
                   } else if (ev.event === "org:heartbeat_start") {
-                    icon = "💓"; color = "#ec4899";
+                    icon = "♥"; color = "#ec4899";
                     text = `${ev.data.type === "standup" ? "晨会" : "经营复盘"}开始...`;
                   } else if (ev.event === "org:heartbeat_done") {
-                    icon = "💓"; color = "#ec4899";
+                    icon = "♥"; color = "#ec4899";
                     text = `${ev.data.type === "standup" ? "晨会" : "复盘"}完成`;
                   } else if (ev.event === "org:task_complete") {
                     icon = "✔"; color = "#22c55e";
                     text = `${nodeLabel(ev.data.node_id)} 完成任务`;
                   } else if (ev.event === "org:meeting_started") {
-                    icon = "🏛"; color = "#6366f1";
+                    icon = "■"; color = "#6366f1";
                     text = `会议开始：${ev.data.topic?.slice(0, 40) || ""}（${ev.data.participants?.length || 0} 人参会）`;
                   } else if (ev.event === "org:meeting_round") {
-                    icon = "🔄"; color = "#6366f1";
+                    icon = "↻"; color = "#6366f1";
                     text = `会议进入第 ${ev.data.round}/${ev.data.total_rounds} 轮`;
                   } else if (ev.event === "org:meeting_speak") {
-                    icon = "🎤"; color = "#8b5cf6";
+                    icon = "♪"; color = "#8b5cf6";
                     text = `${ev.data.role_title || nodeLabel(ev.data.node_id)} 发言：${ev.data.content?.slice(0, 60) || ""}`;
                   } else if (ev.event === "org:meeting_completed") {
-                    icon = "✅"; color = "#22c55e";
+                    icon = "✔"; color = "#22c55e";
                     text = `会议结束：${ev.data.topic?.slice(0, 40) || ""}`;
                   } else if (ev.event === "org:task_timeout") {
-                    icon = "⏰"; color = "#f97316";
+                    icon = "⏱"; color = "#f97316";
                     text = `${nodeLabel(ev.data.node_id)} 任务超时 (${ev.data.timeout_s || ""}s)`;
                   } else if (ev.event === "org:node_status" && ev.data.status === "busy") {
                     icon = "⚡"; color = "var(--primary)";
                     text = `${nodeLabel(ev.data.node_id)} 开始执行`;
                   } else if (ev.event === "org:node_status" && ev.data.status === "error") {
-                    icon = "❌"; color = "var(--danger)";
+                    icon = "✖"; color = "var(--danger)";
                     text = `${nodeLabel(ev.data.node_id)} 执行出错`;
                   }
 
@@ -2139,7 +2146,7 @@ export function OrgEditorView({
                                   fontWeight: 500, fontSize: 10,
                                   color: isToolCall ? "#7c3aed" : undefined,
                                 }}>
-                                  {isToolCall ? "🔧 " : ""}{evtType.replace(/_/g, " ")}
+                                  {isToolCall ? "⚙ " : ""}{evtType.replace(/_/g, " ")}
                                 </span>
                                 <span style={{ color: "#9ca3af", fontSize: 10, marginLeft: "auto" }}>
                                   {tsLocal}
@@ -2700,12 +2707,12 @@ export function OrgEditorView({
                   </div>
                   <div style={{ padding: 4, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
                     {[
-                      { key: "research", label: "搜索", icon: "🔍" },
-                      { key: "planning", label: "计划", icon: "📋" },
-                      { key: "filesystem", label: "文件/命令", icon: "📁" },
-                      { key: "memory", label: "记忆", icon: "🧠" },
-                      { key: "browser", label: "浏览器", icon: "🌐" },
-                      { key: "communication", label: "通信", icon: "📨" },
+                      { key: "research", label: "搜索", icon: "◎" },
+                      { key: "planning", label: "计划", icon: "▪" },
+                      { key: "filesystem", label: "文件/命令", icon: "▣" },
+                      { key: "memory", label: "记忆", icon: "◈" },
+                      { key: "browser", label: "浏览器", icon: "◌" },
+                      { key: "communication", label: "通信", icon: "▸" },
                     ].map((cat) => {
                       const checked = (selectedNode.external_tools || []).includes(cat.key);
                       return (
@@ -3040,10 +3047,10 @@ export function OrgEditorView({
                   </div>
                   <div style={{ padding: 4, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
                     {([
-                      { key: "can_delegate", label: "委派任务", icon: "📤" },
-                      { key: "can_escalate", label: "上报问题", icon: "⬆️" },
-                      { key: "can_request_scaling", label: "申请扩编", icon: "👥" },
-                      { key: "ephemeral", label: "临时节点", icon: "⏳" },
+                      { key: "can_delegate", label: "委派任务", icon: "↗" },
+                      { key: "can_escalate", label: "上报问题", icon: "⬆" },
+                      { key: "can_request_scaling", label: "申请扩编", icon: "⊕" },
+                      { key: "ephemeral", label: "临时节点", icon: "◔" },
                     ] as const).map(({ key, label, icon }) => {
                       const checked = !!selectedNode[key];
                       return (

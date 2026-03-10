@@ -218,6 +218,7 @@ class OrgRuntime:
         org.updated_at = _now_iso()
         self._manager.update(org_id, {"status": org.status.value})
         self._activate_org(org)
+        await self._recover_pending_tasks(org)
 
         await self._heartbeat.start_for_org(org)
         await self._scheduler.start_for_org(org)
@@ -270,9 +271,14 @@ class OrgRuntime:
             except (asyncio.CancelledError, Exception):
                 pass
 
+        for node in org.nodes:
+            if node.status in (NodeStatus.BUSY, NodeStatus.WAITING, NodeStatus.ERROR):
+                node.status = NodeStatus.IDLE
+
         org.status = OrgStatus.DORMANT
         org.updated_at = _now_iso()
         self._manager.update(org_id, {"status": org.status.value})
+        self._save_org(org)
         await self._deactivate_org(org_id)
 
         self.get_event_store(org_id).emit("org_stopped", "system")
