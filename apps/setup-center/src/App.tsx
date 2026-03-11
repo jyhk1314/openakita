@@ -7996,8 +7996,7 @@ export function App() {
         mobileOpen={mobileSidebarOpen}
         configExpanded={configExpanded}
         onToggleConfig={() => {
-          if (sidebarCollapsed) { setView("wizard"); setConfigExpanded(true); }
-          else if (view !== "wizard") { setView("wizard"); setConfigExpanded(true); }
+          if (sidebarCollapsed) { setSidebarCollapsed(false); setConfigExpanded(true); }
           else { setConfigExpanded((v) => !v); }
         }}
         steps={steps}
