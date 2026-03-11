@@ -870,7 +870,7 @@ def list_skills(workspace_dir: str) -> None:
         source_url = None
         if skill_path:
             try:
-                origin_file = Path(skill_path) / ".openakita-source"
+                origin_file = Path(skill_path) / ".synapse-source"
                 if origin_file.exists():
                     source_url = origin_file.read_text(encoding="utf-8").strip()
             except Exception:
@@ -924,7 +924,7 @@ def _resolve_skills_dir(workspace_dir: str) -> Path:
     root = os.environ.get("OPENAKITA_ROOT", "").strip()
     if root:
         return Path(root) / "workspaces" / "default" / "skills"
-    return Path.home() / ".openakita" / "workspaces" / "default" / "skills"
+    return Path.home() / ".synapse" / "workspaces" / "default" / "skills"
 
 
 def _has_git() -> bool:
@@ -1179,7 +1179,7 @@ def install_skill(workspace_dir: str, url: str) -> None:
         platform_skill_id = f"{owner}-{repo}-{skill_name}".lower().replace("/", "-")
         if _try_platform_skill_download(platform_skill_id, target):
             try:
-                origin_file = target / ".openakita-source"
+                origin_file = target / ".synapse-source"
                 origin_file.write_text(url, encoding="utf-8")
             except Exception:
                 pass
@@ -1244,7 +1244,7 @@ def install_skill(workspace_dir: str, url: str) -> None:
 
     # Record install origin for marketplace matching (Issue #15)
     try:
-        origin_file = target / ".openakita-source"
+        origin_file = target / ".synapse-source"
         origin_file.write_text(url, encoding="utf-8")
     except Exception:
         pass

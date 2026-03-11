@@ -504,12 +504,12 @@ class Settings(BaseSettings):
 
     @property
     def openakita_home(self) -> Path:
-        """用户数据根目录，优先使用 OPENAKITA_ROOT 环境变量，默认 ~/.openakita"""
+        """用户数据根目录，优先使用 OPENAKITA_ROOT 环境变量，默认 ~/.synapse"""
         import os
         env_root = os.environ.get("OPENAKITA_ROOT", "").strip()
         if env_root:
             return Path(env_root)
-        return Path.home() / ".openakita"
+        return Path.home() / ".synapse"
 
     @property
     def user_workspace_path(self) -> Path:
@@ -527,7 +527,7 @@ class Settings(BaseSettings):
 
     @property
     def skills_path(self) -> Path:
-        """用户技能安装目录 (~/.openakita/workspaces/default/skills)
+        """用户技能安装目录 (~/.synapse/workspaces/default/skills)
 
         所有通过 install_skill / skill-creator 安装或创建的技能都存放在此目录。
         该目录位于用户 home 下，打包版本也有写权限。

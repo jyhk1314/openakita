@@ -464,8 +464,8 @@ Function PageEnvCheck
   Abort
  ${EndIf}
 
- ; 检测 ~/.openakita 是否存在
- ExpandEnvStrings $R0 "%USERPROFILE%\.openakita"
+ ; 检测 ~/.synapse 是否存在
+ ExpandEnvStrings $R0 "%USERPROFILE%\.synapse"
  ${IfNot} ${FileExists} "$R0\*"
   Abort
  ${EndIf}

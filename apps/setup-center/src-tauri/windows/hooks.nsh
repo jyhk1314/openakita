@@ -1,7 +1,7 @@
 ; OpenAkita Setup Center - NSIS Hooks
 ; 目标：
 ; - 卸载时强制杀掉残留进程（Setup Center 本体 + OpenAkita 后台服务）
-; - 勾选"清理用户数据"时，删除用户目录下的 ~/.openakita
+; - 勾选"清理用户数据"时，删除用户目录下的 ~/.synapse
 
 ; ── PATH 辅助脚本 ──
 ; 通过 PowerShell 安全地读写 PATH 注册表值，解决：
@@ -67,7 +67,7 @@
 ; 该文件由 Tauri 端在设置自定义路径时同步写入（纯文本，仅包含路径）
 ; 如果文件不存在或内容为空，$R9 = 默认路径
 !macro _OpenAkita_ResolveRoot
-  ExpandEnvStrings $R9 "%USERPROFILE%\.openakita"
+  ExpandEnvStrings $R9 "%USERPROFILE%\.synapse"
   IfFileExists "$R9\custom_root.txt" +1 +8
   ClearErrors
   FileOpen $R8 "$R9\custom_root.txt" "r"
@@ -98,7 +98,7 @@
   !insertmacro _OpenAkita_ResolveRoot
   !insertmacro _OpenAkita_KillServicePidsIn "$R9\run"
   ; 始终也检查默认路径（兼容残留，重复检查是无害的）
-  ExpandEnvStrings $R0 "%USERPROFILE%\.openakita\run"
+  ExpandEnvStrings $R0 "%USERPROFILE%\.synapse\run"
   !insertmacro _OpenAkita_KillServicePidsIn $R0
 !macroend
 
@@ -156,7 +156,7 @@
   Sleep 2000
 
   ; 4) 合并清理环境组件 + 可选用户数据（单次 PowerShell 调用替代逐目录多次调用）
-  ExpandEnvStrings $R0 "%USERPROFILE%\.openakita"
+  ExpandEnvStrings $R0 "%USERPROFILE%\.synapse"
   ${If} ${FileExists} "$R0\*"
     DetailPrint "Cleaning previous installation components..."
     !insertmacro _OpenAkita_WriteCleanupScript
@@ -249,7 +249,7 @@
     ; 清理自定义路径（如果有）
     !insertmacro _OpenAkita_ForceRemoveDir $R9
     ; 始终清理默认路径（包含 root_config.json 和 custom_root.txt）
-    ExpandEnvStrings $R0 "%USERPROFILE%\.openakita"
+    ExpandEnvStrings $R0 "%USERPROFILE%\.synapse"
     !insertmacro _OpenAkita_ForceRemoveDir $R0
   ${EndIf}
 !macroend

@@ -49,7 +49,7 @@ install_hub_agent(agent_id="the-agent-id")
 1. 下载 `.akita-agent` 包
 2. 打包的技能 → `skills/custom/`（版本去重：本地有更新版就跳过）
 3. 外部依赖技能 → 从原始 GitHub 仓库拉取到 `skills/community/`
-4. 每个技能写入 `.openakita-origin.json` 追踪来源
+4. 每个技能写入 `.synapse-origin.json` 追踪来源
 5. Agent 配置注册到本地 → 技能自动重载
 
 ---

@@ -32,7 +32,7 @@ def _resolve_user_workspace_skills() -> Path:
         root = os.environ.get("OPENAKITA_ROOT", "").strip()
         if root:
             return Path(root) / "workspaces" / "default" / "skills"
-        return Path.home() / ".openakita" / "workspaces" / "default" / "skills"
+        return Path.home() / ".synapse" / "workspaces" / "default" / "skills"
 
 
 def _builtin_skills_root() -> Path | None:
@@ -40,7 +40,7 @@ def _builtin_skills_root() -> Path | None:
     返回内置技能目录（随 wheel 分发）。
 
     期望结构：
-    openakita/
+    synapse/
       builtin_skills/
         system/<tool-name>/SKILL.md
     """
@@ -298,7 +298,7 @@ class SkillLoader:
     def _load_i18n(self, skill_dir: Path, metadata: SkillMetadata) -> None:
         """加载国际化数据到 metadata。
 
-        优先 agents/openai.yaml 的 i18n 字段，回退 .openakita-i18n.json。
+        优先 agents/openai.yaml 的 i18n 字段，回退 .synapse-i18n.json。
         """
         from .i18n import read_i18n
 

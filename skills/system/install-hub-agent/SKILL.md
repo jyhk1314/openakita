@@ -47,7 +47,7 @@ Download and install an Agent from the OpenAkita Platform Agent Store to the loc
 - Installed Agents appear in the local Agent list immediately
 - Bundled skills go to `skills/custom/`, external skills go to `skills/community/`
 - Skills are version-deduplicated: if a newer version already exists locally, it is kept
-- Each installed skill gets a `.openakita-origin.json` tracking its source and version
+- Each installed skill gets a `.synapse-origin.json` tracking its source and version
 - The Agent's `hub_source` field records where it came from
 
 ## Fallback

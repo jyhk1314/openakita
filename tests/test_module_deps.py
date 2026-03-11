@@ -239,7 +239,7 @@ class TestPlaywrightBrowsersPath:
 
     def test_sets_browsers_path_when_dir_exists(self, tmp_path):
         """当 browsers 目录存在时应设置 PLAYWRIGHT_BROWSERS_PATH"""
-        browsers_dir = tmp_path / ".openakita" / "modules" / "browser" / "browsers"
+        browsers_dir = tmp_path / ".synapse" / "modules" / "browser" / "browsers"
         browsers_dir.mkdir(parents=True)
         # 模拟浏览器已安装
         (browsers_dir / "chromium-1234").mkdir()
@@ -249,7 +249,7 @@ class TestPlaywrightBrowsersPath:
             with patch("pathlib.Path.home", return_value=tmp_path):
                 # 模拟 browser/manager.py 中的逻辑
                 if "PLAYWRIGHT_BROWSERS_PATH" not in os.environ:
-                    check_dir = Path.home() / ".openakita" / "modules" / "browser" / "browsers"
+                    check_dir = Path.home() / ".synapse" / "modules" / "browser" / "browsers"
                     if check_dir.is_dir():
                         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(check_dir)
 
@@ -263,7 +263,7 @@ class TestPlaywrightBrowsersPath:
 
     def test_does_not_override_existing_env(self, tmp_path):
         """如果已设置 PLAYWRIGHT_BROWSERS_PATH，不应覆盖"""
-        browsers_dir = tmp_path / ".openakita" / "modules" / "browser" / "browsers"
+        browsers_dir = tmp_path / ".synapse" / "modules" / "browser" / "browsers"
         browsers_dir.mkdir(parents=True)
 
         custom_path = "/custom/browsers"
@@ -274,7 +274,7 @@ class TestPlaywrightBrowsersPath:
             with patch("pathlib.Path.home", return_value=tmp_path):
                 # 模拟 browser/manager.py 中的逻辑
                 if "PLAYWRIGHT_BROWSERS_PATH" not in os.environ:
-                    check_dir = Path.home() / ".openakita" / "modules" / "browser" / "browsers"
+                    check_dir = Path.home() / ".synapse" / "modules" / "browser" / "browsers"
                     if check_dir.is_dir():
                         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(check_dir)
 
@@ -292,7 +292,7 @@ class TestPlaywrightBrowsersPath:
         try:
             with patch("pathlib.Path.home", return_value=tmp_path):
                 if "PLAYWRIGHT_BROWSERS_PATH" not in os.environ:
-                    check_dir = Path.home() / ".openakita" / "modules" / "browser" / "browsers"
+                    check_dir = Path.home() / ".synapse" / "modules" / "browser" / "browsers"
                     if check_dir.is_dir():
                         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(check_dir)
 

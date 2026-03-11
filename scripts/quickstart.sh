@@ -19,7 +19,7 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-OPENAKITA_ROOT_DEFAULT="${OPENAKITA_ROOT:-$HOME/.openakita}"
+OPENAKITA_ROOT_DEFAULT="${OPENAKITA_ROOT:-$HOME/.synapse}"
 OPENAKITA_APP_DIR_DEFAULT="${OPENAKITA_APP_DIR:-$OPENAKITA_ROOT_DEFAULT/app}"
 OPENAKITA_VENV_DIR_DEFAULT="${OPENAKITA_VENV_DIR:-$OPENAKITA_ROOT_DEFAULT/venv}"
 
@@ -37,8 +37,8 @@ usage() {
 OpenAkita one-click install (PyPI).
 
 Options:
-  --dir <path>            App working directory (default: ~/.openakita/app)
-  --venv <path>           Virtualenv directory (default: ~/.openakita/venv)
+  --dir <path>            App working directory (default: ~/.synapse/app)
+  --venv <path>           Virtualenv directory (default: ~/.synapse/venv)
   --extras <list>         Extras to install, e.g. "all" or "browser,windows"
   --index-url <url>       pip index-url (mirror)
   --torch <cpu|skip>      Pre-install torch (CPU-only) or skip (default: cpu)

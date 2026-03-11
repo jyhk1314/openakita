@@ -43,12 +43,12 @@ struct PlatformInfo {
     os: String,
     arch: String,
     home_dir: String,
-    openakita_root_dir: String,
+    synapse_root_dir: String,
 }
 
-fn default_openakita_root() -> String {
+fn default_synapse_root() -> String {
     let home = home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-    home.join(".openakita").to_string_lossy().to_string()
+    home.join(".synapse").to_string_lossy().to_string()
 }
 
 #[tauri::command]
@@ -58,7 +58,7 @@ fn get_platform_info() -> PlatformInfo {
         os: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
         home_dir: home.to_string_lossy().to_string(),
-        openakita_root_dir: default_openakita_root(),
+        synapse_root_dir: default_synapse_root(),
     }
 }
 
@@ -104,7 +104,7 @@ struct WorkspaceMeta {
 fn default_root_dir() -> PathBuf {
     home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".openakita")
+        .join(".synapse")
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -152,7 +152,7 @@ fn write_root_config(config: &RootConfig) -> Result<(), String> {
     Ok(())
 }
 
-fn openakita_root_dir() -> PathBuf {
+fn synapse_root_dir() -> PathBuf {
     if let Ok(val) = std::env::var("OPENAKITA_ROOT") {
         if !val.is_empty() {
             return PathBuf::from(val);
@@ -176,12 +176,12 @@ fn openakita_root_dir() -> PathBuf {
 }
 
 fn run_dir() -> PathBuf {
-    openakita_root_dir().join("run")
+    synapse_root_dir().join("run")
 }
 
-/// 安装配置日志目录：~/.openakita/logs/
+/// 安装配置日志目录：~/.synapse/logs/
 fn setup_logs_dir() -> PathBuf {
-    openakita_root_dir().join("logs")
+    synapse_root_dir().join("logs")
 }
 
 /// 开始写入安装配置日志，创建带日期的日志文件。返回完整路径供前端展示。
@@ -283,7 +283,7 @@ fn maybe_rotate_frontend_log(path: &Path) {
     let _ = fs::write(path, &tail[offset..]);
 }
 
-/// 前端 JS 日志批量追加到 ~/.openakita/logs/frontend.log。
+/// 前端 JS 日志批量追加到 ~/.synapse/logs/frontend.log。
 #[tauri::command]
 fn append_frontend_log(lines: Vec<String>) -> Result<(), String> {
     if lines.is_empty() {
@@ -310,7 +310,7 @@ fn append_frontend_log(lines: Vec<String>) -> Result<(), String> {
 fn save_log_export(filename: String, content: String) -> Result<String, String> {
     let downloads = dirs_next::download_dir()
         .or_else(dirs_next::desktop_dir)
-        .unwrap_or_else(|| openakita_root_dir().join("logs"));
+        .unwrap_or_else(|| synapse_root_dir().join("logs"));
     fs::create_dir_all(&downloads).ok();
     let path = downloads.join(&filename);
     fs::write(&path, content.as_bytes())
@@ -319,7 +319,7 @@ fn save_log_export(filename: String, content: String) -> Result<String, String> 
 }
 
 fn modules_dir() -> PathBuf {
-    openakita_root_dir().join("modules")
+    synapse_root_dir().join("modules")
 }
 
 /// 获取内嵌 PyInstaller 打包后端的目录
@@ -498,7 +498,7 @@ fn build_modules_pythonpath() -> Option<String> {
 
 /// 查找可用于 pip install 的 Python 可执行文件路径
 fn find_pip_python() -> Option<PathBuf> {
-    let root = openakita_root_dir();
+    let root = synapse_root_dir();
     // 1. venv python
     let venv_py = if cfg!(windows) {
         root.join("venv").join("Scripts").join("python.exe")
@@ -553,7 +553,7 @@ struct RootDirInfo {
 fn get_root_dir_info() -> RootDirInfo {
     RootDirInfo {
         default_root: default_root_dir().to_string_lossy().to_string(),
-        current_root: openakita_root_dir().to_string_lossy().to_string(),
+        current_root: synapse_root_dir().to_string_lossy().to_string(),
         custom_root: read_root_config().custom_root,
     }
 }
@@ -566,7 +566,7 @@ fn set_custom_root_dir(path: Option<String>, migrate: bool) -> Result<RootDirInf
     if let Some(ref p) = clean_path {
         let target = PathBuf::from(p);
         if !target.is_absolute() {
-            return Err("请使用绝对路径（如 D:\\MyData\\.openakita 或 /data/openakita）".into());
+            return Err("请使用绝对路径（如 D:\\MyData\\.synapse 或 /data/synapse）".into());
         }
         if target.exists() && !target.is_dir() {
             return Err("指定的路径已存在但不是目录".into());
@@ -580,7 +580,7 @@ fn set_custom_root_dir(path: Option<String>, migrate: bool) -> Result<RootDirInf
 
     if migrate {
         if let Some(ref new_root) = clean_path {
-            let old_root = openakita_root_dir();
+            let old_root = synapse_root_dir();
             let new_root_path = PathBuf::from(new_root);
             if old_root != new_root_path && old_root.exists() {
                 for entry_name in &["workspaces", "venv", "runtime", "run", "logs", "modules", "bin"] {
@@ -613,7 +613,7 @@ fn set_custom_root_dir(path: Option<String>, migrate: bool) -> Result<RootDirInf
 
     Ok(RootDirInfo {
         default_root: default_root_dir().to_string_lossy().to_string(),
-        current_root: openakita_root_dir().to_string_lossy().to_string(),
+        current_root: synapse_root_dir().to_string_lossy().to_string(),
         custom_root: config.custom_root,
     })
 }
@@ -686,7 +686,7 @@ fn dir_size_bytes(path: &Path) -> u64 {
 
 #[tauri::command]
 fn check_environment() -> EnvironmentCheck {
-    let root = openakita_root_dir();
+    let root = synapse_root_dir();
     // 只有目录存在且非空才算有旧残留
     let has_old_venv = root.join("venv").exists()
         && root.join("venv").read_dir()
@@ -836,7 +836,7 @@ fn force_remove_dir(path: &std::path::Path) -> Result<(), String> {
 
 #[tauri::command]
 fn cleanup_old_environment(clean_venv: bool, clean_runtime: bool) -> Result<String, String> {
-    let root = openakita_root_dir();
+    let root = synapse_root_dir();
     let mut cleaned = Vec::new();
     let mut warnings = Vec::new();
 
@@ -878,11 +878,11 @@ fn cleanup_old_environment(clean_venv: bool, clean_runtime: bool) -> Result<Stri
 }
 
 fn state_file_path() -> PathBuf {
-    openakita_root_dir().join("state.json")
+    synapse_root_dir().join("state.json")
 }
 
 fn workspaces_dir() -> PathBuf {
-    openakita_root_dir().join("workspaces")
+    synapse_root_dir().join("workspaces")
 }
 
 fn workspace_dir(id: &str) -> PathBuf {
@@ -1660,8 +1660,8 @@ fn openakita_list_processes() -> Vec<OpenAkitaProcess> {
             if let Ok(cmd_out) = c.output() {
                 let s = String::from_utf8_lossy(&cmd_out.stdout).to_string();
                 let s_lower = s.to_lowercase();
-                // 精确匹配模块调用签名，避免 venv 路径中 .openakita 误报
-                if s_lower.contains("openakita.main") && (s_lower.contains(" serve") || s_lower.ends_with("serve")) {
+                // 精确匹配模块调用签名，避免 venv 路径中 .synapse 误报
+                if s_lower.contains("synapse.main") && (s_lower.contains(" serve") || s_lower.ends_with("serve")) {
                     if is_pid_running(ppid) {
                         out.push(OpenAkitaProcess {
                             pid: ppid,
@@ -1674,7 +1674,7 @@ fn openakita_list_processes() -> Vec<OpenAkitaProcess> {
     }
     #[cfg(not(windows))]
     {
-        // ps aux | grep openakita.main.*serve  —— 精确匹配模块调用
+        // ps aux | grep synapse.main.*serve  —— 精确匹配模块调用
         if let Ok(ps_out) = Command::new("sh")
             .args(["-c", "ps aux | grep '[o]penakita\\.main.*serve'"])
             .output()
@@ -1872,7 +1872,7 @@ fn ensure_workspace_scaffold(dir: &Path) -> Result<(), String> {
 
 #[tauri::command]
 fn list_workspaces() -> Result<Vec<WorkspaceSummary>, String> {
-    let root = openakita_root_dir();
+    let root = synapse_root_dir();
     fs::create_dir_all(&root).map_err(|e| format!("create root failed: {e}"))?;
     fs::create_dir_all(workspaces_dir()).map_err(|e| format!("create workspaces dir failed: {e}"))?;
 
@@ -2217,7 +2217,7 @@ fn main() {
             startup_reconcile();
 
             // ── 配置文件版本迁移 ──
-            let root = openakita_root_dir();
+            let root = synapse_root_dir();
             let state_path = state_file_path();
             if let Err(e) = migrations::run_migrations(&state_path, &root) {
                 eprintln!("Config migration error: {e}");
@@ -2279,7 +2279,7 @@ fn main() {
                 );
                 if need_start {
                     AUTO_START_IN_PROGRESS.store(true, Ordering::SeqCst);
-                        let venv_dir = openakita_root_dir().join("venv").to_string_lossy().to_string();
+                        let venv_dir = synapse_root_dir().join("venv").to_string_lossy().to_string();
                         let ws_clone = ws_id.clone();
                         std::thread::spawn(move || {
                             let _ = openakita_service_start(venv_dir, ws_clone);
@@ -2875,7 +2875,7 @@ fn openakita_service_start(venv_dir: String, workspace_id: String) -> Result<Ser
         cmd.env(k, v);
     }
     cmd.env("LLM_ENDPOINTS_CONFIG", ws_dir.join("data").join("llm_endpoints.json"));
-    cmd.env("OPENAKITA_ROOT", openakita_root_dir().to_string_lossy().to_string());
+    cmd.env("OPENAKITA_ROOT", synapse_root_dir().to_string_lossy().to_string());
 
     // 设置可选模块路径（已安装的可选模块 site-packages）
     // 重要：不能使用 PYTHONPATH！Python 启动时 PYTHONPATH 会被插入到 sys.path
@@ -3102,10 +3102,10 @@ fn set_auto_update(enabled: bool) -> Result<(), String> {
 #[tauri::command]
 fn set_tray_backend_status(app: tauri::AppHandle, status: String) -> Result<(), String> {
     let tooltip = match status.as_str() {
-        "alive" => "OpenAkita - Running",
-        "degraded" => "OpenAkita - Backend Unresponsive",
-        "dead" => "OpenAkita - Backend Stopped",
-        _ => "OpenAkita",
+        "alive" => "Synapse - Running",
+        "degraded" => "Synapse - Backend Unresponsive",
+        "dead" => "Synapse - Backend Stopped",
+        _ => "Synapse",
     };
     // 更新所有 tray icon 的 tooltip
     if let Some(tray) = app.tray_by_id("main_tray") {
@@ -3124,13 +3124,13 @@ fn set_tray_backend_status(app: tauri::AppHandle, status: String) -> Result<(), 
             cmd.args([
                 "-NoProfile", "-NonInteractive", "-Command",
                 "try { \
-                    $aumid = 'com.openakita.setupcenter'; \
+                    $aumid = 'com.synapse.setupcenter'; \
                     $rp = \"HKCU:\\SOFTWARE\\Classes\\AppUserModelId\\$aumid\"; \
-                    if (!(Test-Path $rp)) { New-Item $rp -Force | Out-Null; Set-ItemProperty $rp -Name DisplayName -Value 'OpenAkita Desktop' }; \
+                    if (!(Test-Path $rp)) { New-Item $rp -Force | Out-Null; Set-ItemProperty $rp -Name DisplayName -Value 'Synapse Desktop' }; \
                     [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; \
                     $xml = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02); \
                     $t = $xml.GetElementsByTagName('text'); \
-                    $t[0].AppendChild($xml.CreateTextNode('OpenAkita')) | Out-Null; \
+                    $t[0].AppendChild($xml.CreateTextNode('Synapse')) | Out-Null; \
                     $t[1].AppendChild($xml.CreateTextNode('Backend service has stopped')) | Out-Null; \
                     $n = [Windows.UI.Notifications.ToastNotification]::new($xml); \
                     [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($aumid).Show($n) \
@@ -3143,7 +3143,7 @@ fn set_tray_backend_status(app: tauri::AppHandle, status: String) -> Result<(), 
         {
             // macOS: use osascript
             let _ = Command::new("osascript")
-                .args(["-e", "display notification \"Backend service has stopped\" with title \"OpenAkita\""])
+                .args(["-e", "display notification \"Backend service has stopped\" with title \"Synapse\""])
                 .spawn();
         }
     }
@@ -3164,7 +3164,7 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     TrayIconBuilder::with_id("main_tray")
         .icon(app.default_window_icon().unwrap().clone())
-        .tooltip("OpenAkita")
+        .tooltip("Synapse")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id.as_ref() {
@@ -3792,7 +3792,7 @@ fn python_version_ok(version_text: &str) -> bool {
 fn detect_python() -> Vec<PythonCandidate> {
     let mut out = vec![];
 
-    let root = openakita_root_dir();
+    let root = synapse_root_dir();
     let venv_py = if cfg!(windows) {
         root.join("venv").join("Scripts").join("python.exe")
     } else {
@@ -4151,7 +4151,7 @@ fn parse_diagnostics_json(json: &serde_json::Value) -> Option<PythonDiagnostic> 
 #[tauri::command]
 fn export_python_diagnostic_report(venv_dir: String) -> Result<String, String> {
     let diag = diagnose_python_env(venv_dir);
-    let report_dir = openakita_root_dir().join("runtime").join("reports");
+    let report_dir = synapse_root_dir().join("runtime").join("reports");
     fs::create_dir_all(&report_dir).map_err(|e| format!("创建报告目录失败: {e}"))?;
     let report_path = report_dir.join(format!("python-diagnostic-{}.json", diag.trace_id));
     let text = serde_json::to_string_pretty(&diag).map_err(|e| format!("序列化报告失败: {e}"))?;
@@ -5297,8 +5297,8 @@ fn cli_bin_dir() -> PathBuf {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        // macOS / Linux: 使用 ~/.openakita/bin/
-        openakita_root_dir().join("bin")
+        // macOS / Linux: 使用 ~/.synapse/bin/
+        synapse_root_dir().join("bin")
     }
 }
 
@@ -5306,15 +5306,15 @@ fn cli_bin_dir() -> PathBuf {
 fn cli_backend_exe_path() -> Result<PathBuf, String> {
     let bundled_dir = bundled_backend_dir();
     let exe = if cfg!(windows) {
-        bundled_dir.join("openakita-server.exe")
+        bundled_dir.join("synapse-server.exe")
     } else {
-        bundled_dir.join("openakita-server")
+        bundled_dir.join("synapse-server")
     };
     if exe.exists() {
         return Ok(exe);
     }
     // 降级：尝试 venv 模式（开发环境），先 python3 再 python
-    let venv_base = openakita_root_dir().join("venv");
+    let venv_base = synapse_root_dir().join("venv");
     let venv_py = if cfg!(windows) {
         venv_base.join("Scripts").join("python.exe")
     } else {
@@ -5330,7 +5330,7 @@ fn cli_backend_exe_path() -> Result<PathBuf, String> {
         venv_py.display(),
     );
     Err(format!(
-        "未找到后端可执行文件（openakita-server 或 venv python）\n\
+        "未找到后端可执行文件（synapse-server 或 venv python）\n\
          已检查: {} | {}",
         exe.display(),
         venv_py.display(),
@@ -5339,7 +5339,7 @@ fn cli_backend_exe_path() -> Result<PathBuf, String> {
 
 /// 读取 CLI 配置文件
 fn read_cli_config() -> Option<CliConfig> {
-    let path = openakita_root_dir().join("cli.json");
+    let path = synapse_root_dir().join("cli.json");
     if !path.exists() {
         return None;
     }
@@ -5349,7 +5349,7 @@ fn read_cli_config() -> Option<CliConfig> {
 
 /// 写入 CLI 配置文件
 fn write_cli_config(config: &CliConfig) -> Result<(), String> {
-    let path = openakita_root_dir().join("cli.json");
+    let path = synapse_root_dir().join("cli.json");
     let content = serde_json::to_string_pretty(config)
         .map_err(|e| format!("序列化 CLI 配置失败: {e}"))?;
     std::fs::write(&path, content)
@@ -5663,8 +5663,8 @@ fn unix_add_to_path(bin_dir: &Path) -> Result<(), String> {
 
 #[cfg(not(target_os = "windows"))]
 fn unix_remove_from_path(_bin_dir: &Path) -> Result<(), String> {
-    let marker_start = "# >>> openakita cli >>>";
-    let marker_end = "# <<< openakita cli <<<";
+    let marker_start = "# >>> synapse cli >>>";
+    let marker_end = "# <<< synapse cli <<<";
 
     let home = home_dir().ok_or("无法获取 HOME 目录")?;
     let profiles = get_shell_profiles(&home);
@@ -5836,7 +5836,7 @@ fn unregister_cli() -> Result<String, String> {
     let _ = std::fs::remove_dir(&bin_dir);
 
     // 删除配置文件
-    let config_path = openakita_root_dir().join("cli.json");
+    let config_path = synapse_root_dir().join("cli.json");
     let _ = std::fs::remove_file(&config_path);
 
     Ok("CLI 命令已注销".into())
@@ -5920,9 +5920,9 @@ mod tests {
     #[test]
     fn test_venv_python_path_platform_layout() {
         let dir = if cfg!(windows) {
-            r"C:\Users\test\.openakita\venv"
+            r"C:\Users\test\.synapse\venv"
         } else {
-            "/home/test/.openakita/venv"
+            "/home/test/.synapse/venv"
         };
         let py = venv_python_path(dir);
         if cfg!(windows) {
@@ -5937,9 +5937,9 @@ mod tests {
     #[test]
     fn test_venv_pythonw_path_consistent_with_python_path() {
         let dir = if cfg!(windows) {
-            r"C:\Users\test\.openakita\venv"
+            r"C:\Users\test\.synapse\venv"
         } else {
-            "/home/test/.openakita/venv"
+            "/home/test/.synapse/venv"
         };
         let py = venv_python_path(dir);
         let pyw = venv_pythonw_path(dir);
@@ -5976,13 +5976,13 @@ mod tests {
 
     #[test]
     fn test_openakita_root_dir_is_valid() {
-        let root = openakita_root_dir();
+        let root = synapse_root_dir();
         assert!(!root.to_string_lossy().is_empty());
-        // Should contain .openakita unless overridden by OPENAKITA_ROOT
+        // Should contain .synapse unless overridden by OPENAKITA_ROOT
         let root_str = root.to_string_lossy();
         assert!(
-            root_str.contains(".openakita") || std::env::var("OPENAKITA_ROOT").is_ok(),
-            "root dir should contain '.openakita' or OPENAKITA_ROOT should be set: {}",
+            root_str.contains(".synapse") || std::env::var("OPENAKITA_ROOT").is_ok(),
+            "root dir should contain '.synapse' or OPENAKITA_ROOT should be set: {}",
             root_str
         );
     }

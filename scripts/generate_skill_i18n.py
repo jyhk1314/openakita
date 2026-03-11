@@ -3,7 +3,7 @@
 
 运行方式: python scripts/generate_skill_i18n.py
 
-同时兼容旧的 .openakita-i18n.json（如果存在则迁移到 agents/openai.yaml）。
+同时兼容旧的 .synapse-i18n.json（如果存在则迁移到 agents/openai.yaml）。
 """
 
 from pathlib import Path
@@ -428,8 +428,8 @@ def main():
         _write_i18n_to_yaml(skill_dir, i18n_data)
         created += 1
 
-        # 清理旧的 .openakita-i18n.json
-        legacy = skill_dir / ".openakita-i18n.json"
+        # 清理旧的 .synapse-i18n.json
+        legacy = skill_dir / ".synapse-i18n.json"
         if legacy.exists():
             legacy.unlink()
             migrated += 1

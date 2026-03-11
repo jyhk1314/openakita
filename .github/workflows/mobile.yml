@@ -266,7 +266,7 @@ jobs:
             <string>manual</string>
             <key>provisioningProfiles</key>
             <dict>
-              <key>com.openakita.mobile</key>
+              <key>com.synapse.mobile</key>
               <string>${PP_NAME}</string>
             </dict>
           </dict>

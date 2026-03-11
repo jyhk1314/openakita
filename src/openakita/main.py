@@ -215,7 +215,7 @@ def _ensure_channel_deps() -> None:
     检查已启用的 IM 通道所需依赖，缺失的自动安装到隔离目录。
 
     安装策略：使用 ``pip install --target`` 将缺失依赖安装到
-    ``~/.openakita/modules/channel-deps/site-packages``，与外部 Python
+    ``~/.synapse/modules/channel-deps/site-packages``，与外部 Python
     环境完全隔离，避免版本冲突。该目录会被 ``inject_module_paths()``
     自动扫描并注入 sys.path。
 

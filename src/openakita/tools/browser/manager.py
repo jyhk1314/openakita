@@ -420,7 +420,7 @@ class BrowserManager:
                     return
 
         _root = os.environ.get("OPENAKITA_ROOT", "").strip()
-        _base = Path(_root) if _root else Path.home() / ".openakita"
+        _base = Path(_root) if _root else Path.home() / ".synapse"
         browsers_dir = _base / "modules" / "browser" / "browsers"
         if browsers_dir.is_dir():
             os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(browsers_dir)

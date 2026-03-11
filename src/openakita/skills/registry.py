@@ -49,7 +49,7 @@ class SkillEntry:
     tool_name: str | None = None
     category: str | None = None
 
-    # metadata.openakita structured fields
+    # metadata.synapse structured fields
     supported_os: list[str] = field(default_factory=list)
     required_bins: list[str] = field(default_factory=list)
     required_env: list[str] = field(default_factory=list)
@@ -57,7 +57,7 @@ class SkillEntry:
     # 技能路径 (用于延迟加载)
     skill_path: str | None = None
 
-    # 国际化（由 agents/openai.yaml i18n 字段注入，兼容旧的 .openakita-i18n.json）
+    # 国际化（由 agents/openai.yaml i18n 字段注入，兼容旧的 .synapse-i18n.json）
     name_i18n: dict[str, str] = field(default_factory=dict)
     description_i18n: dict[str, str] = field(default_factory=dict)
 

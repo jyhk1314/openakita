@@ -195,11 +195,11 @@ async def list_skills(request: Request):
         is_system = bool(skill.system)
         is_enabled = is_system or effective_allowlist is None or skill.name in effective_allowlist
 
-        # Read install origin (.openakita-source) for marketplace matching
+        # Read install origin (.synapse-source) for marketplace matching
         source_url = None
         if skill.skill_path:
             try:
-                origin_file = Path(skill.skill_path).parent / ".openakita-source"
+                origin_file = Path(skill.skill_path).parent / ".synapse-source"
                 if origin_file.exists():
                     source_url = origin_file.read_text(encoding="utf-8").strip()
             except Exception:

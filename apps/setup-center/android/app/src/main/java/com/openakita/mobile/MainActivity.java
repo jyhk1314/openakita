@@ -1,4 +1,4 @@
-package com.openakita.mobile;
+package com.synapse.mobile;
 
 import com.getcapacitor.BridgeActivity;
 

@@ -2,7 +2,7 @@
 技能国际化支持
 
 通过 agents/openai.yaml 的 i18n 字段为技能提供多语言名称和描述。
-向后兼容旧的 .openakita-i18n.json sidecar 文件。
+向后兼容旧的 .synapse-i18n.json sidecar 文件。
 - 内置技能：预置翻译（agents/openai.yaml）
 - 市场安装技能：安装后自动调用 LLM 翻译生成
 - 用户创建技能：skill-creator 引导创建
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-LEGACY_I18N_FILENAME = ".openakita-i18n.json"
+LEGACY_I18N_FILENAME = ".synapse-i18n.json"
 OPENAI_YAML_PATH = "agents/openai.yaml"
 
 
@@ -31,7 +31,7 @@ def read_i18n(skill_dir: Path) -> dict[str, dict[str, str]]:
     """读取技能的 i18n 数据。
 
     优先从 agents/openai.yaml 的 ``i18n`` 字段读取，
-    回退到旧的 .openakita-i18n.json 格式。
+    回退到旧的 .synapse-i18n.json 格式。
 
     Returns:
         {lang: {"name": ..., "description": ...}, ...} 或空 dict
@@ -71,7 +71,7 @@ def _read_i18n_from_yaml(skill_dir: Path) -> dict[str, dict[str, str]]:
 
 
 def _read_i18n_from_json(skill_dir: Path) -> dict[str, dict[str, str]]:
-    """从旧的 .openakita-i18n.json 读取（向后兼容）。"""
+    """从旧的 .synapse-i18n.json 读取（向后兼容）。"""
     i18n_file = skill_dir / LEGACY_I18N_FILENAME
     if not i18n_file.exists():
         return {}

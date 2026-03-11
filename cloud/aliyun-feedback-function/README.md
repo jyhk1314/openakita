@@ -267,7 +267,7 @@ openakita-feedback/
 使用 `scripts/feedback.py` 管理 OSS 上的反馈：
 
 ```bash
-# 设置凭证（或创建 ~/.openakita/feedback.env）
+# 设置凭证（或创建 ~/.synapse/feedback.env）
 export OSS_ENDPOINT=https://oss-cn-hangzhou.aliyuncs.com
 export OSS_BUCKET=openakita-feedback
 export OSS_ACCESS_KEY_ID=xxx

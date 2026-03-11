@@ -97,7 +97,7 @@ class SkillStoreClient:
 
     @staticmethod
     def _write_origin(skill_dir: Path, install_url: str) -> None:
-        """Write .openakita-origin.json to track skill provenance."""
+        """Write .synapse-origin.json to track skill provenance."""
         try:
             origin = {
                 "source": install_url,
@@ -112,7 +112,7 @@ class SkillStoreClient:
                     fm = yaml.safe_load(m.group(1)) or {}
                     if fm.get("version"):
                         origin["version"] = fm["version"]
-            (skill_dir / ".openakita-origin.json").write_text(
+            (skill_dir / ".synapse-origin.json").write_text(
                 json.dumps(origin, ensure_ascii=False, indent=2), encoding="utf-8"
             )
         except Exception as e:

@@ -2,7 +2,7 @@
 .SYNOPSIS
   OpenAkita 一键安装脚本（PyPI，Windows PowerShell）
 .DESCRIPTION
-  - 创建独立的 venv（默认在 %USERPROFILE%\.openakita\venv）
+  - 创建独立的 venv（默认在 %USERPROFILE%\.synapse\venv）
   - 安装 openakita（可选 extras、可选镜像）
   - 可选安装 Playwright 浏览器
   - 可选运行 openakita init（在 AppDir 目录生成 .env / data / identity）
@@ -17,8 +17,8 @@
 
 [CmdletBinding()]
 param(
-  [string]$AppDir = "$env:USERPROFILE\.openakita\app",
-  [string]$VenvDir = "$env:USERPROFILE\.openakita\venv",
+  [string]$AppDir = "$env:USERPROFILE\.synapse\app",
+  [string]$VenvDir = "$env:USERPROFILE\.synapse\venv",
   [string]$Extras = "",
   [ValidateSet("cpu","skip")] [string]$Torch = "cpu",
   [string]$IndexUrl = "",
@@ -121,7 +121,7 @@ if (-not $NoInit) {
 }
 
 if (-not $NoWrapper) {
-  $binDir = "$env:USERPROFILE\.openakita\bin"
+  $binDir = "$env:USERPROFILE\.synapse\bin"
   New-Item -ItemType Directory -Path $binDir -Force | Out-Null
   $cmdPath = Join-Path $binDir "openakita.cmd"
 
