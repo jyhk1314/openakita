@@ -8,6 +8,41 @@ import SHARED_PROVIDERS from "@shared/providers.json";
 // registry_class 字段仅 Python 使用，前端忽略
 export const BUILTIN_PROVIDERS: ProviderInfo[] = SHARED_PROVIDERS as ProviderInfo[];
 
+/** 中国区提供商 slug（与 wizard constants 一致） */
+export const CHINA_SLUGS = new Set([
+  "dashscope", "kimi-cn", "minimax-cn", "siliconflow",
+  "volcengine", "zhipu-cn", "qianfan", "hunyuan", "yunwu",
+  "longcat", "iflow",
+]);
+
+/** 公司内部提供商 slug（与 wizard constants 一致） */
+export const WHALECLOUD_SLUGS = new Set(["iwhalecloud"]);
+
+/** 提示词编译器公司内部默认配置（与 wizard _configure_compiler 一致） */
+export const COMPILER_COMPANY_DEFAULTS = {
+  provider: "iwhalecloud",
+  baseUrl: "https://lab.iwhalecloud.com/gpt-proxy/v1",
+  apiKeyEnv: "IWHALECLOUD_API_KEY",
+  model: "gpt-4o-mini",
+} as const;
+
+/**
+ * 按 公司内部 → 本地 → 国际 → 中国区 顺序排序，用于下拉展示（与 wizard _pick_provider 顺序一致）
+ */
+export function sortProvidersForDisplay(providers: ProviderInfo[]): ProviderInfo[] {
+  const whalecloud: ProviderInfo[] = [];
+  const local: ProviderInfo[] = [];
+  const intl: ProviderInfo[] = [];
+  const china: ProviderInfo[] = [];
+  for (const p of providers) {
+    if (p.is_local) local.push(p);
+    else if (WHALECLOUD_SLUGS.has(p.slug)) whalecloud.push(p);
+    else if (CHINA_SLUGS.has(p.slug)) china.push(p);
+    else intl.push(p);
+  }
+  return [...whalecloud, ...local, ...intl, ...china];
+}
+
 /** STT 推荐模型（按 provider slug 索引） */
 export const STT_RECOMMENDED_MODELS: Record<string, { id: string; note: string }[]> = {
   "openai":          [{ id: "gpt-4o-transcribe", note: "推荐" }, { id: "whisper-1", note: "" }],

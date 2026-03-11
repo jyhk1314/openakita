@@ -40,7 +40,7 @@ import logoUrl from "./assets/logo.png";
 import "highlight.js/styles/github.css";
 import { getThemePref, setThemePref, THEME_CHANGE_EVENT, type Theme } from "./theme";
 import { copyToClipboard } from "./utils/clipboard";
-import { BUILTIN_PROVIDERS, STT_RECOMMENDED_MODELS, PIP_INDEX_PRESETS } from "./constants";
+import { BUILTIN_PROVIDERS, STT_RECOMMENDED_MODELS, PIP_INDEX_PRESETS, sortProvidersForDisplay, COMPILER_COMPANY_DEFAULTS } from "./constants";
 import {
   isLocalProvider, localProviderPlaceholderKey, friendlyFetchError,
   inferCapabilities, fetchModelsDirectly, safeFetch, proxyFetch,
@@ -1175,7 +1175,7 @@ export function App() {
       setVenvStatus(`venv 就绪：${venvDir}`);
       setVenvReady(true);
       setOpenakitaInstalled(false);
-      setNotice("venv 已准备好，可以安装 openakita");
+      setNotice("venv 已准备好，可以安装 Synapse");
       await persistPythonEnvConfig(venvDir);
     } catch (e) {
       setError(String(e));
@@ -1319,7 +1319,7 @@ export function App() {
     setNotice(null);
     setInstallLiveLog("");
     setInstallProgress({ stage: "准备开始", percent: 1 });
-    setBusy("创建 venv 并安装 openakita...");
+    setBusy("创建 venv 并安装 Synapse...");
     try {
       // 1) create venv (idempotent)
       setInstallProgress({ stage: "创建 venv", percent: 10 });
@@ -1334,7 +1334,7 @@ export function App() {
 
       // 2) pip install
       setInstallProgress({ stage: "pip 安装", percent: 35 });
-      setVenvStatus("安装 openakita 中（pip）...");
+      setVenvStatus("安装 Synapse 中（pip）...");
       setInstallLog("");
       const ex = extras.trim();
       const extrasPart = ex ? `[${ex}]` : "";
@@ -1376,7 +1376,7 @@ export function App() {
       setOpenakitaInstalled(true);
       setVenvStatus(`安装完成：${spec}`);
       setInstallProgress({ stage: "安装完成", percent: 100 });
-      setNotice("openakita 已安装，可以读取服务商列表并配置端点");
+      setNotice("Synapse 已安装，可以读取服务商列表并配置端点");
 
       // 3) verify by attempting to list providers (makes failures visible early)
       try {
@@ -1390,7 +1390,7 @@ export function App() {
       setVenvStatus(`安装失败：${msg}`);
       setInstallLog("");
       if (msg.includes("缺少 Setup Center 所需模块") || msg.includes("No module named 'openakita.setup_center'")) {
-        setNotice("你安装到的 openakita 不包含 Setup Center 模块。建议切换“安装来源”为 GitHub 或 本地源码，然后重新安装。");
+        setNotice("当前安装的包不包含 Setup Center 模块。建议切换“安装来源”为 GitHub 或本地源码，然后重新安装。");
       }
     } finally {
       setBusy(null);
@@ -2104,7 +2104,8 @@ export function App() {
   }
 
   async function doFetchCompilerModels() {
-    const compilerSelectedProvider = providers.find((p) => p.slug === compilerProviderSlug) || null;
+    const effectiveCompilerSlug = compilerProviderSlug === "__company__" ? COMPILER_COMPANY_DEFAULTS.provider : compilerProviderSlug;
+    const compilerSelectedProvider = providers.find((p) => p.slug === effectiveCompilerSlug) || null;
     const isCompilerLocal = isLocalProvider(compilerSelectedProvider);
     if (!compilerApiKeyValue.trim() && !isCompilerLocal) {
       setError("请先填写编译端点的 API Key 值");
@@ -2122,7 +2123,7 @@ export function App() {
       const parsed = await fetchModelListUnified({
         apiType: compilerApiType,
         baseUrl: compilerBaseUrl,
-        providerSlug: compilerProviderSlug || null,
+        providerSlug: effectiveCompilerSlug || null,
         apiKey: effectiveCompilerKey,
       });
       setCompilerModels(parsed);
@@ -2134,7 +2135,7 @@ export function App() {
       }
     } catch (e: any) {
       const raw = String(e?.message || e);
-      const cprov = providers.find((p) => p.slug === compilerProviderSlug);
+      const cprov = providers.find((p) => p.slug === effectiveCompilerSlug);
       setError(friendlyFetchError(raw, t, cprov?.name));
     } finally {
       setBusy(null);
@@ -2184,6 +2185,7 @@ export function App() {
       setError("请先创建/选择一个当前工作区");
       return false;
     }
+    const effectiveCompilerSlug = compilerProviderSlug === "__company__" ? COMPILER_COMPANY_DEFAULTS.provider : compilerProviderSlug;
     if (!compilerModel.trim()) {
       setError("请填写编译模型名称");
       return false;
@@ -2196,12 +2198,12 @@ export function App() {
       setError("编译端点 Base URL 必须以 http:// 或 https:// 开头");
       return false;
     }
-    const compilerSelectedProvider = providers.find((p) => p.slug === compilerProviderSlug) || null;
+    const compilerSelectedProvider = providers.find((p) => p.slug === effectiveCompilerSlug) || null;
     const isCompilerLocal = isLocalProvider(compilerSelectedProvider);
     // apiKeyEnv 兜底：即使用户没有手动编辑也能生成合理的环境变量名
     const effectiveCompApiKeyEnv = compilerApiKeyEnv.trim()
       || compilerSelectedProvider?.api_key_env_suggestion
-      || envKeyFromSlug(compilerProviderSlug || "custom");
+      || (compilerProviderSlug === "__company__" ? COMPILER_COMPANY_DEFAULTS.apiKeyEnv : envKeyFromSlug(compilerProviderSlug || "custom"));
     const effectiveCompApiKeyValue = compilerApiKeyValue.trim() || (isCompilerLocal ? localProviderPlaceholderKey(compilerSelectedProvider) : "");
     if (!isCompilerLocal && !effectiveCompApiKeyValue) {
       setError("请填写编译端点的 API Key 值");
@@ -2243,7 +2245,7 @@ export function App() {
       const base = currentJson ? JSON.parse(currentJson) : { endpoints: [], settings: {} };
       base.compiler_endpoints = Array.isArray(base.compiler_endpoints) ? base.compiler_endpoints : [];
 
-      const baseName = (compilerEndpointName.trim() || `compiler-${compilerProviderSlug || "provider"}-${compilerModel.trim()}`).slice(0, 64);
+      const baseName = (compilerEndpointName.trim() || `compiler-${effectiveCompilerSlug || "provider"}-${compilerModel.trim()}`).slice(0, 64);
       const usedNames = new Set(base.compiler_endpoints.map((e: any) => String(e?.name || "")).filter(Boolean));
       let name = baseName;
       if (usedNames.has(name)) {
@@ -2255,7 +2257,7 @@ export function App() {
 
       const endpoint = {
         name,
-        provider: compilerProviderSlug || "custom",
+        provider: effectiveCompilerSlug || "custom",
         api_type: compilerApiType,
         base_url: compilerBaseUrl.trim(),
         api_key_env: effectiveCompApiKeyEnv,
@@ -3889,7 +3891,7 @@ export function App() {
             {/* Multi-process warning */}
             {IS_TAURI && detectedProcesses.length > 1 && (
               <div style={{ marginTop: 8, padding: "6px 10px", background: "rgba(245, 158, 11, 0.15)", borderRadius: 6, fontSize: 12, color: "var(--warning)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", border: "1px solid rgba(245, 158, 11, 0.3)" }}>
-                <span style={{ fontWeight: 600 }}>⚠ 检测到 {detectedProcesses.length} 个 OpenAkita 进程正在运行</span>
+                <span style={{ fontWeight: 600 }}>⚠ 检测到 {detectedProcesses.length} 个 Synapse 进程正在运行</span>
                 <span style={{ color: "var(--warning)", fontSize: 11 }}>
                   ({detectedProcesses.map(p => `PID ${p.pid}`).join(", ")})
                 </span>
@@ -4270,7 +4272,7 @@ export function App() {
                 <ProviderSearchSelect
                   value={providerSlug}
                   onChange={(v) => setProviderSlug(v)}
-                  options={providers.map((p) => ({ value: p.slug, label: p.name }))}
+                  options={sortProvidersForDisplay(providers).map((p) => ({ value: p.slug, label: p.name }))}
                   placeholder={providers.length === 0 ? t("common.loading") : undefined}
                   disabled={providers.length === 0}
                 />
@@ -4714,7 +4716,13 @@ export function App() {
                   onChange={(slug) => {
                     setCompilerProviderSlug(slug);
                     setCompilerCodingPlan(false);
-                    if (slug === "__custom__") {
+                    if (slug === "__company__") {
+                      setCompilerApiType("openai");
+                      setCompilerBaseUrl(COMPILER_COMPANY_DEFAULTS.baseUrl);
+                      setCompilerApiKeyEnv(COMPILER_COMPANY_DEFAULTS.apiKeyEnv);
+                      setCompilerModel(COMPILER_COMPANY_DEFAULTS.model);
+                      setCompilerApiKeyValue(envDraft[COMPILER_COMPANY_DEFAULTS.apiKeyEnv] ?? "");
+                    } else if (slug === "__custom__") {
                       setCompilerApiType("openai");
                       setCompilerBaseUrl("");
                       setCompilerApiKeyEnv("CUSTOM_COMPILER_API_KEY");
@@ -4736,8 +4744,11 @@ export function App() {
                       }
                     }
                   }}
-                  options={providers.map((p) => ({ value: p.slug, label: p.name }))}
-                  extraOptions={[{ value: "__custom__", label: t("llm.customProvider") }]}
+                  options={sortProvidersForDisplay(providers).map((p) => ({ value: p.slug, label: p.name }))}
+                  extraOptions={[
+                    { value: "__company__", label: t("llm.compilerPresetCompany") },
+                    { value: "__custom__", label: t("llm.compilerPresetCustom") },
+                  ]}
                 />
               </div>
               {/* Coding Plan toggle for compiler endpoint */}
@@ -4910,7 +4921,7 @@ export function App() {
                       }
                     }
                   }}
-                  options={providers.map((p) => ({ value: p.slug, label: p.name }))}
+                  options={sortProvidersForDisplay(providers).map((p) => ({ value: p.slug, label: p.name }))}
                   extraOptions={[{ value: "__custom__", label: t("llm.customProvider") }]}
                 />
               </div>
