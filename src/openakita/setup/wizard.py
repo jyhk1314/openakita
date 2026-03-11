@@ -86,7 +86,6 @@ class SetupWizard:
             self._show_welcome()
             self._confirm_risk_agreement()
             self._check_environment()
-            self._choose_locale()
             self._create_directories()
             self._configure_llm()
             self._configure_compiler()
