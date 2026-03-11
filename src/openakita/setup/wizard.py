@@ -8,6 +8,7 @@ import asyncio
 import json
 import math
 import os
+from re import A
 import sys
 from pathlib import Path
 # 用户CLI交互
@@ -19,7 +20,8 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 # 加载常量
 from openakita.setup.constants import _TOTAL_STEPS, _CHINA_SLUGS, _WHALECLOUD_SLUGS, _STEP_KEYS
-from openakita.setup.constants import _WELCOME_TITLE, _WELCOME_TEXT, _AGREEMENT_TITLE, _AGREEMENT_TEXT, _CONFIRM_PHRASE_ZH, _CONFIRM_PHRASE_EN, _CHOOSE_LOCALE_TEXT, _CHOOSE_LLM_OPTIONS
+from openakita.setup.constants import _WELCOME_TITLE, _WELCOME_TEXT, _AGREEMENT_TITLE, _AGREEMENT_TEXT, _CONFIRM_PHRASE_ZH, _CONFIRM_PHRASE_EN, _CHOOSE_LOCALE_TEXT, _CHOOSE_LLM_OPTIONS, _ADD_ANOTHER_LLM_ENDPOINT_TEXT, _ENABLE_EXTENDED_THINKING_MODE_TEXT
+from openakita.setup.constants import _PROMPT_ASK_CONTINUE_TEXT, _PROMPT_ASK_CONFIRM_TEXT, _PROMPT_ASK_SELECT_LANGUAGE_REGION_TEXT, _PROMPT_ASK_SELECT_LLM_PROVIDER_TEXT, _PROMPT_ASK_MODEL_NAME_TEXT, _PROMPT_ASK_CONFIGURE_PROMPT_COMPILER_TEXT
 # 实例化控制台
 console = Console()
 
@@ -30,7 +32,7 @@ def _ask_secret(prompt_text: str, *, allow_empty: bool = False) -> str:
     kwargs: dict = {"password": True}
     if allow_empty:
         kwargs["default"] = ""
-    value = Prompt.ask(f"{prompt_text}[cyan](输入隐藏, 按回车确认, 稍后可从页面更改)[/cyan]", **kwargs)
+    value = Prompt.ask(prompt_text, **kwargs)
     # 始终回显确认，让用户知道输入已被捕获（空输入也提示）
     if value:
         if len(value) > 8:
@@ -116,7 +118,7 @@ class SetupWizard:
         )
         console.print()
 
-        Prompt.ask("[cyan]Press Enter to continue[/cyan]", default="")
+        Prompt.ask(_PROMPT_ASK_CONTINUE_TEXT[self._locale], default="")
 
     def _confirm_risk_agreement(self):
         """显示使用风险须知，要求用户输入确认文字"""
@@ -132,7 +134,7 @@ class SetupWizard:
 
         max_attempts = 5
         for attempt in range(max_attempts):
-            user_input = Prompt.ask("[cyan]确认输入 / Confirmation[/cyan]").strip()
+            user_input = Prompt.ask(_PROMPT_ASK_CONFIRM_TEXT[self._locale]).strip()
             if user_input in (_CONFIRM_PHRASE_ZH, _CONFIRM_PHRASE_EN):
                 console.print("\n[green]✓ 已确认，继续安装向导。[/green]\n")
                 return
@@ -228,7 +230,7 @@ class SetupWizard:
         default_choice = "1" if self._locale == "zh" else "2"
 
         choice = Prompt.ask(
-            "Select language / region",
+            _PROMPT_ASK_SELECT_LANGUAGE_REGION_TEXT[self._locale],
             choices=["1", "2"],
             default=default_choice,
         )
@@ -307,7 +309,7 @@ class SetupWizard:
                 self._llm_endpoints.append(ep)
 
             console.print()
-            add_more = Confirm.ask("Add another LLM endpoint?", default=False)
+            add_more = Confirm.ask(_ADD_ANOTHER_LLM_ENDPOINT_TEXT[self._locale], default=False)
             if not add_more:
                 break
 
@@ -324,7 +326,7 @@ class SetupWizard:
             self.config["THINKING_MODE"] = "always"
         else:
             use_thinking = Confirm.ask(
-                "\nEnable extended thinking mode for complex tasks?", default=True
+                "\n" + _ENABLE_EXTENDED_THINKING_MODE_TEXT[self._locale], default=True
             )
             self.config["THINKING_MODE"] = "auto" if use_thinking else "never"
 
@@ -385,7 +387,7 @@ class SetupWizard:
 
         console.print()
         valid = [str(i) for i in range(1, idx)]
-        choice = Prompt.ask("Select provider / 选择提供商", choices=valid, default="1")
+        choice = Prompt.ask(_PROMPT_ASK_SELECT_LLM_PROVIDER_TEXT[self._locale], choices=valid, default="1")
         return index_map.get(int(choice))
 
     def _configure_single_endpoint(self, provider: dict, index: int) -> dict | None:
@@ -416,7 +418,10 @@ class SetupWizard:
         # --- API Key ---
         api_key = ""
         if requires_key:
-            api_key = _ask_secret(f"API Key (saved to env var {api_key_env})")
+            if self._locale == "zh":
+                api_key = _ask_secret(f"API Key (保存到环境变量(.env) {api_key_env})[cyan](输入隐藏, 按回车确认, 稍后可从页面更改)[/cyan]")
+            else:
+                api_key = _ask_secret(f"API Key (saved to env var {api_key_env})[cyan](input hidden, press Enter to confirm, can be changed from the page later)[/cyan]")
             self.config[api_key_env] = api_key
 
         # --- Fetch model list ---
@@ -490,8 +495,8 @@ class SetupWizard:
                 progress.update(task, description="[yellow]Could not fetch model list[/yellow]")
 
         if not models:
-            console.print("[dim]Enter the model name manually.[/dim]")
-            return Prompt.ask("Model name")
+            console.print("[dim]Enter the model name manually[/dim]")
+            return Prompt.ask(_PROMPT_ASK_MODEL_NAME_TEXT[self._locale])
 
         return self._paginated_model_picker(models)
 
@@ -560,7 +565,7 @@ class SetupWizard:
             "如果跳过此步，系统运行时会自动回退到主模型（速度较慢）。\n"
         )
 
-        configure = Confirm.ask("Configure Prompt Compiler?", default=True)
+        configure = Confirm.ask(_PROMPT_ASK_CONFIGURE_PROMPT_COMPILER_TEXT[self._locale], default=True)
 
         if not configure:
             console.print("[dim]Skipping Compiler configuration (will use main model as fallback).[/dim]\n")

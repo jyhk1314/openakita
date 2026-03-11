@@ -143,3 +143,13 @@ _CONFIRM_PHRASE_EN = "I ACKNOWLEDGE"
 
 _CHOOSE_LOCALE_TEXT = {"zh": "此选项会影响模型下载、语音识别等默认设置。", "en": "This affects default settings for model downloads, voice recognition, etc."}
 _CHOOSE_LLM_OPTIONS = {"zh": "选择 LLM 提供商", "en": "Select LLM Provider:"}
+
+_ADD_ANOTHER_LLM_ENDPOINT_TEXT = {"zh": "添加另一个 LLM 端点？", "en": "Add another LLM endpoint?"}
+_ENABLE_EXTENDED_THINKING_MODE_TEXT = {"zh": "启用扩展思考模式用于复杂任务？", "en": "Enable extended thinking mode for complex tasks?"}
+
+_PROMPT_ASK_CONTINUE_TEXT = {"zh": "[cyan]按回车继续[/cyan]", "en": "[cyan]Press Enter to continue[/cyan]"}
+_PROMPT_ASK_CONFIRM_TEXT = {"zh": "[cyan]确认输入[/cyan]", "en": "[cyan]Confirmation[/cyan]"}
+_PROMPT_ASK_SELECT_LANGUAGE_REGION_TEXT = {"zh": "选择语言/地区", "en": "Select language/region"}
+_PROMPT_ASK_SELECT_LLM_PROVIDER_TEXT = {"zh": "选择 LLM 提供商", "en": "Select LLM Provider"}
+_PROMPT_ASK_MODEL_NAME_TEXT = {"zh": "模型名称", "en": "Model name"}
+_PROMPT_ASK_CONFIGURE_PROMPT_COMPILER_TEXT = {"zh": "配置 Prompt Compiler？", "en": "Configure Prompt Compiler?"}
