@@ -5241,8 +5241,11 @@ fn export_diagnostic_bundle(
 fn open_external_url(url: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        let mut c = std::process::Command::new("cmd");
-        c.args(["/C", "start", "", &url]);
+        // Use PowerShell Start-Process to correctly handle URLs with special
+        // characters (%, &, +, etc.) that cmd /C start would truncate or mangle.
+        let mut c = std::process::Command::new("powershell");
+        c.args(["-NoProfile", "-NonInteractive", "-Command",
+                &format!("Start-Process '{}'", url.replace('\'', "''"))]);
         apply_no_window(&mut c);
         c.spawn().map_err(|e| format!("Failed to open URL: {e}"))?;
     }

@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { openExternalUrl } from "../platform";
 import type { StepId, Step } from "../types";
 import {
   IconChat, IconIM, IconSkills, IconStatus, IconConfig,
@@ -60,10 +61,9 @@ export function Sidebar({
     const to = "0027006948@iwhalecloud.com";
     const subject = "Synapse 产品反馈";
     const body =
-      "发送人员工号：" + "\r\n\r\n" +
-      "反馈类型：（请选择其一：问题 / 建议 / 需求）" + "\r\n\r\n" +
-      "反馈详细内容：" + "\r\n\r\n\r\n\r\n" +
-      "（可在邮件中附带截图）";
+      "发送人员工号：" + "\n\n" +
+      "反馈类型：（请选择其一：问题 / 建议 / 需求）" + "\n\n" +
+      "反馈详细内容（可在邮件中附带截图）：" + "\n\n";
     return `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   })();
   const { t } = useTranslation();
@@ -243,11 +243,12 @@ export function Sidebar({
             {backendVersion && <div>Backend v{backendVersion}</div>}
             {!backendVersion && serviceRunning && <div>Backend: -</div>}
             <a
-              href={feedbackMailto}
+              href="#"
               title={t("feedback.trigger")}
               style={{ cursor: "pointer", opacity: 1, color: "var(--accent, #5B8DEF)", display: "inline-flex", alignItems: "center", gap: 3, textDecoration: "none" }}
               onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")}
               onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}
+              onClick={(e) => { e.preventDefault(); openExternalUrl(feedbackMailto); }}
             >
               <IconBug size={11} />
               {t("feedback.trigger")}
@@ -267,9 +268,10 @@ export function Sidebar({
         }}>
           <div style={{ display: "flex", justifyContent: "center", gap: 8 }}>
               <a
-                href={feedbackMailto}
+                href="#"
                 title={t("feedback.trigger")}
                 style={{ color: "var(--accent, #5B8DEF)", opacity: 0.5, display: "flex", cursor: "pointer", textDecoration: "none" }}
+                onClick={(e) => { e.preventDefault(); openExternalUrl(feedbackMailto); }}
               >
                 <IconBug size={14} />
               </a>
