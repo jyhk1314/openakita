@@ -155,7 +155,7 @@ async def read_env():
             masked[k] = v[:4] + "***" + v[-2:] if len(v) > 6 else "***"
         else:
             masked[k] = v
-    return {"env": masked, "masked": masked, "raw": ""}
+    return {"env": env, "masked": masked, "raw": ""}
 
 
 @router.post("/api/config/env")

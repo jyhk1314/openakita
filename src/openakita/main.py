@@ -59,8 +59,8 @@ _init_tracing()
 
 # Typer 应用
 app = typer.Typer(
-    name="openakita",
-    help="OpenAkita - 全能自进化AI助手",
+    name="synapse",
+    help="Synapse - 全能自进化AI编程助手",
     add_completion=False,
 )
 
@@ -1322,7 +1322,7 @@ def main(
         if not has_endpoint:
             console.print("[red]错误: 未配置任何 LLM 端点[/red]")
             console.print(
-                "请设置 ANTHROPIC_API_KEY，或运行 'openakita init' 配置 data/llm_endpoints.json"
+                "请设置 ANTHROPIC_API_KEY，或运行 'synapse init' 配置 data/llm_endpoints.json"
             )
             raise typer.Exit(1)
 
@@ -1335,7 +1335,7 @@ def init(
     project_dir: str | None = typer.Argument(None, help="项目目录（默认当前目录）"),
 ):
     """
-    初始化 OpenAkita - 交互式配置向导
+    初始化 Synapse - 交互式配置向导
 
     运行此命令启动配置向导，引导您完成：
     - LLM API 配置
@@ -1344,8 +1344,8 @@ def init(
     - 目录结构创建
 
     示例:
-        openakita init
-        openakita init ./my-project
+        synapse init
+        synapse init ./my-project
     """
     from .setup import SetupWizard
 

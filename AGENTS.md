@@ -27,13 +27,13 @@ cd apps/setup-center && npm install
 
 ```bash
 # CLI interactive mode
-openakita
+synapse
 
 # Run a single task
-openakita run "your task here"
+synapse run "your task here"
 
 # API server mode
-openakita serve
+synapse serve
 
 # Desktop app (Tauri)
 cd apps/setup-center && npm run tauri dev

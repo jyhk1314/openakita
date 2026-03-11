@@ -80,7 +80,7 @@ def get_default_config_path() -> Path:
     if env_path:
         return Path(env_path)
 
-    # 2) 从 CWD 向上搜索（pip install 场景：openakita init 在 CWD 创建 data/）
+    # 2) 从 CWD 向上搜索（pip install 场景：synapse init 在 CWD 创建 data/）
     cwd = Path.cwd()
     current = cwd
     for _ in range(3):

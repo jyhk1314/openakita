@@ -2907,7 +2907,7 @@ fn openakita_service_start(venv_dir: String, workspace_id: String) -> Result<Ser
         cmd.creation_flags(0x00000008u32 | 0x00000200u32 | 0x0800_0000u32); // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
     }
 
-    let child = cmd.spawn().map_err(|e| format!("spawn openakita serve failed: {e}"))?;
+    let child = cmd.spawn().map_err(|e| format!("spawn synapse serve failed: {e}"))?;
     let pid = child.id();
     let started_at = now_epoch_secs();
 
@@ -2946,7 +2946,7 @@ fn openakita_service_start(venv_dir: String, workspace_id: String) -> Result<Ser
             })
             .unwrap_or_default();
         return Err(format!(
-            "openakita serve 似乎启动后立即退出（PID={pid}）。\n请查看服务日志：{}\n\n--- log tail ---\n{}",
+            "synapse serve 似乎启动后立即退出（PID={pid}）。\n请查看服务日志：{}\n\n--- log tail ---\n{}",
             log_path.to_string_lossy(),
             tail
         ));

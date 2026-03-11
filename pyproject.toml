@@ -139,6 +139,7 @@ dev = [
 
 [project.scripts]
 openakita = "openakita.main:app"
+synapse = "openakita.main:app"
 
 [build-system]
 requires = ["hatchling"]

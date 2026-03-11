@@ -982,7 +982,7 @@ def get_prompt_debug_info(
     """
     获取 prompt 调试信息
 
-    用于 `openakita prompt-debug` 命令。
+    用于 `synapse prompt-debug` 命令。
 
     Returns:
         包含各部分 token 统计的字典

@@ -5847,7 +5847,7 @@ export function App() {
         </div>
 
         {/* ── Web 访问密码管理 (desktop local only, change-password API requires localhost) ── */}
-        {IS_TAURI && !!serviceStatus?.running && dataMode !== "remote" && (
+        {!IS_TAURI && (
         <div className="card" style={{ marginTop: 12 }}>
           {sectionHeader("webpw", t("adv.webPasswordTitle"))}
           <div style={{ paddingLeft: 22 }}>

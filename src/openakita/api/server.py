@@ -1,7 +1,7 @@
 """
 FastAPI HTTP API server for OpenAkita.
 
-集成在 `openakita serve` 中，提供：
+集成在 `synapse serve` 中，提供：
 - Chat (SSE streaming)
 - Models list
 - Health check

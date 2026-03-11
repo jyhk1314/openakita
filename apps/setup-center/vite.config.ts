@@ -59,20 +59,17 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    ...(isWebBuild
-      ? {
-          proxy: {
-            "/api": {
-              target: "http://127.0.0.1:18900",
-              changeOrigin: true,
-            },
-            "/ws": {
-              target: "ws://127.0.0.1:18900",
-              ws: true,
-            },
-          },
-        }
-      : {}),
+    // Dev 时（npm run dev / npm run dev:web）都代理到后端，避免 CORS，端口与后端 API_PORT(18900) 一致
+    proxy: {
+      "/api": {
+        target: "http://127.0.0.1:18900",
+        changeOrigin: true,
+      },
+      "/ws": {
+        target: "ws://127.0.0.1:18900",
+        ws: true,
+      },
+    },
   },
   clearScreen: false,
 });
