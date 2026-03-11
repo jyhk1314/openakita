@@ -20,8 +20,9 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 # 加载常量
 from openakita.setup.constants import _TOTAL_STEPS, _CHINA_SLUGS, _WHALECLOUD_SLUGS, _STEP_KEYS
-from openakita.setup.constants import _WELCOME_TITLE, _WELCOME_TEXT, _AGREEMENT_TITLE, _AGREEMENT_TEXT, _CONFIRM_PHRASE_ZH, _CONFIRM_PHRASE_EN, _CHOOSE_LOCALE_TEXT, _CHOOSE_LLM_OPTIONS, _ADD_ANOTHER_LLM_ENDPOINT_TEXT, _ENABLE_EXTENDED_THINKING_MODE_TEXT
-from openakita.setup.constants import _PROMPT_ASK_CONTINUE_TEXT, _PROMPT_ASK_CONFIRM_TEXT, _PROMPT_ASK_SELECT_LANGUAGE_REGION_TEXT, _PROMPT_ASK_SELECT_LLM_PROVIDER_TEXT, _PROMPT_ASK_MODEL_NAME_TEXT, _PROMPT_ASK_CONFIGURE_PROMPT_COMPILER_TEXT
+from openakita.setup.constants import _WELCOME_TITLE, _WELCOME_TEXT, _AGREEMENT_TITLE, _AGREEMENT_TEXT, _CONFIRM_PHRASE_ZH, _CONFIRM_PHRASE_EN, _CHOOSE_LOCALE_TEXT, _ADD_ANOTHER_LLM_ENDPOINT_TEXT, _ENABLE_EXTENDED_THINKING_MODE_TEXT
+from openakita.setup.constants import _PROMPT_ASK_CONTINUE_TEXT, _PROMPT_ASK_CONFIRM_TEXT, _PROMPT_ASK_SELECT_LANGUAGE_REGION_TEXT, _PROMPT_ASK_SELECT_LLM_PROVIDER_TEXT, _PROMPT_ASK_MODEL_NAME_TEXT, _PROMPT_ASK_CONFIGURE_PROMPT_COMPILER_TEXT, _PROMPT_ASK_SELECT_COMPILER_PROVIDER_TEXT, _PROMPT_ASK_BACKUP_COMPILER_ENDPOINT_TEXT, _PROMPT_ASK_SETUP_IM_CHANNEL_TEXT, _PROMPT_ASK_SELECT_EMBEDDING_MODEL_TEXT
+from openakita.setup.constants import _CONSOLE_PRINT_VECTOR_EMBEDDING_MODEL_TEXT
 # 实例化控制台
 console = Console()
 
@@ -353,7 +354,7 @@ class SetupWizard:
         idx = 1
         index_map: dict[int, dict] = {}
 
-        console.print(f"[bold]{_CHOOSE_LLM_OPTIONS[self._locale]}[/bold]\n")
+        console.print(f"[bold]{_PROMPT_ASK_SELECT_LLM_PROVIDER_TEXT[self._locale]}[/bold]\n")
 
         if whalecloud:
             console.print("  [dim]-- WhaleCloud --[/dim]")
@@ -495,7 +496,6 @@ class SetupWizard:
                 progress.update(task, description="[yellow]Could not fetch model list[/yellow]")
 
         if not models:
-            console.print("[dim]Enter the model name manually[/dim]")
             return Prompt.ask(_PROMPT_ASK_MODEL_NAME_TEXT[self._locale])
 
         return self._paginated_model_picker(models)
@@ -573,12 +573,12 @@ class SetupWizard:
 
         # 选择 Provider
         console.print("\nSelect provider for Compiler:\n")
-        console.print("  [1] WhaleCloud (gpt-4o-mini, recommended)")
+        console.print("  [1] WhaleCloud 公司内部模型 (gpt-4o-mini, recommended)")
         console.print("  [2] OpenAI-compatible")
         console.print("  [3] Same provider as main model")
         console.print("  [4] Skip\n")
 
-        choice = Prompt.ask("Select option", choices=["1", "2", "3", "4"], default="1")
+        choice = Prompt.ask(_PROMPT_ASK_SELECT_COMPILER_PROVIDER_TEXT[self._locale], choices=["1", "2", "3", "4"], default="1")
 
         if choice == "4":
             console.print("[dim]Skipping Compiler configuration.[/dim]\n")
@@ -592,7 +592,7 @@ class SetupWizard:
             compiler_config["base_url"] = "https://lab.iwhalecloud.com/gpt-proxy/v1"
             compiler_config["api_key_env"] = "IWHALECLOUD_API_KEY"
             compiler_config["model"] = Prompt.ask(
-                "Model name", default="gpt-4o-mini"
+                _PROMPT_ASK_MODEL_NAME_TEXT[self._locale], default="gpt-4o-mini"
             )
             # 检查是否需要单独配置 API Key
             existing_key = self.config.get("IWHALECLOUD_API_KEY") or os.environ.get("IWHALECLOUD_API_KEY")
@@ -632,7 +632,7 @@ class SetupWizard:
         self.config["_compiler_primary"] = compiler_config
 
         # 是否添加备用端点
-        add_backup = Confirm.ask("\nAdd a backup Compiler endpoint?", default=False)
+        add_backup = Confirm.ask("\n" + _PROMPT_ASK_BACKUP_COMPILER_ENDPOINT_TEXT[self._locale], default=False)
 
         if add_backup:
             console.print("\nBackup Compiler endpoint:\n")
@@ -764,7 +764,7 @@ class SetupWizard:
         self._step_screen()
 
         setup_im = Confirm.ask(
-            "Would you like to set up an IM channel (Telegram, etc.)?", default=False
+            _PROMPT_ASK_SETUP_IM_CHANNEL_TEXT[self._locale], default=False
         )
 
         if not setup_im:
@@ -929,7 +929,7 @@ class SetupWizard:
         """配置记忆系统"""
         self._step_screen()
 
-        console.print("Synapse uses vector embeddings for semantic memory search.\n")
+        console.print(_CONSOLE_PRINT_VECTOR_EMBEDDING_MODEL_TEXT[self._locale] + "\n")
 
         # 根据 locale 推导默认选项
         defaults = getattr(self, "_defaults", {})
@@ -956,7 +956,7 @@ class SetupWizard:
         console.print()
 
         choice = Prompt.ask(
-            "Select embedding model",
+            _PROMPT_ASK_SELECT_EMBEDDING_MODEL_TEXT[self._locale],
             choices=["1", "2", "3"],
             default=default_model_choice,
         )
