@@ -81,7 +81,7 @@ export function PosterGenerator(props: PosterProps) {
         width: posterW,
         height: posterH,
       });
-      const filename = `openakita-${type}-${Date.now()}.png`;
+      const filename = `synapse-${type}-${Date.now()}.png`;
       if (IS_TAURI) {
         const saved = await savePngTauri(dataUrl, filename);
         if (!saved) {
@@ -173,7 +173,7 @@ function InvitePoster({ userName, userAvatar, tierBadge, inviteCode, inviteUrl, 
       {/* Header */}
       <img src={logoUrl} alt="logo" style={{ width: 64, height: 64, borderRadius: 12, marginBottom: 12 }} />
       <div style={{ fontSize: 28, fontWeight: 700, color: "#1a1a2e", letterSpacing: 1 }}>
-        OpenAkita
+        Synapse
       </div>
       <div style={{ fontSize: 15, color: "#666", marginTop: 4, marginBottom: 32 }}>
         {t("poster.inviteSlogan")}
@@ -289,7 +289,7 @@ function AchievementPoster({
 
       {/* Footer */}
       <div style={{ textAlign: "center", fontSize: 12, color: "#aaa" }}>
-        OpenAkita · Share Agents, Not Just Skills
+        Synapse · Share Agents, Not Just Skills
       </div>
     </div>
   );

@@ -28,7 +28,6 @@ export type SidebarProps = {
   desktopVersion: string;
   backendVersion: string | null;
   serviceRunning: boolean;
-  onBugReport: () => void;
   onRefreshStatus: () => Promise<void>;
   isWeb?: boolean;
   mobileOpen?: boolean;
@@ -55,8 +54,18 @@ export function Sidebar({
   disabledViews, multiAgentEnabled, onToggleMultiAgent,
   storeVisible,
   desktopVersion, backendVersion, serviceRunning,
-  onBugReport, onRefreshStatus, isWeb, mobileOpen,
+  onRefreshStatus, isWeb, mobileOpen,
 }: SidebarProps) {
+  const feedbackMailto = (() => {
+    const to = "0027006948@iwhalecloud.com";
+    const subject = "Synapse 产品反馈";
+    const body =
+      "发送人员工号：" + "\r\n\r\n" +
+      "反馈类型：（请选择其一：问题 / 建议 / 需求）" + "\r\n\r\n" +
+      "反馈详细内容：" + "\r\n\r\n\r\n\r\n" +
+      "（可在邮件中附带截图）";
+    return `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  })();
   const { t } = useTranslation();
 
   return (
@@ -65,7 +74,7 @@ export function Sidebar({
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <img
             src={logoUrl}
-            alt="OpenAkita"
+            alt="Synapse"
             className="brandLogo"
             onClick={onToggleCollapsed}
             style={{ cursor: "pointer" }}
@@ -229,44 +238,19 @@ export function Sidebar({
           lineHeight: 1.6,
           flexShrink: 0,
         }}>
-          <div>{isWeb ? "Web" : "Desktop"} v{desktopVersion}{import.meta.env.VITE_PREVIEW_BUILD === "true" && <span style={{ marginLeft: 6, color: "#e8a735", fontWeight: 600, opacity: 1 }}>预览版</span>}</div>
-          {backendVersion && <div>Backend v{backendVersion}</div>}
-          {!backendVersion && serviceRunning && <div>Backend: -</div>}
           <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 10 }}>
+            <div>{isWeb ? "Web" : "Desktop"} v{desktopVersion}{import.meta.env.VITE_PREVIEW_BUILD === "true" && <span style={{ marginLeft: 6, color: "#e8a735", fontWeight: 600, opacity: 1 }}>预览版</span>}</div>
+            {backendVersion && <div>Backend v{backendVersion}</div>}
+            {!backendVersion && serviceRunning && <div>Backend: -</div>}
             <a
-              href="https://openakita.ai"
-              style={{ color: "var(--accent, #5B8DEF)", textDecoration: "none", opacity: 1 }}
+              href={feedbackMailto}
+              title={t("feedback.trigger")}
+              style={{ cursor: "pointer", opacity: 1, color: "var(--accent, #5B8DEF)", display: "inline-flex", alignItems: "center", gap: 3, textDecoration: "none" }}
               onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")}
               onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}
             >
-              <IconGlobe size={11} style={{ verticalAlign: "-1px", marginRight: 3 }} />
-              openakita.ai
-            </a>
-            {serviceRunning && (
-              <span
-                onClick={onBugReport}
-                title={t("feedback.trigger")}
-                style={{ cursor: "pointer", opacity: 1, color: "var(--accent, #5B8DEF)", display: "inline-flex", alignItems: "center", gap: 3 }}
-                onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")}
-                onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}
-              >
-                <IconBug size={11} />
-                {t("feedback.trigger")}
-              </span>
-            )}
-            <a
-              href="https://github.com/openakita/openakita"
-              title="GitHub"
-              style={{ color: "var(--accent, #5B8DEF)", opacity: 1, display: "inline-flex", alignItems: "center" }}
-            >
-              <IconGitHub size={13} />
-            </a>
-            <a
-              href="https://gitee.com/zacon365/openakita"
-              title="Gitee"
-              style={{ color: "var(--accent, #5B8DEF)", opacity: 1, display: "inline-flex", alignItems: "center" }}
-            >
-              <IconGitee size={13} />
+              <IconBug size={11} />
+              {t("feedback.trigger")}
             </a>
           </div>
         </div>
@@ -282,38 +266,13 @@ export function Sidebar({
           gap: 6,
         }}>
           <div style={{ display: "flex", justifyContent: "center", gap: 8 }}>
-            <a
-              href="https://openakita.ai"
-              title="openakita.ai"
-              style={{ color: "var(--accent, #5B8DEF)", opacity: 0.5, display: "flex" }}
-            >
-              <IconGlobe size={14} />
-            </a>
-            {serviceRunning && (
-              <span
-                onClick={onBugReport}
+              <a
+                href={feedbackMailto}
                 title={t("feedback.trigger")}
-                style={{ color: "var(--accent, #5B8DEF)", opacity: 0.5, display: "flex", cursor: "pointer" }}
+                style={{ color: "var(--accent, #5B8DEF)", opacity: 0.5, display: "flex", cursor: "pointer", textDecoration: "none" }}
               >
                 <IconBug size={14} />
-              </span>
-            )}
-          </div>
-          <div style={{ display: "flex", justifyContent: "center", gap: 8 }}>
-            <a
-              href="https://github.com/openakita/openakita"
-              title="GitHub"
-              style={{ color: "var(--accent, #5B8DEF)", opacity: 0.5, display: "flex" }}
-            >
-              <IconGitHub size={14} />
-            </a>
-            <a
-              href="https://gitee.com/zacon365/openakita"
-              title="Gitee"
-              style={{ color: "var(--accent, #5B8DEF)", opacity: 0.5, display: "flex" }}
-            >
-              <IconGitee size={14} />
-            </a>
+              </a>
           </div>
         </div>
       )}

@@ -1,4 +1,4 @@
-const CACHE_NAME = "openakita-v1";
+const CACHE_NAME = "synapse-v1";
 
 const APP_SHELL = [
   "/web/",
