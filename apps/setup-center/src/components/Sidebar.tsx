@@ -1,11 +1,10 @@
 import { useTranslation } from "react-i18next";
-import { openExternalUrl } from "../platform";
 import type { StepId, Step } from "../types";
 import {
   IconChat, IconIM, IconSkills, IconStatus, IconConfig,
   IconChevronDown, IconChevronRight, IconGlobe,
   IconZap, IconPlug, IconCalendar,
-  IconBug, IconBrain, IconGitHub, IconGitee, IconUsers, IconBot,
+  IconBrain, IconGitHub, IconGitee, IconUsers, IconBot,
   IconGear, IconBook, IconStorefront, IconPuzzle, IconFingerprint, IconLayoutGrid,
 } from "../icons";
 import logoUrl from "../assets/logo.png";
@@ -57,15 +56,6 @@ export function Sidebar({
   desktopVersion, backendVersion, serviceRunning,
   onRefreshStatus, isWeb, mobileOpen,
 }: SidebarProps) {
-  const feedbackMailto = (() => {
-    const to = "0027006948@iwhalecloud.com";
-    const subject = "Synapse 产品反馈";
-    const body =
-      "发送人员工号：" + "\n\n" +
-      "反馈类型：（请选择其一：问题 / 建议 / 需求）" + "\n\n" +
-      "反馈详细内容（可在邮件中附带截图）：" + "\n\n";
-    return `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  })();
   const { t } = useTranslation();
 
   return (
@@ -242,17 +232,6 @@ export function Sidebar({
             <div>{isWeb ? "Web" : "Desktop"} v{desktopVersion}{import.meta.env.VITE_PREVIEW_BUILD === "true" && <span style={{ marginLeft: 6, color: "#e8a735", fontWeight: 600, opacity: 1 }}>预览版</span>}</div>
             {backendVersion && <div>Backend v{backendVersion}</div>}
             {!backendVersion && serviceRunning && <div>Backend: -</div>}
-            <a
-              href="#"
-              title={t("feedback.trigger")}
-              style={{ cursor: "pointer", opacity: 1, color: "var(--accent, #5B8DEF)", display: "inline-flex", alignItems: "center", gap: 3, textDecoration: "none" }}
-              onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")}
-              onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}
-              onClick={(e) => { e.preventDefault(); openExternalUrl(feedbackMailto); }}
-            >
-              <IconBug size={11} />
-              {t("feedback.trigger")}
-            </a>
           </div>
         </div>
       )}
@@ -261,22 +240,7 @@ export function Sidebar({
           padding: "8px 0",
           borderTop: "1px solid var(--line)",
           flexShrink: 0,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: 6,
-        }}>
-          <div style={{ display: "flex", justifyContent: "center", gap: 8 }}>
-              <a
-                href="#"
-                title={t("feedback.trigger")}
-                style={{ color: "var(--accent, #5B8DEF)", opacity: 0.5, display: "flex", cursor: "pointer", textDecoration: "none" }}
-                onClick={(e) => { e.preventDefault(); openExternalUrl(feedbackMailto); }}
-              >
-                <IconBug size={14} />
-              </a>
-          </div>
-        </div>
+        }} />
       )}
     </aside>
   );

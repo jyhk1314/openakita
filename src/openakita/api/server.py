@@ -29,7 +29,6 @@ from fastapi.responses import JSONResponse
 from .auth import WebAccessConfig, create_auth_middleware
 from .routes import (
     agents,
-    bug_report,
     chat,
     chat_models,
     config,
@@ -258,7 +257,6 @@ def create_app(
     # Mount routes
     app.include_router(auth_routes.router, tags=["认证"])
     app.include_router(agents.router, tags=["智能体"])
-    app.include_router(bug_report.router, tags=["反馈"])
     app.include_router(chat.router, tags=["对话"])
     app.include_router(chat_models.router, tags=["模型"])
     app.include_router(config.router, tags=["配置"])

@@ -16,7 +16,6 @@ import { IdentityView } from "./views/IdentityView";
 import { AgentDashboardView } from "./views/AgentDashboardView";
 import { AgentManagerView } from "./views/AgentManagerView";
 import { OrgEditorView } from "./views/OrgEditorView";
-import { FeedbackModal } from "./views/FeedbackModal";
 import { IMConfigView } from "./views/IMConfigView";
 import type { IMBot } from "./views/im-shared";
 import { TYPE_TO_ENABLED_KEY } from "./views/im-shared";
@@ -241,7 +240,6 @@ export function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth <= 768);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [bugReportOpen, setBugReportOpen] = useState(false);
   const [disabledViews, setDisabledViews] = useState<string[]>([]);
   const [multiAgentEnabled, setMultiAgentEnabled] = useState(false);
   const [storeVisible, setStoreVisible] = useState(() => localStorage.getItem("openakita_storeVisible") === "true");
@@ -8158,12 +8156,6 @@ export function App() {
         })() : null}
       </main>
 
-      {/* Feedback Modal (Bug Report + Feature Request) */}
-      <FeedbackModal
-        open={bugReportOpen}
-        onClose={() => setBugReportOpen(false)}
-        apiBase={httpApiBase()}
-      />
     </div>
     </EnvFieldContext.Provider>
   );

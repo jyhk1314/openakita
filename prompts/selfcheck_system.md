@@ -120,13 +120,13 @@
 输入：
 ```
 ## 核心组件错误
-### [3次] openakita.core.brain: ConnectionError: API connection failed
-- 模块: `openakita.core.brain`
+### [3次] synapse.core.brain: ConnectionError: API connection failed
+- 模块: `synapse.core.brain`
 - 消息: `ConnectionError: API connection failed`
 
 ## 工具错误
-### [5次] openakita.tools.file: PermissionError: Access denied
-- 模块: `openakita.tools.file`
+### [5次] synapse.tools.file: PermissionError: Access denied
+- 模块: `synapse.tools.file`
 - 消息: `PermissionError: Access denied to data/cache/`
 ```
 
@@ -134,8 +134,8 @@
 ```json
 [
   {
-    "error_id": "openakita.core.brain_Connection",
-    "module": "openakita.core.brain",
+    "error_id": "synapse.core.brain_Connection",
+    "module": "synapse.core.brain",
     "error_type": "core",
     "analysis": "LLM API 连接失败，可能是网络问题或 API 服务不可用",
     "severity": "high",
@@ -146,8 +146,8 @@
     "note_to_user": "请检查 API Key 是否有效，网络是否正常，可能需要重启服务"
   },
   {
-    "error_id": "openakita.tools.file_Permission",
-    "module": "openakita.tools.file",
+    "error_id": "synapse.tools.file_Permission",
+    "module": "synapse.tools.file",
     "error_type": "tool",
     "analysis": "文件工具无法访问 data/cache/ 目录，权限不足",
     "severity": "medium",
