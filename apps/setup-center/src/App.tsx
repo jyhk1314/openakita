@@ -4231,9 +4231,9 @@ export function App() {
                   <span className="epTableModel">{e.model}</span>
                   <span>{(envDraft[e.api_key_env] || "").trim() ? <DotGreen /> : <DotGray />}</span>
                   <span style={{ fontSize: 12 }}>{e.priority}</span>
-                  <span style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                  <span style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
                     <button className={`btnIcon${e.enabled === false ? "" : " btnIconActive"}`} onClick={() => doToggleEndpointEnabled(e.name)} disabled={!!busy} title={e.enabled === false ? t("llm.enable") : t("llm.disable")}><IconPower size={14} /></button>
-                    {savedEndpoints[0]?.name !== e.name && <button className="btnIcon" onClick={() => doSetPrimaryEndpoint(e.name)} disabled={!!busy} title={t("llm.setPrimary")}><IconChevronUp size={14} /></button>}
+                    <button className="btnIcon" style={savedEndpoints[0]?.name === e.name ? { visibility: "hidden" } : undefined} onClick={() => doSetPrimaryEndpoint(e.name)} disabled={!!busy} title={t("llm.setPrimary")}><IconChevronUp size={14} /></button>
                     <button className="btnIcon" onClick={() => doStartEditEndpoint(e.name)} disabled={!!busy} title={t("llm.edit")}><IconEdit size={14} /></button>
                     <button className="btnIcon btnIconDanger" onClick={() => askConfirm(`${t("common.confirmDeleteMsg")} "${e.name}"?`, () => doDeleteEndpoint(e.name))} disabled={!!busy} title={t("common.delete")}><IconTrash size={14} /></button>
                   </span>

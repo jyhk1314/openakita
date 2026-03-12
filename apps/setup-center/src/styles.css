@@ -1107,7 +1107,7 @@ button:disabled {
 }
 .epTableHeader {
   display: grid;
-  grid-template-columns: 1.4fr 1.6fr 44px 64px 90px;
+  grid-template-columns: 1.4fr 1.6fr 44px 64px 1fr;
   gap: 12px;
   padding: 10px 16px;
   background: var(--bg1);
@@ -1120,7 +1120,7 @@ button:disabled {
 }
 .epTableRow {
   display: grid;
-  grid-template-columns: 1.4fr 1.6fr 44px 64px 90px;
+  grid-template-columns: 1.4fr 1.6fr 44px 64px 1fr;
   gap: 12px;
   padding: 10px 16px;
   align-items: center;
