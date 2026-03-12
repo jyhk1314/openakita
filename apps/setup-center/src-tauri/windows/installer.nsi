@@ -545,7 +545,7 @@ Function PageCliSetup
  ${NSD_CreateLabel} 0 0 100% 26u "选择要注册的终端命令，安装后可在 CMD / PowerShell / Windows Terminal 中直接使用。"
  Pop $0
 
- ${NSD_CreateCheckbox} 14u 34u -14u 12u "注册 openakita 命令"
+ ${NSD_CreateCheckbox} 14u 34u -14u 12u "注册 synapse 命令"
  Pop $CliCheckOpenakita
  ${NSD_SetState} $CliCheckOpenakita ${BST_CHECKED}
 
@@ -557,11 +557,11 @@ Function PageCliSetup
  Pop $CliCheckPath
  ${NSD_SetState} $CliCheckPath ${BST_CHECKED}
 
- ${NSD_CreateLabel} 22u 90u -22u 20u "提示：添加到 PATH 后，新打开的终端中可直接输入 oa 或 openakita 运行命令。"
+ ${NSD_CreateLabel} 22u 90u -22u 20u "提示：添加到 PATH 后，新打开的终端中可直接输入 oa 或 synapse 运行命令。"
  Pop $0
  SetCtlColors $0 "888888" "transparent"
 
- ${NSD_CreateLabel} 14u 116u -14u 32u "命令示例：$\n  oa serve    — 启动后端服务$\n  oa status   — 查看运行状态$\n  openakita run — 单次执行"
+ ${NSD_CreateLabel} 14u 116u -14u 32u "命令示例：$\n  oa serve    — 启动后端服务$\n  oa status   — 查看运行状态$\n  synapse run — 单次执行"
  Pop $0
 
  nsDialogs::Show
@@ -573,7 +573,7 @@ Function PageLeaveCliSetup
 
  ; 将选择写入注册表，供 Install Section 和后续更新使用
  ${NSD_GetState} $CliCheckOpenakita $0
- WriteRegDWORD HKCU "Software\OpenAkita\CLI" "openakita" $0
+ WriteRegDWORD HKCU "Software\OpenAkita\CLI" "synapse" $0
  ${NSD_GetState} $CliCheckOa $0
  WriteRegDWORD HKCU "Software\OpenAkita\CLI" "oa" $0
  ${NSD_GetState} $CliCheckPath $0
@@ -893,7 +893,7 @@ Section Install
  ; ── CLI 命令行工具注册 ──
  ; 读取用户在 PageCliSetup 中的选择（存储在注册表中）
  ; 对于 Update/Passive/Silent 模式，尝试读取上次的选择
- ReadRegDWORD $R1 HKCU "Software\OpenAkita\CLI" "openakita"
+ ReadRegDWORD $R1 HKCU "Software\OpenAkita\CLI" "synapse"
  ReadRegDWORD $R2 HKCU "Software\OpenAkita\CLI" "oa"
  ReadRegDWORD $R3 HKCU "Software\OpenAkita\CLI" "addToPath"
 
@@ -913,9 +913,9 @@ Section Install
  ${OrIf} $R2 = ${BST_CHECKED}
   CreateDirectory "$INSTDIR\bin"
 
-  ; 写入 openakita.cmd
+  ; 写入 synapse.cmd
   ${If} $R1 = ${BST_CHECKED}
-   FileOpen $R4 "$INSTDIR\bin\openakita.cmd" w
+   FileOpen $R4 "$INSTDIR\bin\synapse.cmd" w
    FileWrite $R4 '@echo off$\r$\n"%~dp0..\resources\synapse-server\synapse-server.exe" %*$\r$\n'
    FileClose $R4
   ${EndIf}
@@ -1041,7 +1041,7 @@ Section Uninstall
  ${EndIf}
 
  ; 删除 CLI 相关文件
- Delete "$INSTDIR\bin\openakita.cmd"
+ Delete "$INSTDIR\bin\synapse.cmd"
  Delete "$INSTDIR\bin\oa.cmd"
  RMDir "$INSTDIR\bin"
 

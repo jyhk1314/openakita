@@ -79,7 +79,7 @@
 !macroend
 
 !macro _OpenAkita_KillServicePidsIn dir
-  FindFirst $R1 $R2 "${dir}\openakita-*.pid"
+  FindFirst $R1 $R2 "${dir}\synapse-*.pid"
   ${DoWhile} $R2 != ""
     FileOpen $R4 "${dir}\$R2" "r"
     ${IfNot} ${Errors}
@@ -142,9 +142,9 @@
 
   ; 1) 杀掉 Setup Center + synapse-server（合并为单次 PowerShell 调用）
   DetailPrint "Stopping OpenAkita processes..."
-  nsExec::ExecToLog 'powershell -NoProfile -Command "Get-Process -Name openakita-setup-center,synapse-server -EA SilentlyContinue | Stop-Process -Force"'
+  nsExec::ExecToLog 'powershell -NoProfile -Command "Get-Process -Name synapse-setup-center,synapse-server -EA SilentlyContinue | Stop-Process -Force"'
   Pop $0
-  nsExec::ExecToLog 'taskkill /IM openakita-setup-center.exe /T /F'
+  nsExec::ExecToLog 'taskkill /IM synapse-setup-center.exe /T /F'
   Pop $0
   nsExec::ExecToLog 'taskkill /IM synapse-server.exe /T /F'
   Pop $0
@@ -177,9 +177,9 @@
 
 !macro NSIS_HOOK_PREUNINSTALL
   ; 卸载前：强制杀掉残留进程（合并 PowerShell 调用，nsExec 无弹窗）
-  nsExec::ExecToLog 'powershell -NoProfile -Command "Get-Process -Name openakita-setup-center,synapse-server -EA SilentlyContinue | Stop-Process -Force"'
+  nsExec::ExecToLog 'powershell -NoProfile -Command "Get-Process -Name synapse-setup-center,synapse-server -EA SilentlyContinue | Stop-Process -Force"'
   Pop $0
-  nsExec::ExecToLog 'taskkill /IM openakita-setup-center.exe /T /F'
+  nsExec::ExecToLog 'taskkill /IM synapse-setup-center.exe /T /F'
   Pop $0
   nsExec::ExecToLog 'taskkill /IM synapse-server.exe /T /F'
   Pop $0
@@ -196,13 +196,13 @@
   CreateDirectory "$R0"
 
   ; 写入 cli.json（供 Rust get_cli_status 读取）
-  ReadRegDWORD $R1 HKCU "Software\OpenAkita\CLI" "openakita"
+  ReadRegDWORD $R1 HKCU "Software\OpenAkita\CLI" "synapse"
   ReadRegDWORD $R2 HKCU "Software\OpenAkita\CLI" "oa"
   ReadRegDWORD $R3 HKCU "Software\OpenAkita\CLI" "addToPath"
   ; 构造 JSON 中的 commands 数组
   StrCpy $R4 ""
   ${If} $R1 = ${BST_CHECKED}
-    StrCpy $R4 '"openakita"'
+    StrCpy $R4 '"synapse"'
   ${EndIf}
   ${If} $R2 = ${BST_CHECKED}
     ${If} $R4 != ""

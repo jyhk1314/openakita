@@ -17,7 +17,7 @@ Set-StrictMode -Version Latest
 # =====================================================
 $PYTHON_MIN_VERSION = "3.11"
 $PYTHON_DOWNLOAD_URL = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
-$PROJECT_NAME = "openakita"
+$PROJECT_NAME = "synapse"
 
 # =====================================================
 # 辅助函数
@@ -544,7 +544,7 @@ WHISPER_LANGUAGE=zh
 # =====================================================
 # 注意: LLM 相关配置已迁移到 data/llm_endpoints.json
 # 支持多端点、自动故障切换、能力路由
-# 运行 openakita llm-config 进行交互式配置
+# 运行 synapse llm-config 进行交互式配置
 "@
         Set-Content -Path $EnvFile -Value $config
         Write-Success "配置文件已创建: .env"
@@ -589,7 +589,7 @@ function Initialize-LLMEndpoints {
         Set-Content -Path $llmConfig -Value $llmConfigContent -Encoding UTF8
         Write-Success "LLM 端点配置已创建: $llmConfig"
     }
-    Write-Info "提示: 通过 Setup Center 或 openakita llm-config 添加 LLM 端点"
+    Write-Info "提示: 通过 Setup Center 或 synapse llm-config 添加 LLM 端点"
     Write-Info "提示: 可添加多个端点实现自动故障切换"
 }
 
@@ -663,7 +663,7 @@ function Show-Completion {
     Write-Host "后续步骤:" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "  1. 配置 LLM 端点 (二选一):" -ForegroundColor White
-    Write-Host "     openakita llm-config" -ForegroundColor Cyan -NoNewline
+    Write-Host "     synapse llm-config" -ForegroundColor Cyan -NoNewline
     Write-Host "  # 交互式配置向导" -ForegroundColor Gray
     Write-Host "     notepad data\llm_endpoints.json" -ForegroundColor Cyan -NoNewline
     Write-Host "  # 直接编辑" -ForegroundColor Gray
@@ -676,9 +676,9 @@ function Show-Completion {
     Write-Host "     .\venv\Scripts\Activate.ps1" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "  4. 启动 Agent:" -ForegroundColor White
-    Write-Host "     openakita" -ForegroundColor Cyan -NoNewline
+    Write-Host "     synapse" -ForegroundColor Cyan -NoNewline
     Write-Host "        # 交互模式" -ForegroundColor Gray
-    Write-Host "     openakita serve" -ForegroundColor Cyan -NoNewline
+    Write-Host "     synapse serve" -ForegroundColor Cyan -NoNewline
     Write-Host "  # 服务模式 (Telegram/IM)" -ForegroundColor Gray
     Write-Host ""
     Write-Host "新特性:" -ForegroundColor Blue

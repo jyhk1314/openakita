@@ -18,9 +18,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from telegram import Bot, Update
 from telegram.ext import Application, MessageHandler, CommandHandler, filters
 
-from openakita.config import settings
-from openakita.channels.types import UnifiedMessage, MessageContent, MediaFile
-from openakita.sessions import SessionManager, Session
+from synapse.config import settings
+from synapse.channels.types import UnifiedMessage, MessageContent, MediaFile
+from synapse.sessions import SessionManager, Session
 
 # 配置 - 从环境变量或 settings 读取
 import os
@@ -47,7 +47,7 @@ async def init_components():
     # 1. 初始化 Agent
     if agent is None:
         logger.info("正在初始化 Agent...")
-        from openakita.core.agent import Agent
+        from synapse.core.agent import Agent
         agent = Agent()
         await agent.initialize()
         logger.info(f"Agent 初始化完成 (技能: {agent.skill_registry.count})")

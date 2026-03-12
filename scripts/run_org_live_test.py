@@ -21,9 +21,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from openakita.orgs.manager import OrgManager
-from openakita.orgs.runtime import OrgRuntime
-from openakita.orgs.models import OrgNode, Organization, OrgEdge, EdgeType
+from synapse.orgs.manager import OrgManager
+from synapse.orgs.runtime import OrgRuntime
+from synapse.orgs.models import OrgNode, Organization, OrgEdge, EdgeType
 
 logging.basicConfig(
     level=logging.INFO,

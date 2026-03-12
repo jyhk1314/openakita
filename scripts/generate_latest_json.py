@@ -12,12 +12,12 @@ Output files:
 
 Usage:
     python scripts/generate_latest_json.py --tag v1.22.0 --output release.json
-    python scripts/generate_latest_json.py --tag v1.22.0 --output release.json --repo openakita/openakita
+    python scripts/generate_latest_json.py --tag v1.22.0 --output release.json --repo synapse/synapse
 
     # With Aliyun OSS CDN (primary) + Cloudflare R2 (fallback):
     python scripts/generate_latest_json.py --tag v1.22.0 --output release.json \
-        --cdn-base-url https://dl-cn.openakita.ai \
-        --cdn-fallback-url https://dl.openakita.ai
+        --cdn-base-url https://dl-cn.synapse.ai \
+        --cdn-fallback-url https://dl.synapse.ai
 """
 
 import argparse
@@ -34,7 +34,7 @@ except ImportError:
 
 
 GITHUB_API = "https://api.github.com"
-DEFAULT_REPO = "openakita/openakita"
+DEFAULT_REPO = "synapse/synapse"
 
 # Asset name patterns for each platform
 PLATFORM_PATTERNS = {
@@ -122,7 +122,7 @@ def rewrite_url_to_cdn(github_url: str, cdn_base: str, tag: str) -> str:
     """Rewrite a GitHub Release download URL to a CDN URL.
 
     GitHub format:  https://github.com/owner/repo/releases/download/v1.0.0/file.exe
-    CDN format:     https://dl.openakita.ai/v1.0.0/file.exe
+    CDN format:     https://dl.synapse.ai/v1.0.0/file.exe
     """
     filename = github_url.rsplit("/", 1)[-1]
     return f"{cdn_base.rstrip('/')}/{tag}/{filename}"
@@ -136,13 +136,13 @@ def main():
     parser.add_argument(
         "--cdn-base-url",
         default=os.environ.get("CDN_BASE_URL", ""),
-        help="Primary CDN base URL for download acceleration (e.g. https://dl-cn.openakita.ai). "
+        help="Primary CDN base URL for download acceleration (e.g. https://dl-cn.synapse.ai). "
         "Falls back to env var CDN_BASE_URL. If empty, uses GitHub Release URLs.",
     )
     parser.add_argument(
         "--cdn-fallback-url",
         default=os.environ.get("CDN_FALLBACK_URL", ""),
-        help="Secondary/fallback CDN URL (e.g. https://dl.openakita.ai for Cloudflare R2). "
+        help="Secondary/fallback CDN URL (e.g. https://dl.synapse.ai for Cloudflare R2). "
         "Added as 'fallback_url' in the manifest for international users.",
     )
     args = parser.parse_args()

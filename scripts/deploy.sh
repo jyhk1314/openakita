@@ -19,7 +19,7 @@ set -e  # 遇错退出
 # 配置区域
 # =====================================================
 PYTHON_MIN_VERSION="3.11"
-PROJECT_NAME="openakita"
+PROJECT_NAME="synapse"
 
 # 颜色定义
 RED='\033[0;31m'
@@ -543,7 +543,7 @@ WHISPER_LANGUAGE=zh
 # =====================================================
 # 注意: LLM 相关配置已迁移到 data/llm_endpoints.json
 # 支持多端点、自动故障切换、能力路由
-# 运行 openakita llm-config 进行交互式配置
+# 运行 synapse llm-config 进行交互式配置
 EOF
         print_success "配置文件已创建: .env"
     fi
@@ -581,7 +581,7 @@ init_llm_endpoints() {
 EOF
         print_success "LLM 端点配置已创建: $llm_config"
     fi
-    print_info "提示: 通过 Setup Center 或 openakita llm-config 添加 LLM 端点"
+    print_info "提示: 通过 Setup Center 或 synapse llm-config 添加 LLM 端点"
     print_info "提示: 可添加多个端点实现自动故障切换"
 }
 
@@ -672,15 +672,15 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target"
     
-    local service_file="openakita.service"
+    local service_file="synapse.service"
     echo "$service_content" > "$service_file"
     print_success "服务文件已创建: $service_file"
     
     print_info "安装服务的命令:"
     echo "  sudo cp $service_file /etc/systemd/system/"
     echo "  sudo systemctl daemon-reload"
-    echo "  sudo systemctl enable openakita"
-    echo "  sudo systemctl start openakita"
+    echo "  sudo systemctl enable synapse"
+    echo "  sudo systemctl start synapse"
 }
 
 # 显示完成信息
@@ -693,7 +693,7 @@ show_completion() {
     echo -e "${YELLOW}后续步骤:${NC}"
     echo ""
     echo -e "  1. 配置 LLM 端点 (二选一):"
-    echo -e "     ${CYAN}openakita llm-config${NC}  # 交互式配置向导"
+    echo -e "     ${CYAN}synapse llm-config${NC}  # 交互式配置向导"
     echo -e "     ${CYAN}nano data/llm_endpoints.json${NC}  # 直接编辑"
     echo ""
     echo -e "  2. (可选) 配置 Telegram:"
@@ -703,8 +703,8 @@ show_completion() {
     echo -e "     ${CYAN}source venv/bin/activate${NC}"
     echo ""
     echo -e "  4. 启动 Agent:"
-    echo -e "     ${CYAN}openakita${NC}        # 交互模式"
-    echo -e "     ${CYAN}openakita serve${NC}  # 服务模式 (Telegram/IM)"
+    echo -e "     ${CYAN}synapse${NC}        # 交互模式"
+    echo -e "     ${CYAN}synapse serve${NC}  # 服务模式 (Telegram/IM)"
     echo ""
     echo -e "${BLUE}新特性:${NC}"
     echo -e "  - 多 LLM 端点支持，自动故障切换"

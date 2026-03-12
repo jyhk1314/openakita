@@ -16,9 +16,9 @@ import os
 import time
 from dataclasses import asdict
 
-from openakita.llm.client import LLMClient
-from openakita.llm.config import load_endpoints_config
-from openakita.llm.types import LLMRequest, Message
+from synapse.llm.client import LLMClient
+from synapse.llm.config import load_endpoints_config
+from synapse.llm.types import LLMRequest, Message
 
 
 def _reset_env(keys: list[str]) -> None:

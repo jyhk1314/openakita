@@ -48,7 +48,7 @@ export default defineConfig({
       // 新增服务商只需修改 providers.json，前后端自动同步
       "@shared/providers.json": path.resolve(
         __dirname,
-        "../../src/openakita/llm/registries/providers.json",
+        "../../src/synapse/llm/registries/providers.json",
       ),
     },
   },

@@ -10,12 +10,12 @@ from pathlib import Path
 # 确保项目在 path 中 (脚本在 scripts/ 目录下)
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from openakita.tools.shell import ShellTool
-from openakita.tools.file import FileTool
-from openakita.tools.web import WebTool
-from openakita.testing.judge import Judge
-from openakita.core.agent import Agent
-from openakita.prompt.retriever import retrieve_memory
+from synapse.tools.shell import ShellTool
+from synapse.tools.file import FileTool
+from synapse.tools.web import WebTool
+from synapse.testing.judge import Judge
+from synapse.core.agent import Agent
+from synapse.prompt.retriever import retrieve_memory
 
 
 async def test_shell():
@@ -66,13 +66,13 @@ async def test_file():
     
     # 写入测试
     print("\n  测试: 写入文件")
-    await file.write("/tmp/openakita_test.txt", "Hello OpenAkita!")
+    await file.write("/tmp/synapse_test.txt", "Hello OpenAkita!")
     print("  结果: ✓ PASS")
     passed += 1
     
     # 读取测试
     print("\n  测试: 读取文件")
-    content = await file.read("/tmp/openakita_test.txt")
+    content = await file.read("/tmp/synapse_test.txt")
     if content == "Hello OpenAkita!":
         print("  结果: ✓ PASS")
         passed += 1
@@ -81,7 +81,7 @@ async def test_file():
     
     # 存在测试
     print("\n  测试: 检查存在")
-    exists = await file.exists("/tmp/openakita_test.txt")
+    exists = await file.exists("/tmp/synapse_test.txt")
     if exists:
         print("  结果: ✓ PASS")
         passed += 1

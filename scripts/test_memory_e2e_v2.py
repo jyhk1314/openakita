@@ -20,7 +20,7 @@ sys.stderr.reconfigure(line_buffering=True)
 API_BASE = "http://127.0.0.1:18900"
 DELAY = 3
 TIMEOUT = 120
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "memory" / "openakita.db"
+DB_PATH = Path(__file__).resolve().parent.parent / "data" / "memory" / "synapse.db"
 
 TESTS = [
     # ── Group 1: Baseline ──

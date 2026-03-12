@@ -14,11 +14,11 @@ Channel detection (four-tier priority):
 
 Usage:
     # Generate all manifests locally for review
-    python scripts/backfill_versions.py --repo openakita/openakita --output-dir ./backfill-out
+    python scripts/backfill_versions.py --repo synapse/synapse --output-dir ./backfill-out
 
     # With CDN URL rewriting
-    python scripts/backfill_versions.py --repo openakita/openakita --output-dir ./backfill-out \\
-        --cdn-base-url https://dl-cn.openakita.ai
+    python scripts/backfill_versions.py --repo synapse/synapse --output-dir ./backfill-out \\
+        --cdn-base-url https://dl-cn.synapse.ai
 
     # Upload to OSS after review
     ossutil cp -r ./backfill-out/api/ oss://{bucket}/api/ -f
@@ -49,7 +49,7 @@ from generate_release_manifest import (
 )
 
 GITHUB_API = "https://api.github.com"
-DEFAULT_REPO = "openakita/openakita"
+DEFAULT_REPO = "synapse/synapse"
 PRE_RELEASE_SUFFIX = re.compile(r"-(?:rc|beta|alpha)\.", re.IGNORECASE)
 
 

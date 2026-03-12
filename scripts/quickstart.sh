@@ -3,10 +3,10 @@
 # OpenAkita One-Click Install Script (PyPI)
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/openakita/openakita/main/scripts/quickstart.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/synapse/synapse/main/scripts/quickstart.sh | bash
 #
 # Recommended (download then run with parameters):
-#   curl -fsSL -o quickstart.sh https://raw.githubusercontent.com/openakita/openakita/main/scripts/quickstart.sh
+#   curl -fsSL -o quickstart.sh https://raw.githubusercontent.com/synapse/synapse/main/scripts/quickstart.sh
 #   bash quickstart.sh --extras all --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 #
 
@@ -43,8 +43,8 @@ Options:
   --index-url <url>       pip index-url (mirror)
   --torch <cpu|skip>      Pre-install torch (CPU-only) or skip (default: cpu)
   --no-playwright         Skip installing Playwright browsers
-  --no-init               Skip running `openakita init`
-  --no-wrapper            Skip creating ~/.local/bin/openakita wrapper
+  --no-init               Skip running `synapse init`
+  --no-wrapper            Skip creating ~/.local/bin/synapse wrapper
   --force-wrapper         Overwrite existing wrapper if present
   -y, --yes               Non-interactive defaults
   -h, --help              Show this help
@@ -145,9 +145,9 @@ else
   exit 2
 fi
 
-PKG="openakita"
+PKG="synapse"
 if [[ -n "$EXTRAS" ]]; then
-  PKG="openakita[$EXTRAS]"
+  PKG="synapse[$EXTRAS]"
 fi
 
 echo -e "${YELLOW}Installing $PKG ...${NC}"
@@ -165,18 +165,18 @@ if [[ "$INSTALL_PLAYWRIGHT" == "1" ]]; then
 fi
 
 if [[ "$RUN_INIT" == "1" ]]; then
-  echo -e "${YELLOW}Running setup wizard (openakita init)...${NC}"
+  echo -e "${YELLOW}Running setup wizard (synapse init)...${NC}"
   pushd "$APP_DIR" >/dev/null
   if [[ -t 0 ]]; then
-    openakita init
+    synapse init
   else
     # When running via pipe (curl | bash), stdin is not a tty.
     if [[ -e /dev/tty ]]; then
       exec < /dev/tty
-      openakita init
+      synapse init
     else
       echo -e "${YELLOW}No TTY available; skipping init. Run later:${NC}"
-      echo "  cd \"$APP_DIR\" && source \"$VENV_DIR/bin/activate\" && openakita init"
+      echo "  cd \"$APP_DIR\" && source \"$VENV_DIR/bin/activate\" && synapse init"
     fi
   fi
   popd >/dev/null
@@ -184,7 +184,7 @@ fi
 
 if [[ "$INSTALL_WRAPPER" == "1" ]]; then
   WRAPPER_DIR="$HOME/.local/bin"
-  WRAPPER_PATH="$WRAPPER_DIR/openakita"
+  WRAPPER_PATH="$WRAPPER_DIR/synapse"
   mkdir -p "$WRAPPER_DIR"
 
   if [[ -f "$WRAPPER_PATH" && "$FORCE_WRAPPER" != "1" ]]; then
@@ -199,7 +199,7 @@ VENV_DIR="$VENV_DIR"
 # shellcheck disable=SC1090
 source "\$VENV_DIR/bin/activate"
 cd "\$APP_DIR"
-exec openakita "\$@"
+exec synapse "\$@"
 EOF
     chmod +x "$WRAPPER_PATH"
     echo -e "${GREEN}✓ Wrapper installed: $WRAPPER_PATH${NC}"
@@ -215,7 +215,7 @@ fi
 echo ""
 echo -e "${GREEN}=== Done ===${NC}"
 echo "Start:"
-echo "  openakita"
-echo "  openakita --help"
+echo "  synapse"
+echo "  synapse --help"
 echo "App dir:"
 echo "  $APP_DIR"

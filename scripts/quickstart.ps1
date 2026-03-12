@@ -3,15 +3,15 @@
   OpenAkita 一键安装脚本（PyPI，Windows PowerShell）
 .DESCRIPTION
   - 创建独立的 venv（默认在 %USERPROFILE%\.synapse\venv）
-  - 安装 openakita（可选 extras、可选镜像）
+  - 安装 synapse（可选 extras、可选镜像）
   - 可选安装 Playwright 浏览器
-  - 可选运行 openakita init（在 AppDir 目录生成 .env / data / identity）
+  - 可选运行 synapse init（在 AppDir 目录生成 .env / data / identity）
 
 默认用法（最简单）：
-  irm https://raw.githubusercontent.com/openakita/openakita/main/scripts/quickstart.ps1 | iex
+  irm https://raw.githubusercontent.com/synapse/synapse/main/scripts/quickstart.ps1 | iex
 
 推荐用法（可传参数）：
-  irm https://raw.githubusercontent.com/openakita/openakita/main/scripts/quickstart.ps1 -OutFile quickstart.ps1
+  irm https://raw.githubusercontent.com/synapse/synapse/main/scripts/quickstart.ps1 -OutFile quickstart.ps1
   .\quickstart.ps1 -Extras all -IndexUrl https://pypi.tuna.tsinghua.edu.cn/simple
 #>
 
@@ -84,7 +84,7 @@ if (-not (Test-Path $VenvDir)) {
 Write-Color "OK venv ready" Green
 Write-Host ""
 
-# Activate venv (for `openakita` entrypoint)
+# Activate venv (for `synapse` entrypoint)
 & (Join-Path $VenvDir "Scripts\Activate.ps1")
 
 Write-Color "Upgrading pip..." Yellow
@@ -95,9 +95,9 @@ if ($Torch -eq "cpu") {
   python -m pip install -U torch --index-url https://download.pytorch.org/whl/cpu | Out-Null
 }
 
-$pkg = "openakita"
+$pkg = "synapse"
 if (-not [string]::IsNullOrWhiteSpace($Extras)) {
-  $pkg = "openakita[$Extras]"
+  $pkg = "synapse[$Extras]"
 }
 
 Write-Color "Installing $pkg ..." Yellow
@@ -115,15 +115,15 @@ if (-not $NoPlaywright) {
 }
 
 if (-not $NoInit) {
-  Write-Color "Running setup wizard (openakita init)..." Cyan
+  Write-Color "Running setup wizard (synapse init)..." Cyan
   Push-Location $AppDir
-  try { openakita init } finally { Pop-Location }
+  try { synapse init } finally { Pop-Location }
 }
 
 if (-not $NoWrapper) {
   $binDir = "$env:USERPROFILE\.synapse\bin"
   New-Item -ItemType Directory -Path $binDir -Force | Out-Null
-  $cmdPath = Join-Path $binDir "openakita.cmd"
+  $cmdPath = Join-Path $binDir "synapse.cmd"
 
   if ((Test-Path $cmdPath) -and (-not $ForceWrapper)) {
     Write-Color "Wrapper already exists, not overwriting: $cmdPath (use -ForceWrapper to overwrite)" Yellow
@@ -134,7 +134,7 @@ set "APPDIR=$AppDir"
 set "VENV=$VenvDir"
 call "%VENV%\Scripts\activate.bat"
 cd /d "%APPDIR%"
-openakita %*
+synapse %*
 "@
     Set-Content -Path $cmdPath -Value $cmd -Encoding ASCII
     Write-Color "Wrapper created: $cmdPath" Green
@@ -145,5 +145,5 @@ openakita %*
 Write-Host ""
 Write-Color "=== Done ===" Green
 Write-Host "Start:"
-Write-Host "  openakita"
-Write-Host "  openakita --help"
+Write-Host "  synapse"
+Write-Host "  synapse --help"

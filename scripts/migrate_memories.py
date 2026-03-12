@@ -43,7 +43,7 @@ def load_memories(memories_file: Path) -> list[dict]:
 def migrate_to_vector_store(memories: list[dict], data_dir: Path) -> int:
     """将记忆迁移到向量库"""
     try:
-        from openakita.memory.vector_store import VectorStore
+        from synapse.memory.vector_store import VectorStore
     except ImportError as e:
         print(f"❌ 导入 VectorStore 失败: {e}")
         print("   请确保已安装依赖: pip install sentence-transformers chromadb")

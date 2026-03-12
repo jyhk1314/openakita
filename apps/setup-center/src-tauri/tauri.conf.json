@@ -40,7 +40,8 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFBNkE0NDkxRERCMTNBMzQKUldRME9ySGRrVVJxR25HeDhLZTNmK3hEc2hySHhmaVZkeVVmOUZpTitibEVjaC9KUStMamJJSjYK",
       "endpoints": [
-        "https://openakita.ai/api/latest.json"
+        "https://openakita.ai/api/latest.json",
+        "https://git-nj.iwhalecloud.com/osc/iwhalecloud-agent-skills"
       ],
       "windows": {
         "installMode": "passive"
