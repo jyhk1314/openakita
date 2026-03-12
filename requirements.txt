@@ -59,7 +59,7 @@ uvicorn>=0.27.0            # ASGI server
 python-telegram-bot>=21.0  # Telegram Bot API
 
 # =====================================================
-# Optional IM channels: pip install openakita[all] or [feishu] etc.
+# Optional IM channels: pip install synapse[all] or [feishu] etc.
 # =====================================================
 
 # Feishu
