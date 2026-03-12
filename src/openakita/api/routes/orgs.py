@@ -15,7 +15,7 @@ from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 
-from openakita.core.engine_bridge import to_engine
+from synapse.core.engine_bridge import to_engine
 
 ALLOWED_AVATAR_TYPES = {"image/png", "image/jpeg", "image/jpg", "image/webp", "image/svg+xml"}
 MAX_AVATAR_SIZE = 2 * 1024 * 1024  # 2 MB
@@ -68,7 +68,7 @@ async def create_org(request: Request):
 
 @router.get("/avatar-presets")
 async def get_avatar_presets():
-    from openakita.orgs.tool_categories import list_avatar_presets
+    from synapse.orgs.tool_categories import list_avatar_presets
     return list_avatar_presets()
 
 
@@ -97,7 +97,7 @@ async def upload_avatar(request: Request, file: UploadFile = _FILE_FIELD):
     digest = hashlib.md5(data).hexdigest()[:12]
     filename = f"{digest}_{int(time.time())}{ext}"
 
-    from openakita.config import settings
+    from synapse.config import settings
     avatar_dir = settings.data_dir / "avatars"
     avatar_dir.mkdir(parents=True, exist_ok=True)
     dest = avatar_dir / filename
@@ -250,7 +250,7 @@ async def create_node_schedule(request: Request, org_id: str, node_id: str):
     if org.get_node(node_id) is None:
         raise HTTPException(404, f"Node not found: {node_id}")
     body = await request.json()
-    from openakita.orgs.models import NodeSchedule
+    from synapse.orgs.models import NodeSchedule
     schedule = NodeSchedule.from_dict(body)
     mgr.add_node_schedule(org_id, node_id, schedule)
     return schedule.to_dict()
@@ -589,7 +589,7 @@ async def set_node_offline(request: Request, org_id: str, node_id: str):
     node = org.get_node(node_id)
     if not node:
         raise HTTPException(404, f"Node not found: {node_id}")
-    from openakita.orgs.models import NodeStatus
+    from synapse.orgs.models import NodeStatus
     node.status = NodeStatus.OFFLINE
     rt._save_org(org)
     rt.get_event_store(org_id).emit("node_deactivated", "user", {"node_id": node_id})
@@ -605,7 +605,7 @@ async def set_node_online(request: Request, org_id: str, node_id: str):
     node = org.get_node(node_id)
     if not node:
         raise HTTPException(404, f"Node not found: {node_id}")
-    from openakita.orgs.models import NodeStatus
+    from synapse.orgs.models import NodeStatus
     if node.status != NodeStatus.OFFLINE:
         raise HTTPException(400, f"Node is not offline (current: {node.status.value})")
     node.status = NodeStatus.IDLE
@@ -623,7 +623,7 @@ async def query_memory(request: Request, org_id: str):
     if not bb:
         mgr = _get_manager(request)
         org_dir = mgr._org_dir(org_id)
-        from openakita.orgs.blackboard import OrgBlackboard
+        from synapse.orgs.blackboard import OrgBlackboard
         bb = OrgBlackboard(org_dir, org_id)
 
     scope = request.query_params.get("scope")
@@ -631,7 +631,7 @@ async def query_memory(request: Request, org_id: str):
     tag = request.query_params.get("tag")
     limit = _safe_int(request.query_params.get("limit"), 50)
 
-    from openakita.orgs.models import MemoryScope, MemoryType
+    from synapse.orgs.models import MemoryScope, MemoryType
     try:
         scope_enum = MemoryScope(scope) if scope else None
         type_enum = MemoryType(memory_type) if memory_type else None
@@ -648,10 +648,10 @@ async def add_memory(request: Request, org_id: str):
     bb = rt.get_blackboard(org_id)
     if not bb:
         mgr = _get_manager(request)
-        from openakita.orgs.blackboard import OrgBlackboard
+        from synapse.orgs.blackboard import OrgBlackboard
         bb = OrgBlackboard(mgr._org_dir(org_id), org_id)
     body = await request.json()
-    from openakita.orgs.models import MemoryScope, MemoryType
+    from synapse.orgs.models import MemoryScope, MemoryType
     try:
         scope = MemoryScope(body.get("scope", "org"))
         mt = MemoryType(body.get("memory_type", "fact"))

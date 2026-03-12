@@ -194,7 +194,7 @@ class BrowserUseRunner:
             return {"success": True, "result": result_data}
 
         except ImportError as e:
-            from openakita.tools._import_helper import import_or_hint
+            from synapse.tools._import_helper import import_or_hint
             hint = import_or_hint("browser_use") or import_or_hint("langchain_openai") or str(e)
             logger.error(f"[BrowserTask] Import error: {hint}")
             return {"success": False, "error": hint}

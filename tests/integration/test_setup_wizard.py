@@ -11,7 +11,7 @@ import json
 import pytest
 from pathlib import Path
 
-from openakita.setup.wizard import SetupWizard
+from synapse.setup.wizard import SetupWizard
 
 
 @pytest.fixture

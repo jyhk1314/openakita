@@ -2,7 +2,7 @@
 网络搜索测试用例 (40个)
 """
 
-from openakita.testing.runner import TestCase
+from synapse.testing.runner import TestCase
 
 WEB_SEARCH_TESTS = [
     # HTTP 请求测试
@@ -41,7 +41,7 @@ WEB_SEARCH_TESTS = [
         input={
             "action": "get",
             "url": "https://httpbin.org/headers",
-            "headers": {"X-Test": "openakita"},
+            "headers": {"X-Test": "synapse"},
         },
         expected="contains:X-Test",
         tags=["http", "headers"],
@@ -98,7 +98,7 @@ WEB_SEARCH_TESTS = [
         input={
             "action": "download",
             "url": "https://httpbin.org/bytes/100",
-            "path": "/tmp/openakita_download_test.bin",
+            "path": "/tmp/synapse_download_test.bin",
         },
         expected=True,
         tags=["download", "file"],

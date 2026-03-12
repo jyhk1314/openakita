@@ -158,7 +158,7 @@ async def broadcast_event(event: str, data: Any = None) -> None:
     the actual WebSocket send is scheduled in the API loop where the
     connections live.
     """
-    from openakita.core.engine_bridge import fire_in_api, get_api_loop
+    from synapse.core.engine_bridge import fire_in_api, get_api_loop
 
     if get_api_loop() is not None:
         try:

@@ -383,7 +383,7 @@ def quick_add_endpoint(
     快速添加端点（用于命令行）
 
     Usage:
-        python -m openakita.llm.setup.cli add --provider dashscope --model qwen-max
+        python -m synapse.llm.setup.cli add --provider dashscope --model qwen-max
     """
     from ..registries import get_registry
 

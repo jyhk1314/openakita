@@ -19,7 +19,7 @@ import sys
 import textwrap
 from typing import Any
 
-from openakita.runtime_env import IS_FROZEN, get_python_executable
+from synapse.runtime_env import IS_FROZEN, get_python_executable
 
 logger = logging.getLogger(__name__)
 

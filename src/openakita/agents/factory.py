@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 from .profile import AgentProfile, SkillsMode
 
 if TYPE_CHECKING:
-    from openakita.core.agent import Agent
+    from synapse.core.agent import Agent
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ class AgentFactory:
     """
 
     async def create(self, profile: AgentProfile, **kwargs: Any) -> Agent:
-        from openakita.core.agent import Agent
+        from synapse.core.agent import Agent
 
         agent = Agent(name=profile.get_display_name(), **kwargs)
         agent._agent_profile = profile

@@ -1,9 +1,9 @@
 ---
-name: openakita/skills@file-manager
+name: synapse/skills@file-manager
 description: File and directory management tool for creating, reading, writing, deleting, moving, copying, and searching files. Use this skill when the user needs to perform file operations, list directories, search by pattern or content, or get file metadata like size and modification time.
 license: MIT
 metadata:
-  author: openakita
+  author: synapse
   version: "1.0.0"
 ---
 

@@ -45,7 +45,7 @@ cd apps/setup-center && npm run tauri dev
 pytest                      # all tests (asyncio_mode=auto)
 pytest tests/unit/          # unit tests only
 pytest -k "test_brain"      # specific test
-pytest --cov=src/openakita  # with coverage
+pytest --cov=src/synapse  # with coverage
 ```
 
 Test paths: `tests/` (configured in `pyproject.toml`).
@@ -60,13 +60,13 @@ Test paths: `tests/` (configured in `pyproject.toml`).
 ```bash
 ruff check src/             # lint
 ruff format src/            # format
-mypy src/openakita/         # type check (best-effort)
+mypy src/synapse/         # type check (best-effort)
 ```
 
 ## Project Structure
 
 ```
-src/openakita/          # Core Python backend
+src/synapse/          # Core Python backend
   core/                 #   Agent, Brain, Ralph Loop, ReasoningEngine, Identity
   agents/               #   Multi-agent: Orchestrator, Factory, Profiles, TaskQueue
   prompt/               #   Prompt compilation & assembly (builder, compiler, budget)

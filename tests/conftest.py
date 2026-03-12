@@ -66,7 +66,7 @@ def test_settings(tmp_workspace: Path):
     os.environ["OPENAKITA_PROJECT_ROOT"] = str(tmp_workspace)
     os.environ.setdefault("ANTHROPIC_API_KEY", "sk-test-placeholder")
 
-    from openakita.config import Settings
+    from synapse.config import Settings
     settings = Settings(
         project_root=tmp_workspace,
         database_path=str(tmp_workspace / "data" / "agent.db"),

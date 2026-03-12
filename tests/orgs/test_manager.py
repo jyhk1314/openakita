@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from openakita.orgs.manager import OrgManager
-from openakita.orgs.models import (
+from synapse.orgs.manager import OrgManager
+from synapse.orgs.models import (
     NodeSchedule,
     Organization,
     OrgNode,

@@ -285,7 +285,7 @@ class SkillParser:
 
         # Extract metadata.synapse structured fields
         raw_metadata = data.get("metadata", {})
-        akita_meta = raw_metadata.get("openakita", {}) if isinstance(raw_metadata, dict) else {}
+        akita_meta = raw_metadata.get("synapse", {}) if isinstance(raw_metadata, dict) else {}
         if not isinstance(akita_meta, dict):
             akita_meta = {}
 

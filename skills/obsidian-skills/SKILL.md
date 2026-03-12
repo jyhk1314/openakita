@@ -1,9 +1,9 @@
 ---
-name: openakita/skills@obsidian-skills
+name: synapse/skills@obsidian-skills
 description: Manage Obsidian vaults with full support for Obsidian Flavored Markdown — wikilinks, embeds, callouts, YAML properties, Dataview queries, Canvas, and Bases. Organize notes using MOCs (Maps of Content), atomic note principles, and consistent folder/tag taxonomies. Always ask the user where to save before creating notes.
 license: MIT
 metadata:
-  author: openakita
+  author: synapse
   version: "1.0.0"
   upstream: kepano/obsidian-skills
 ---

@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from openakita.core.tool_executor import ToolExecutor, OVERFLOW_MARKER
+from synapse.core.tool_executor import ToolExecutor, OVERFLOW_MARKER
 
 
 def _make_registry(*tool_names: str) -> MagicMock:

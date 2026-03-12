@@ -193,7 +193,7 @@ risks_or_ambiguities:
 def _collect_preset_referenced_skills() -> set[str]:
     """Collect all skill names referenced by system preset agents."""
     try:
-        from openakita.agents.presets import SYSTEM_PRESETS
+        from synapse.agents.presets import SYSTEM_PRESETS
         skills: set[str] = set()
         for preset in SYSTEM_PRESETS:
             skills.update(preset.skills)
@@ -214,7 +214,7 @@ class Agent:
     # 通过 from ..tools.definitions import BASE_TOOLS 导入
 
     # 说明：历史上这里用类变量保存 IM 上下文，存在并发串台风险。
-    # 现在改为使用 `openakita.core.im_context` 中的 contextvars（协程隔离）。
+    # 现在改为使用 `synapse.core.im_context` 中的 contextvars（协程隔离）。
     _current_im_session = None  # legacy: 保留字段避免外部引用崩溃（不再使用）
     _current_im_gateway = None  # legacy: 保留字段避免外部引用崩溃（不再使用）
 
@@ -802,7 +802,7 @@ class Agent:
 
         # 自动生成/加载设备 ID（用于平台认证）
         if not settings.hub_device_id:
-            from openakita.hub.device import get_or_create_device_id
+            from synapse.hub.device import get_or_create_device_id
             data_dir = Path(settings.project_root) / "data"
             settings.hub_device_id = get_or_create_device_id(data_dir)
 

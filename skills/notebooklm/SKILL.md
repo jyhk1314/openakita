@@ -1,9 +1,9 @@
 ---
-name: openakita/skills@notebooklm
+name: synapse/skills@notebooklm
 description: Conduct deep research using NotebookLM integration — upload documents, query with citation-backed answers, synthesize findings, and produce infographic-style presentations. Output in Markdown, HTML/reveal.js slides, or Mermaid diagrams with visual hierarchy design specifications.
 license: MIT
 metadata:
-  author: openakita
+  author: synapse
   version: "1.0.0"
   upstream: alfredang/skills/notebooklm
 ---

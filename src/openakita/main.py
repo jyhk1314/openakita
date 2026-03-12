@@ -6,7 +6,7 @@ OpenAkita CLI 入口
 支持多 Agent 协同模式（通过 ORCHESTRATION_ENABLED 配置）
 """
 
-import openakita._ensure_utf8  # noqa: F401  # isort: skip
+import synapse._ensure_utf8  # noqa: F401  # isort: skip
 
 import asyncio
 import importlib
@@ -92,13 +92,13 @@ async def _init_orchestrator():
     global _orchestrator
     if _orchestrator is not None:
         return
-    from openakita.agents.orchestrator import AgentOrchestrator
+    from synapse.agents.orchestrator import AgentOrchestrator
     _orchestrator = AgentOrchestrator()
     if _message_gateway:
         _orchestrator.set_gateway(_message_gateway)
     logger.info("[MultiAgent] AgentOrchestrator initialized")
     try:
-        from openakita.agents.presets import ensure_presets_on_mode_enable
+        from synapse.agents.presets import ensure_presets_on_mode_enable
         ensure_presets_on_mode_enable(settings.data_dir / "agents")
     except Exception as e:
         logger.warning(f"[Main] Failed to deploy presets on orchestrator init: {e}")
@@ -224,7 +224,7 @@ def _ensure_channel_deps() -> None:
     _patch_backports_zstd()
     patch_simplejson_jsondecodeerror(logger=logger)
     try:
-        from openakita.runtime_env import inject_module_paths_runtime
+        from synapse.runtime_env import inject_module_paths_runtime
         inject_module_paths_runtime()
     except Exception:
         pass
@@ -282,7 +282,7 @@ def _ensure_channel_deps() -> None:
     pkg_list = ", ".join(missing)
     logger.info(f"IM 通道依赖自动安装: {pkg_list} ...")
 
-    from openakita.runtime_env import get_channel_deps_dir, get_python_executable, IS_FROZEN
+    from synapse.runtime_env import get_channel_deps_dir, get_python_executable, IS_FROZEN
 
     py = get_python_executable()
     if not py or (IS_FROZEN and py == sys.executable):
@@ -354,7 +354,7 @@ def _ensure_channel_deps() -> None:
             sys.path.append(target_str)
             logger.info(f"已注入通道依赖路径: {target_str}")
         try:
-            from openakita.runtime_env import inject_module_paths_runtime
+            from synapse.runtime_env import inject_module_paths_runtime
             inject_module_paths_runtime()
         except Exception:
             pass
@@ -1599,7 +1599,7 @@ def serve(
     import warnings
     from pathlib import Path
 
-    from openakita import config as cfg
+    from synapse import config as cfg
 
     # 压制 Windows asyncio 关闭时的 ResourceWarning
     warnings.filterwarnings("ignore", category=ResourceWarning, module="asyncio")
@@ -1627,7 +1627,7 @@ def serve(
         """写入一次心跳（原子写入：先写临时文件再重命名）"""
         try:
             _heartbeat_file.parent.mkdir(parents=True, exist_ok=True)
-            from openakita import __git_hash__, __version__
+            from synapse import __git_hash__, __version__
             data = {
                 "pid": os.getpid(),
                 "timestamp": time.time(),
@@ -1681,7 +1681,7 @@ def serve(
         shutdown_triggered = False
         _heartbeat_phase = "initializing"
 
-        from openakita import get_version_string
+        from synapse import get_version_string
         _version_str = get_version_string()
         logger.info(f"OpenAkita {_version_str} starting...")
 
@@ -1724,7 +1724,7 @@ def serve(
         # （供 HTTP API /api/chat 并发会话隔离使用）
         global _desktop_pool
         if _desktop_pool is None:
-            from openakita.agents.factory import AgentFactory, AgentInstancePool
+            from synapse.agents.factory import AgentFactory, AgentInstancePool
             _desktop_pool = AgentInstancePool(AgentFactory(), idle_timeout=600)
             await _desktop_pool.start()
             logger.info("[Main] Desktop AgentInstancePool initialized (idle_timeout=600s)")
@@ -1737,7 +1737,7 @@ def serve(
         api_task = None
         _api_fatal = False
         try:
-            from openakita.api.server import start_api_server
+            from synapse.api.server import start_api_server
             api_task = await start_api_server(
                 agent=agent_or_master,
                 shutdown_event=shutdown_event,
@@ -1775,7 +1775,7 @@ def serve(
             async def _file_watcher():
                 try:
                     from watchfiles import awatch, Change
-                    src_dir = Path(__file__).resolve().parent  # src/openakita/
+                    src_dir = Path(__file__).resolve().parent  # src/synapse/
                     console.print(f"[dim]📂 监控目录: {src_dir}[/dim]")
                     async for changes in awatch(
                         src_dir,
@@ -1835,7 +1835,7 @@ def serve(
                     logger.debug(f"Exception during shutdown (ignored): {e}")
                 finally:
                     try:
-                        from openakita.core.engine_bridge import shutdown as _bridge_shutdown
+                        from synapse.core.engine_bridge import shutdown as _bridge_shutdown
                         _bridge_shutdown()
                     except Exception:
                         pass
@@ -1885,7 +1885,7 @@ def serve(
 
             # 重新扫描并注入模块路径（模块可能在服务运行期间安装/卸载）
             try:
-                from openakita.runtime_env import inject_module_paths_runtime
+                from synapse.runtime_env import inject_module_paths_runtime
                 n = inject_module_paths_runtime()
                 if n > 0:
                     console.print(f"[dim]已注入 {n} 个新模块路径[/dim]")
@@ -1894,7 +1894,7 @@ def serve(
 
             # 等待端口释放（旧 uvicorn 关闭后 TCP socket 可能处于 TIME_WAIT）
             try:
-                from openakita.api.server import API_HOST, API_PORT, wait_for_port_free
+                from synapse.api.server import API_HOST, API_PORT, wait_for_port_free
                 _api_port = int(os.environ.get("API_PORT", API_PORT))
                 console.print(f"[dim]等待端口 {_api_port} 释放...[/dim]")
                 if not wait_for_port_free(API_HOST, _api_port, timeout=15.0):

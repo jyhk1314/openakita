@@ -7,7 +7,7 @@ In a real quality run, these would use a real LLM with LLM-as-Judge scoring.
 
 import pytest
 
-from openakita.testing.judge import Judge, JudgeResult
+from synapse.testing.judge import Judge, JudgeResult
 from tests.fixtures.mock_llm import MockBrain, MockLLMClient, MockResponse
 
 

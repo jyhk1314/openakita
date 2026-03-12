@@ -3,7 +3,7 @@
 import pytest
 import httpx
 
-from openakita.api.server import create_app
+from synapse.api.server import create_app
 
 
 @pytest.fixture

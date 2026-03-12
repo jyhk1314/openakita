@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 def _notify_skills_changed(action: str = "reload") -> None:
     """Fire-and-forget WS broadcast for skill state changes."""
     try:
-        from openakita.api.routes.websocket import broadcast_event
+        from synapse.api.routes.websocket import broadcast_event
         asyncio.ensure_future(broadcast_event("skills:changed", {"action": action}))
     except Exception:
         pass
@@ -38,7 +38,7 @@ def _read_external_allowlist() -> tuple[Path, set[str] | None]:
     import json
 
     try:
-        from openakita.config import settings
+        from synapse.config import settings
         base_path = settings.project_root
     except Exception:
         base_path = Path.cwd()
@@ -63,7 +63,7 @@ def _apply_allowlist_and_rebuild_catalog(request: Request) -> int:
     Call this after any operation that changes loaded skills or the allowlist.
     Returns the number of pruned external skills.
     """
-    from openakita.core.agent import Agent
+    from synapse.core.agent import Agent
 
     agent = getattr(request.app.state, "agent", None)
     actual_agent = agent
@@ -77,7 +77,7 @@ def _apply_allowlist_and_rebuild_catalog(request: Request) -> int:
     loader = getattr(actual_agent, "skill_loader", None)
     removed = 0
     if loader:
-        from openakita.core.agent import _collect_preset_referenced_skills
+        from synapse.core.agent import _collect_preset_referenced_skills
         effective = loader.compute_effective_allowlist(external_allowlist)
         agent_skills = _collect_preset_referenced_skills()
         removed = loader.prune_external_by_allowlist(effective, agent_referenced_skills=agent_skills)
@@ -118,7 +118,7 @@ async def _auto_translate_new_skills(request: Request, install_url: str) -> None
 
     翻译失败不影响安装结果，仅记录日志。
     """
-    from openakita.core.agent import Agent
+    from synapse.core.agent import Agent
 
     try:
         agent = getattr(request.app.state, "agent", None)
@@ -133,7 +133,7 @@ async def _auto_translate_new_skills(request: Request, install_url: str) -> None
         if not brain or not registry:
             return
 
-        from openakita.skills.i18n import auto_translate_skill
+        from synapse.skills.i18n import auto_translate_skill
 
         for skill in registry.list_all():
             if skill.name_i18n:
@@ -163,7 +163,7 @@ async def list_skills(request: Request):
 
     # Load all skills via a fresh SkillLoader (not pruned by allowlist)
     try:
-        from openakita.skills.loader import SkillLoader
+        from synapse.skills.loader import SkillLoader
 
         loader = SkillLoader()
         loader.load_all(base_path=base_path)
@@ -171,7 +171,7 @@ async def list_skills(request: Request):
         effective_allowlist = loader.compute_effective_allowlist(external_allowlist)
     except Exception:
         # Fallback to agent's registry (only enabled skills)
-        from openakita.core.agent import Agent
+        from synapse.core.agent import Agent
 
         agent = getattr(request.app.state, "agent", None)
         actual_agent = agent
@@ -255,7 +255,7 @@ async def install_skill(request: Request):
     """
     import asyncio
 
-    from openakita.core.agent import Agent
+    from synapse.core.agent import Agent
 
     body = await request.json()
     url = body.get("url", "").strip()
@@ -263,14 +263,14 @@ async def install_skill(request: Request):
         return {"error": "url is required"}
 
     try:
-        from openakita.config import settings
+        from synapse.config import settings
 
         workspace_dir = str(settings.project_root)
     except Exception:
         workspace_dir = str(__import__("pathlib").Path.cwd())
 
     try:
-        from openakita.setup_center.bridge import install_skill as _install_skill
+        from synapse.setup_center.bridge import install_skill as _install_skill
 
         await asyncio.to_thread(_install_skill, workspace_dir, url)
     except FileNotFoundError as e:
@@ -317,7 +317,7 @@ async def reload_skills(request: Request):
     如果 skill_name 为空或未提供，则重新扫描并加载所有技能。
     全量重载后会重新读取 data/skills.json 的 allowlist 并裁剪禁用技能。
     """
-    from openakita.core.agent import Agent
+    from synapse.core.agent import Agent
 
     body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
     skill_name = (body.get("skill_name") or "").strip()
@@ -370,12 +370,12 @@ async def get_skill_content(skill_name: str, request: Request):
     返回 { content, path, system } 供前端展示和编辑。
     系统内置技能标记 system=true，前端可据此决定是否允许编辑。
     """
-    from openakita.skills.loader import SkillLoader
+    from synapse.skills.loader import SkillLoader
 
     base_path, _ = _read_external_allowlist()
 
     # 优先从 agent 运行时的 loader 中查找（已加载的技能）
-    from openakita.core.agent import Agent
+    from synapse.core.agent import Agent
 
     agent = getattr(request.app.state, "agent", None)
     actual_agent = agent if isinstance(agent, Agent) else getattr(agent, "_local_agent", None)
@@ -422,8 +422,8 @@ async def update_skill_content(skill_name: str, request: Request):
     3. 热重载该技能
     4. 返回更新后的元数据
     """
-    from openakita.core.agent import Agent
-    from openakita.skills.parser import skill_parser
+    from synapse.core.agent import Agent
+    from synapse.skills.parser import skill_parser
 
     try:
         body = await request.json()
@@ -484,7 +484,7 @@ async def update_skill_content(skill_name: str, request: Request):
 @router.get("/api/skills/marketplace")
 async def search_marketplace(q: str = "agent"):
     """Proxy to skills.sh search API (bypasses CORS for desktop app)."""
-    from openakita.llm.providers.proxy_utils import (
+    from synapse.llm.providers.proxy_utils import (
         get_httpx_transport,
         get_proxy_config,
     )

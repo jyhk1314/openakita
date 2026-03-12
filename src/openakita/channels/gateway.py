@@ -32,7 +32,7 @@ from .types import OutgoingMessage, UnifiedMessage
 def _notify_im_event(event: str, data: dict | None = None) -> None:
     """Fire-and-forget WS broadcast for IM events."""
     try:
-        from openakita.api.routes.websocket import broadcast_event
+        from synapse.api.routes.websocket import broadcast_event
         asyncio.ensure_future(broadcast_event(event, data))
     except Exception:
         pass
@@ -559,7 +559,7 @@ class ThinkingCommandHandler:
 
     def _format_chain_status(self, session: "Session") -> str:
         """格式化思维链推送状态"""
-        from openakita.config import settings
+        from synapse.config import settings
 
         current = session.get_metadata("chain_push")
         if current is None:
@@ -796,7 +796,7 @@ class RestartCommandHandler:
     # ---------- 重启触发 ----------
 
     async def _trigger_restart(self) -> None:
-        from openakita import config as cfg
+        from synapse import config as cfg
 
         cfg._restart_requested = True
         if self._shutdown_event is not None:
@@ -951,7 +951,7 @@ class MessageGateway:
             logger.info("[Mode] multi_agent_enabled toggled ON via IM command")
             # Deploy system presets on first enable
             try:
-                from openakita.agents.presets import ensure_presets_on_mode_enable
+                from synapse.agents.presets import ensure_presets_on_mode_enable
                 ensure_presets_on_mode_enable(settings.data_dir / "agents")
             except Exception as e:
                 logger.warning(f"[Gateway] Failed to deploy presets: {e}")
@@ -1046,9 +1046,9 @@ class MessageGateway:
         """处理 /切换 [agent_id] 或 /switch [agent_id]"""
         from datetime import datetime
 
-        from openakita.agents.presets import SYSTEM_PRESETS
-        from openakita.agents.profile import ProfileStore
-        from openakita.config import settings
+        from synapse.agents.presets import SYSTEM_PRESETS
+        from synapse.agents.profile import ProfileStore
+        from synapse.config import settings
 
         all_profiles = list(SYSTEM_PRESETS)
         try:
@@ -1120,9 +1120,9 @@ class MessageGateway:
 
     def _format_agent_status(self, session: Session) -> str:
         """格式化 /状态 输出"""
-        from openakita.agents.presets import SYSTEM_PRESETS
-        from openakita.agents.profile import ProfileStore
-        from openakita.config import settings
+        from synapse.agents.presets import SYSTEM_PRESETS
+        from synapse.agents.profile import ProfileStore
+        from synapse.config import settings
 
         all_profiles = list(SYSTEM_PRESETS)
         try:
@@ -1322,7 +1322,7 @@ class MessageGateway:
             static_ffmpeg.add_paths(weak=True)  # weak=True: 不覆盖已有
             logger.info("ffmpeg auto-configured via static-ffmpeg")
         except ImportError as e:
-            from openakita.tools._import_helper import import_or_hint
+            from synapse.tools._import_helper import import_or_hint
             hint = import_or_hint("static_ffmpeg")
             logger.warning(f"ffmpeg 不可用: {hint}")
             logger.warning(f"static_ffmpeg ImportError 详情: {e}", exc_info=True)
@@ -1396,7 +1396,7 @@ class MessageGateway:
         # 必须在 _ensure_ffmpeg 之前执行，因为 static_ffmpeg 也在 whisper 模块中。
         if "whisper" not in sys.modules:
             try:
-                from openakita.runtime_env import inject_module_paths_runtime
+                from synapse.runtime_env import inject_module_paths_runtime
                 inject_module_paths_runtime()
             except Exception:
                 pass
@@ -1444,7 +1444,7 @@ class MessageGateway:
             logger.info(f"Whisper model '{model_name}' loaded successfully")
 
         except ImportError:
-            from openakita.tools._import_helper import import_or_hint
+            from synapse.tools._import_helper import import_or_hint
             hint = import_or_hint("whisper")
             logger.warning(f"Whisper 不可用（本进程内不再重试）: {hint}")
             self._whisper_unavailable = True
@@ -2391,7 +2391,7 @@ class MessageGateway:
             def transcribe():
                 # QQ/微信语音使用 SILK 编码（.amr 扩展名），ffmpeg 不支持
                 # 需要先转换为 WAV 才能被 Whisper 识别
-                from openakita.channels.media.audio_utils import ensure_whisper_compatible
+                from synapse.channels.media.audio_utils import ensure_whisper_compatible
 
                 compatible_path = ensure_whisper_compatible(audio_path)
 

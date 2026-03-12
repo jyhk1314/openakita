@@ -14,8 +14,8 @@ from unittest.mock import MagicMock
 sys.path.insert(0, str(Path(__file__).parent.parent / "fixtures"))
 from mock_llm import MockLLMClient, MockResponse, MockBrain
 
-from openakita.core.task_monitor import TaskMonitor, TaskMetrics
-from openakita.core.ralph import Task, TaskResult, TaskStatus
+from synapse.core.task_monitor import TaskMonitor, TaskMetrics
+from synapse.core.ralph import Task, TaskResult, TaskStatus
 
 
 class TestSearchThenSummarize:

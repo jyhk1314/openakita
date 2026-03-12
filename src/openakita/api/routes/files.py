@@ -31,7 +31,7 @@ def _get_workspace_root(request: Request) -> Path:
 
     # Fallback: try settings
     try:
-        from openakita.core.settings import settings
+        from synapse.core.settings import settings
         if settings.workspace_dir:
             return Path(settings.workspace_dir)
     except Exception:

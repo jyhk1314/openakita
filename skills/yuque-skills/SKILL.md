@@ -1,9 +1,9 @@
 ---
-name: openakita/skills@yuque-skills
+name: synapse/skills@yuque-skills
 description: Manage Yuque (语雀) knowledge bases, documents, and team collaboration through API integration. Supports personal search, weekly reports, knowledge base management, document CRUD, and group collaboration workflows. Based on yuque/yuque-skills.
 license: MIT
 metadata:
-  author: openakita
+  author: synapse
   version: "1.0.0"
 ---
 

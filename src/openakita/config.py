@@ -121,7 +121,7 @@ class Settings(BaseSettings):
     # === 日志配置 ===
     log_level: str = Field(default="INFO", description="日志级别")
     log_dir: str = Field(default="logs", description="日志目录")
-    log_file_prefix: str = Field(default="openakita", description="日志文件前缀")
+    log_file_prefix: str = Field(default="synapse", description="日志文件前缀")
     log_max_size_mb: int = Field(default=10, description="单个日志文件最大大小（MB）")
     log_backup_count: int = Field(default=30, description="保留的日志文件数量")
     log_retention_days: int = Field(default=30, description="日志保留天数")
@@ -486,7 +486,7 @@ class Settings(BaseSettings):
         return self.project_root / self.sticker_data_dir
 
     @property
-    def openakita_home(self) -> Path:
+    def synapse_home(self) -> Path:
         """用户数据根目录，优先使用 OPENAKITA_ROOT 环境变量，默认 ~/.synapse"""
         import os
         env_root = os.environ.get("OPENAKITA_ROOT", "").strip()
@@ -498,10 +498,10 @@ class Settings(BaseSettings):
     def user_workspace_path(self) -> Path:
         """当前用户工作区路径。
 
-        如果 project_root 位于 openakita_home/workspaces/ 下（生产模式），
+        如果 project_root 位于 synapse_home/workspaces/ 下（生产模式），
         直接使用 project_root 作为工作区路径；否则（开发模式）回退到 default。
         """
-        ws_dir = self.openakita_home / "workspaces"
+        ws_dir = self.synapse_home / "workspaces"
         try:
             self.project_root.resolve().relative_to(ws_dir.resolve())
             return self.project_root.resolve()
@@ -568,7 +568,7 @@ class Settings(BaseSettings):
         """内置 MCP 配置目录（随项目分发，打包后可能只读）
 
         优先使用 project_root/mcps（开发模式），
-        若不存在则回退到 wheel 打包位置 site-packages/openakita/builtin_mcps/。
+        若不存在则回退到 wheel 打包位置 site-packages/synapse/builtin_mcps/。
         """
         dev_path = self.project_root / "mcps"
         if dev_path.exists():

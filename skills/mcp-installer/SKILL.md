@@ -1,9 +1,9 @@
 ---
-name: openakita/skills@mcp-installer
+name: synapse/skills@mcp-installer
 description: Install, configure, and add MCP servers to the OpenAkita system. Use when the user needs to install MCP packages (npm/pip/uvx), connect remote HTTP/SSE MCP services, set up custom local MCP servers, or manage MCP server configuration and lifecycle.
 license: MIT
 metadata:
-  author: openakita
+  author: synapse
   version: "1.0.0"
 ---
 

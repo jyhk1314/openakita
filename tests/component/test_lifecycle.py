@@ -3,10 +3,10 @@
 import pytest
 from datetime import datetime, timedelta
 
-from openakita.memory.extractor import MemoryExtractor
-from openakita.memory.lifecycle import LifecycleManager
-from openakita.memory.types import MemoryPriority, MemoryType, SemanticMemory
-from openakita.memory.unified_store import UnifiedStore
+from synapse.memory.extractor import MemoryExtractor
+from synapse.memory.lifecycle import LifecycleManager
+from synapse.memory.types import MemoryPriority, MemoryType, SemanticMemory
+from synapse.memory.unified_store import UnifiedStore
 
 
 @pytest.fixture

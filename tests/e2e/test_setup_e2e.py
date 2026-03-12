@@ -11,8 +11,8 @@ import os
 import pytest
 from pathlib import Path
 
-from openakita.setup.wizard import SetupWizard
-from openakita.llm.config import load_endpoints_config, validate_config
+from synapse.setup.wizard import SetupWizard
+from synapse.llm.config import load_endpoints_config, validate_config
 
 
 @pytest.fixture
@@ -161,10 +161,10 @@ class TestCLISelfcheck:
     """Test selfcheck CLI command (non-LLM parts)."""
 
     def test_selfcheck_command_exists(self):
-        """openakita selfcheck --help should work."""
+        """synapse selfcheck --help should work."""
         import subprocess, sys
         result = subprocess.run(
-            [sys.executable, "-m", "openakita", "selfcheck", "--help"],
+            [sys.executable, "-m", "synapse", "selfcheck", "--help"],
             capture_output=True,
             text=True,
             timeout=30,
@@ -174,10 +174,10 @@ class TestCLISelfcheck:
         assert "selfcheck" in output.lower() or "self" in output.lower()
 
     def test_init_command_exists(self):
-        """openakita init --help should work."""
+        """synapse init --help should work."""
         import subprocess, sys
         result = subprocess.run(
-            [sys.executable, "-m", "openakita", "init", "--help"],
+            [sys.executable, "-m", "synapse", "init", "--help"],
             capture_output=True,
             text=True,
             timeout=30,

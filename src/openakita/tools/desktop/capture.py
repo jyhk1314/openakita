@@ -29,7 +29,7 @@ try:
     import mss
     import mss.tools
 except ImportError:
-    from openakita.tools._import_helper import import_or_hint
+    from synapse.tools._import_helper import import_or_hint
     raise ImportError(import_or_hint("mss"))
 
 

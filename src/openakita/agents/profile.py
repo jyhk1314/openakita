@@ -16,7 +16,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from openakita.utils.atomic_io import atomic_json_write
+from synapse.utils.atomic_io import atomic_json_write
 
 logger = logging.getLogger(__name__)
 

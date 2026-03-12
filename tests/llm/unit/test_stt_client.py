@@ -8,8 +8,8 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock, AsyncMock
 
-from openakita.llm.stt_client import STTClient
-from openakita.llm.types import EndpointConfig
+from synapse.llm.stt_client import STTClient
+from synapse.llm.types import EndpointConfig
 
 
 def _make_stt_endpoint(name: str, priority: int = 1) -> EndpointConfig:

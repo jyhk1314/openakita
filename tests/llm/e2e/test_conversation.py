@@ -10,7 +10,7 @@ import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 import os
 
-from openakita.llm.types import (
+from synapse.llm.types import (
     LLMRequest,
     LLMResponse,
     Message,
@@ -22,7 +22,7 @@ from openakita.llm.types import (
     Usage,
     StopReason,
 )
-from openakita.llm.client import LLMClient
+from synapse.llm.client import LLMClient
 
 
 @pytest.fixture

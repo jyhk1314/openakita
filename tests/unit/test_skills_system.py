@@ -3,8 +3,8 @@
 import pytest
 from pathlib import Path
 
-from openakita.skills.registry import SkillRegistry, SkillEntry
-from openakita.skills.loader import SkillLoader
+from synapse.skills.registry import SkillRegistry, SkillEntry
+from synapse.skills.loader import SkillLoader
 
 
 class TestSkillRegistry:
@@ -83,7 +83,7 @@ class TestSkillLoader:
 
 class TestSkillParser:
     def test_parse_skill_file(self, tmp_path):
-        from openakita.skills.parser import parse_skill
+        from synapse.skills.parser import parse_skill
         skill_file = tmp_path / "SKILL.md"
         skill_file.write_text(
             "---\nname: parser-test\ndescription: Parse test\n---\n# Parser Test\nContent here.",
@@ -93,7 +93,7 @@ class TestSkillParser:
         assert result.metadata.name == "parser-test"
 
     def test_parse_skill_directory(self, tmp_path):
-        from openakita.skills.parser import parse_skill_directory
+        from synapse.skills.parser import parse_skill_directory
         skill_dir = tmp_path / "my-skill"
         skill_dir.mkdir()
         (skill_dir / "SKILL.md").write_text(

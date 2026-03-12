@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from openakita.llm.types import (
+from synapse.llm.types import (
     LLMRequest,
     LLMResponse,
     EndpointConfig,
@@ -30,7 +30,7 @@ from openakita.llm.types import (
     Usage,
     StopReason,
 )
-from openakita.llm.client import LLMClient
+from synapse.llm.client import LLMClient
 
 
 @pytest.fixture

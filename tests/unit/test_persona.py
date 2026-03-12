@@ -3,7 +3,7 @@
 import pytest
 from pathlib import Path
 
-from openakita.core.persona import PersonaManager
+from synapse.core.persona import PersonaManager
 
 
 @pytest.fixture

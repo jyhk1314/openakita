@@ -34,17 +34,17 @@ router = APIRouter()
 
 def _project_root() -> Path:
     try:
-        from openakita.config import settings
+        from synapse.config import settings
         return Path(settings.project_root)
     except Exception:
         return Path.cwd()
 
 
 def _get_stores():
-    from openakita.config import settings
+    from synapse.config import settings
     root = Path(settings.project_root)
 
-    from openakita.agents.profile import ProfileStore
+    from synapse.agents.profile import ProfileStore
     agents_dir = root / "data" / "agents"
     profile_store = ProfileStore(agents_dir)
 
@@ -60,7 +60,7 @@ def _reload_skills(request) -> None:
     Best-effort: failures are logged but never break the install flow.
     """
     try:
-        from openakita.core.agent import Agent
+        from synapse.core.agent import Agent
 
         agent = getattr(request.app.state, "agent", None)
         actual_agent = agent
@@ -92,7 +92,7 @@ class ExportRequest(BaseModel):
 @router.post("/api/agents/package/export")
 async def export_agent(req: ExportRequest):
     """Export an agent profile as a .akita-agent package."""
-    from openakita.agents.packager import AgentPackager, PackageError
+    from synapse.agents.packager import AgentPackager, PackageError
 
     profile_store, skills_dir, root = _get_stores()
     output_dir = root / "data" / "agent_packages"
@@ -128,7 +128,7 @@ async def import_agent(
     force: bool = False,
 ):
     """Import an agent from an uploaded .akita-agent package."""
-    from openakita.agents.packager import AgentInstaller, PackageError
+    from synapse.agents.packager import AgentInstaller, PackageError
 
     profile_store, skills_dir, _ = _get_stores()
 
@@ -162,7 +162,7 @@ async def import_agent(
 @router.post("/api/agents/package/inspect")
 async def inspect_package(file: UploadFile = File(...)):
     """Preview the contents of an uploaded .akita-agent package."""
-    from openakita.agents.packager import AgentInstaller, PackageError
+    from synapse.agents.packager import AgentInstaller, PackageError
 
     profile_store, skills_dir, _ = _get_stores()
 
@@ -217,12 +217,12 @@ async def list_exportable():
 # ---------------------------------------------------------------------------
 
 def _get_hub_client():
-    from openakita.hub import AgentHubClient
+    from synapse.hub import AgentHubClient
     return AgentHubClient()
 
 
 def _get_skill_client():
-    from openakita.hub import SkillStoreClient
+    from synapse.hub import SkillStoreClient
     return SkillStoreClient()
 
 
@@ -274,7 +274,7 @@ async def hub_install_agent(request: Request, agent_id: str, force: bool = False
     finally:
         await client.close()
 
-    from openakita.agents.packager import AgentInstaller, PackageError
+    from synapse.agents.packager import AgentInstaller, PackageError
 
     profile_store, skills_dir, _ = _get_stores()
     installer = AgentInstaller(profile_store=profile_store, skills_dir=skills_dir)
@@ -287,7 +287,7 @@ async def hub_install_agent(request: Request, agent_id: str, force: bool = False
     if profile.hub_source is None:
         profile.hub_source = {}
     profile.hub_source.update({
-        "platform": "openakita",
+        "platform": "synapse",
         "agent_id": agent_id,
         "installed_at": datetime.now().isoformat(),
     })

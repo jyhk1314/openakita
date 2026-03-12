@@ -13,9 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from openakita.memory.manager import MemoryManager
-from openakita.memory.retrieval import RetrievalEngine
-from openakita.memory.types import (
+from synapse.memory.manager import MemoryManager
+from synapse.memory.retrieval import RetrievalEngine
+from synapse.memory.types import (
     Attachment,
     AttachmentDirection,
     ConversationTurn,
@@ -23,7 +23,7 @@ from openakita.memory.types import (
     MemoryType,
     SemanticMemory,
 )
-from openakita.memory.unified_store import UnifiedStore
+from synapse.memory.unified_store import UnifiedStore
 
 
 @pytest.fixture

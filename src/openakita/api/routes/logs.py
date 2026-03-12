@@ -35,17 +35,17 @@ _frontend_log_lock = threading.Lock()
 def _log_file_path() -> Path:
     """Return the main service log file path from settings."""
     try:
-        from openakita.config import settings
+        from synapse.config import settings
 
         return settings.log_file_path
     except Exception:
-        return Path.cwd() / "logs" / "openakita.log"
+        return Path.cwd() / "logs" / "synapse.log"
 
 
 def _frontend_log_path() -> Path:
     """Return the frontend log file path."""
     try:
-        from openakita.config import settings
+        from synapse.config import settings
 
         return settings.log_dir_path / "frontend.log"
     except Exception:

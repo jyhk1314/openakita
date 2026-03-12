@@ -640,7 +640,7 @@ class OrgRuntime:
 
     async def _create_node_agent(self, org: Organization, node: OrgNode) -> Any:
         """Create a new Agent instance for a node."""
-        from openakita.agents.factory import AgentFactory
+        from synapse.agents.factory import AgentFactory
 
         factory = AgentFactory()
 
@@ -792,7 +792,7 @@ class OrgRuntime:
 
     def _build_profile_for_node(self, node: OrgNode, org_prompt: str) -> Any:
         """Build an AgentProfile-like object for factory.create()."""
-        from openakita.agents.profile import AgentProfile, SkillsMode
+        from synapse.agents.profile import AgentProfile, SkillsMode
 
         if node.agent_profile_id:
             try:
@@ -829,8 +829,8 @@ class OrgRuntime:
         except (ImportError, AttributeError):
             pass
         try:
-            from openakita.agents.profile import ProfileStore
-            from openakita.config import settings
+            from synapse.agents.profile import ProfileStore
+            from synapse.config import settings
             store = ProfileStore(settings.data_dir / "agents")
             return store.get(profile_id)
         except Exception:
@@ -1035,7 +1035,7 @@ class OrgRuntime:
             org_dir = self._manager._org_dir(org_id)
             global_identity = None
             try:
-                from openakita.config import settings
+                from synapse.config import settings
                 global_identity = Path(settings.project_root) / "identity"
             except Exception:
                 pass
@@ -1305,7 +1305,7 @@ class OrgRuntime:
 
     async def _broadcast_ws(self, event: str, data: dict) -> None:
         try:
-            from openakita.api.routes.websocket import broadcast_event
+            from synapse.api.routes.websocket import broadcast_event
             await broadcast_event(event, data)
         except Exception:
             pass

@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from openakita.core.engine_bridge import engine_stream, is_dual_loop, to_engine
+from synapse.core.engine_bridge import engine_stream, is_dual_loop, to_engine
 
 from ..schemas import ChatAnswerRequest, ChatControlRequest, ChatRequest
 
@@ -78,7 +78,7 @@ async def _broadcast_chat_event(event: str, data: dict) -> None:
 
 def _resolve_agent(agent: object):
     """Resolve the actual Agent instance."""
-    from openakita.core.agent import Agent
+    from synapse.core.agent import Agent
 
     if isinstance(agent, Agent):
         return agent
@@ -86,15 +86,15 @@ def _resolve_agent(agent: object):
 
 
 def _is_multi_agent_enabled() -> bool:
-    from openakita.config import settings
+    from synapse.config import settings
     return settings.multi_agent_enabled
 
 
 def _resolve_profile(agent_profile_id: str | None):
     """Resolve an AgentProfile by id, falling back to 'default'."""
-    from openakita.agents.presets import SYSTEM_PRESETS
-    from openakita.agents.profile import AgentProfile, ProfileStore
-    from openakita.config import settings
+    from synapse.agents.presets import SYSTEM_PRESETS
+    from synapse.agents.profile import AgentProfile, ProfileStore
+    from synapse.config import settings
 
     pid = agent_profile_id or "default"
 
@@ -152,9 +152,9 @@ def _apply_agent_profile(session: object, new_profile_id: str) -> bool:
 
     # Validate that profile exists
     try:
-        from openakita.agents.presets import SYSTEM_PRESETS
-        from openakita.agents.profile import ProfileStore
-        from openakita.config import settings
+        from synapse.agents.presets import SYSTEM_PRESETS
+        from synapse.agents.profile import ProfileStore
+        from synapse.config import settings
 
         known_ids = {p.id for p in SYSTEM_PRESETS}
         if new_profile_id not in known_ids:

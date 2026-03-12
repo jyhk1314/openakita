@@ -57,8 +57,8 @@ def _get_lifecycle(request: Request):
     if not mm:
         return None
     try:
-        from openakita.config import settings
-        from openakita.memory.lifecycle import LifecycleManager
+        from synapse.config import settings
+        from synapse.memory.lifecycle import LifecycleManager
 
         return LifecycleManager(
             store=mm.store,

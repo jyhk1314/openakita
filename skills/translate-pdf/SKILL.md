@@ -1,9 +1,9 @@
 ---
-name: openakita/skills@translate-pdf
+name: synapse/skills@translate-pdf
 description: Translate PDF documents while preserving original layout, styling, tables, images, and formatting. Supports Simplified Chinese, Traditional Chinese, English, Japanese, Korean, and more. Page-by-page translation with structure preservation.
 license: MIT
 metadata:
-  author: openakita
+  author: synapse
   version: "1.0.0"
 ---
 

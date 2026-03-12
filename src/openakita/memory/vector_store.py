@@ -30,7 +30,7 @@ def _lazy_import():
         import sys
         if "sentence_transformers" not in sys.modules:
             try:
-                from openakita.runtime_env import inject_module_paths_runtime
+                from synapse.runtime_env import inject_module_paths_runtime
                 inject_module_paths_runtime()
             except Exception:
                 pass
@@ -40,7 +40,7 @@ def _lazy_import():
 
             _sentence_transformers_available = True
         except ImportError as e:
-            from openakita.tools._import_helper import import_or_hint
+            from synapse.tools._import_helper import import_or_hint
             hint = import_or_hint("sentence_transformers")
             logger.info(f"[VectorStore] 向量搜索未启用: {hint}")
             logger.debug(f"sentence_transformers ImportError 详情: {e}", exc_info=True)
@@ -62,7 +62,7 @@ def _lazy_import():
 
             _chromadb = chromadb
         except ImportError as e:
-            from openakita.tools._import_helper import import_or_hint
+            from synapse.tools._import_helper import import_or_hint
             hint = import_or_hint("chromadb")
             logger.info(f"[VectorStore] ChromaDB 未启用: {hint}")
             logger.debug(f"chromadb ImportError 详情: {e}", exc_info=True)

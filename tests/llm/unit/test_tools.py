@@ -5,8 +5,8 @@ UT-F01 ~ UT-F10
 """
 
 import pytest
-from openakita.llm.types import Tool, ToolUseBlock, ToolResultBlock
-from openakita.llm.converters.tools import (
+from synapse.llm.types import Tool, ToolUseBlock, ToolResultBlock
+from synapse.llm.converters.tools import (
     convert_tools_to_openai,
     convert_tools_from_openai,
     convert_tool_calls_from_openai,

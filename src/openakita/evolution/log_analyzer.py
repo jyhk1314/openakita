@@ -72,22 +72,22 @@ class LogAnalyzer:
 
     # 核心组件模块前缀（不自动修复）
     CORE_COMPONENTS = [
-        "openakita.core.brain",
-        "openakita.core.agent",
-        "openakita.core.ralph",
-        "openakita.memory",
-        "openakita.scheduler",
-        "openakita.llm",
-        "openakita.agents",
-        "openakita.storage",
+        "synapse.core.brain",
+        "synapse.core.agent",
+        "synapse.core.ralph",
+        "synapse.memory",
+        "synapse.scheduler",
+        "synapse.llm",
+        "synapse.agents",
+        "synapse.storage",
     ]
 
     # 工具组件模块前缀（可自动修复）
     TOOL_COMPONENTS = [
-        "openakita.tools",
-        "openakita.channels",
-        "openakita.skills",
-        "openakita.testing",
+        "synapse.tools",
+        "synapse.channels",
+        "synapse.skills",
+        "synapse.testing",
     ]
 
     # 日志行正则表达式
@@ -216,7 +216,7 @@ class LogAnalyzer:
         Returns:
             匹配的日志行（包含上下文）
         """
-        target_file = Path(log_file) if log_file else self.log_dir / "openakita.log"
+        target_file = Path(log_file) if log_file else self.log_dir / "synapse.log"
 
         if not target_file.exists():
             return []

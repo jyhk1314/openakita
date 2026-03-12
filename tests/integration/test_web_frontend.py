@@ -21,7 +21,7 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from openakita.api.server import create_app
+from synapse.api.server import create_app
 
 TEST_PASSWORD = "integration-test-pw-42"
 
@@ -42,7 +42,7 @@ def web_dist(tmp_path):
 
 @pytest.fixture
 def app(web_dist):
-    with patch("openakita.api.server._find_web_dist", return_value=web_dist):
+    with patch("synapse.api.server._find_web_dist", return_value=web_dist):
         return create_app()
 
 
@@ -59,7 +59,7 @@ async def client(app):
 def authed_app(web_dist):
     with (
         patch.dict(os.environ, {"OPENAKITA_WEB_PASSWORD": TEST_PASSWORD}),
-        patch("openakita.api.server._find_web_dist", return_value=web_dist),
+        patch("synapse.api.server._find_web_dist", return_value=web_dist),
     ):
         return create_app()
 
@@ -144,7 +144,7 @@ class TestHealthEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
-        assert data["service"] == "openakita"
+        assert data["service"] == "synapse"
 
 
 # ── 6. CORS 头 ──

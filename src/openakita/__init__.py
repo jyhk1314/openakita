@@ -46,7 +46,7 @@ def _resolve_version_info() -> tuple[str, str]:
     if version == "0.0.0-dev":
         try:
             from importlib.metadata import version as meta_version
-            version = meta_version("openakita")
+            version = meta_version("synapse")
         except Exception:
             pass
 

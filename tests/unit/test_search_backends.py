@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from openakita.memory.search_backends import (
+from synapse.memory.search_backends import (
     FTS5Backend,
     SearchBackend,
     create_search_backend,
 )
-from openakita.memory.storage import MemoryStorage
+from synapse.memory.storage import MemoryStorage
 
 
 @pytest.fixture

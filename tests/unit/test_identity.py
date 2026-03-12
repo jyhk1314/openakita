@@ -3,7 +3,7 @@
 import pytest
 from pathlib import Path
 
-from openakita.core.identity import Identity
+from synapse.core.identity import Identity
 
 
 @pytest.fixture

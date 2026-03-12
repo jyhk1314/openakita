@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import asyncio
 import httpx
 
-from openakita.llm.types import (
+from synapse.llm.types import (
     Message,
     TextBlock,
     EndpointConfig,
@@ -21,9 +21,9 @@ from openakita.llm.types import (
     RateLimitError,
     AllEndpointsFailedError,
 )
-from openakita.llm.client import LLMClient
-from openakita.llm.providers.anthropic import AnthropicProvider
-from openakita.llm.providers.openai import OpenAIProvider
+from synapse.llm.client import LLMClient
+from synapse.llm.providers.anthropic import AnthropicProvider
+from synapse.llm.providers.openai import OpenAIProvider
 
 
 @pytest.fixture

@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Query, Request
 
-from openakita.storage.database import Database
+from synapse.storage.database import Database
 
 logger = logging.getLogger(__name__)
 

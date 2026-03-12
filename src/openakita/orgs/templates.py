@@ -176,7 +176,7 @@ TEMPLATE_POLICY_MAP: dict[str, str] = {
 
 def _auto_assign_avatars(tpl_data: dict) -> None:
     """Fill missing avatar fields on template nodes using role-based matching."""
-    from openakita.orgs.tool_categories import get_avatar_for_role
+    from synapse.orgs.tool_categories import get_avatar_for_role
 
     for node in tpl_data.get("nodes", []):
         if not node.get("avatar"):

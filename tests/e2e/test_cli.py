@@ -12,9 +12,9 @@ import pytest
 
 class TestCLIStatus:
     def test_version_flag(self):
-        """openakita --version should print version."""
+        """synapse --version should print version."""
         result = subprocess.run(
-            [sys.executable, "-m", "openakita", "--version"],
+            [sys.executable, "-m", "synapse", "--version"],
             capture_output=True,
             text=True,
             timeout=30,
@@ -22,21 +22,21 @@ class TestCLIStatus:
         assert result.returncode == 0 or "version" in (result.stdout + result.stderr).lower()
 
     def test_help_flag(self):
-        """openakita --help should show available commands."""
+        """synapse --help should show available commands."""
         result = subprocess.run(
-            [sys.executable, "-m", "openakita", "--help"],
+            [sys.executable, "-m", "synapse", "--help"],
             capture_output=True,
             text=True,
             timeout=30,
         )
         assert result.returncode == 0
         output = result.stdout + result.stderr
-        assert "openakita" in output.lower() or "usage" in output.lower()
+        assert "synapse" in output.lower() or "usage" in output.lower()
 
     def test_status_command(self):
-        """openakita status should not crash."""
+        """synapse status should not crash."""
         result = subprocess.run(
-            [sys.executable, "-m", "openakita", "status"],
+            [sys.executable, "-m", "synapse", "status"],
             capture_output=True,
             text=True,
             timeout=30,
@@ -47,12 +47,12 @@ class TestCLIStatus:
 
 class TestCLIModuleEntry:
     def test_module_importable(self):
-        """python -m openakita should be importable."""
+        """python -m synapse should be importable."""
         result = subprocess.run(
-            [sys.executable, "-c", "import openakita; print(openakita.__name__)"],
+            [sys.executable, "-c", "import synapse; print(synapse.__name__)"],
             capture_output=True,
             text=True,
             timeout=15,
         )
         assert result.returncode == 0
-        assert "openakita" in result.stdout
+        assert "synapse" in result.stdout

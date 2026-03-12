@@ -43,8 +43,8 @@ SYSTEM_PRESETS: list[AgentProfile] = [
         description="多平台内容策划与发布，擅长小红书/公众号/抖音文案",
         type=AgentType.SYSTEM,
         skills=[
-            "openakita/skills@xiaohongshu-creator", "openakita/skills@wechat-article", "openakita/skills@chinese-writing",
-            "openakita/skills@content-research-writer", "openakita/skills@douyin-tool", "openakita/skills@summarizer",
+            "synapse/skills@xiaohongshu-creator", "synapse/skills@wechat-article", "synapse/skills@chinese-writing",
+            "synapse/skills@content-research-writer", "synapse/skills@douyin-tool", "synapse/skills@summarizer",
             "jimliu/baoyu-skills@baoyu-image-gen", "jimliu/baoyu-skills@baoyu-cover-image",
             "jimliu/baoyu-skills@baoyu-article-illustrator", "jimliu/baoyu-skills@baoyu-infographic",
             "jimliu/baoyu-skills@baoyu-format-markdown",
@@ -72,8 +72,8 @@ SYSTEM_PRESETS: list[AgentProfile] = [
         description="短视频/长视频脚本策划与分镜",
         type=AgentType.SYSTEM,
         skills=[
-            "openakita/skills@douyin-tool", "openakita/skills@bilibili-watcher", "openakita/skills@youtube-summarizer",
-            "openakita/skills@content-research-writer", "openakita/skills@summarizer",
+            "synapse/skills@douyin-tool", "synapse/skills@bilibili-watcher", "synapse/skills@youtube-summarizer",
+            "synapse/skills@content-research-writer", "synapse/skills@summarizer",
             "jimliu/baoyu-skills@baoyu-image-gen", "jimliu/baoyu-skills@baoyu-slide-deck",
             "jimliu/baoyu-skills@baoyu-cover-image",
         ],
@@ -99,8 +99,8 @@ SYSTEM_PRESETS: list[AgentProfile] = [
         description="搜索引擎优化内容写作，提升搜索排名",
         type=AgentType.SYSTEM,
         skills=[
-            "openakita/skills@content-research-writer", "openakita/skills@chinese-writing",
-            "openakita/skills@apify-scraper", "openakita/skills@summarizer",
+            "synapse/skills@content-research-writer", "synapse/skills@chinese-writing",
+            "synapse/skills@apify-scraper", "synapse/skills@summarizer",
             "jimliu/baoyu-skills@baoyu-url-to-markdown", "jimliu/baoyu-skills@baoyu-format-markdown",
         ],
         skills_mode=SkillsMode.INCLUSIVE,
@@ -125,7 +125,7 @@ SYSTEM_PRESETS: list[AgentProfile] = [
         description="中文长篇小说/故事创作，人物塑造与情节构建",
         type=AgentType.SYSTEM,
         skills=[
-            "openakita/skills@chinese-novelist", "openakita/skills@chinese-writing",
+            "synapse/skills@chinese-novelist", "synapse/skills@chinese-writing",
             "jimliu/baoyu-skills@baoyu-comic", "jimliu/baoyu-skills@baoyu-image-gen",
             "jimliu/baoyu-skills@baoyu-article-illustrator",
         ],
@@ -153,8 +153,8 @@ SYSTEM_PRESETS: list[AgentProfile] = [
         description="办公文档处理专家，擅长 Word/PPT/Excel",
         type=AgentType.SYSTEM,
         skills=[
-            "openakita/skills@docx", "openakita/skills@pptx", "openakita/skills@xlsx", "openakita/skills@pdf",
-            "openakita/skills@ppt-creator", "openakita/skills@translate-pdf",
+            "synapse/skills@docx", "synapse/skills@pptx", "synapse/skills@xlsx", "synapse/skills@pdf",
+            "synapse/skills@ppt-creator", "synapse/skills@translate-pdf",
         ],
         skills_mode=SkillsMode.INCLUSIVE,
         custom_prompt=(
@@ -178,8 +178,8 @@ SYSTEM_PRESETS: list[AgentProfile] = [
         description="招聘/考勤/制度起草，企业人力资源管理",
         type=AgentType.SYSTEM,
         skills=[
-            "openakita/skills@docx", "openakita/skills@xlsx", "openakita/skills@pdf",
-            "openakita/skills@chinese-writing", "openakita/skills@internal-comms",
+            "synapse/skills@docx", "synapse/skills@xlsx", "synapse/skills@pdf",
+            "synapse/skills@chinese-writing", "synapse/skills@internal-comms",
         ],
         skills_mode=SkillsMode.INCLUSIVE,
         custom_prompt=(
@@ -203,8 +203,8 @@ SYSTEM_PRESETS: list[AgentProfile] = [
         description="合同审查/合规分析/法规检索",
         type=AgentType.SYSTEM,
         skills=[
-            "openakita/skills@docx", "openakita/skills@pdf",
-            "openakita/skills@translate-pdf", "openakita/skills@chinese-writing",
+            "synapse/skills@docx", "synapse/skills@pdf",
+            "synapse/skills@translate-pdf", "synapse/skills@chinese-writing",
         ],
         skills_mode=SkillsMode.INCLUSIVE,
         custom_prompt=(
@@ -229,9 +229,9 @@ SYSTEM_PRESETS: list[AgentProfile] = [
         description="品牌推广/活动策划/市场分析",
         type=AgentType.SYSTEM,
         skills=[
-            "openakita/skills@content-research-writer", "openakita/skills@xiaohongshu-creator",
-            "openakita/skills@docx", "openakita/skills@pptx", "openakita/skills@brand-guidelines",
-            "openakita/skills@apify-scraper", "openakita/skills@summarizer",
+            "synapse/skills@content-research-writer", "synapse/skills@xiaohongshu-creator",
+            "synapse/skills@docx", "synapse/skills@pptx", "synapse/skills@brand-guidelines",
+            "synapse/skills@apify-scraper", "synapse/skills@summarizer",
             "jimliu/baoyu-skills@baoyu-image-gen", "jimliu/baoyu-skills@baoyu-infographic",
             "jimliu/baoyu-skills@baoyu-cover-image", "jimliu/baoyu-skills@baoyu-slide-deck",
         ],
@@ -257,8 +257,8 @@ SYSTEM_PRESETS: list[AgentProfile] = [
         description="智能客服/FAQ/工单处理",
         type=AgentType.SYSTEM,
         skills=[
-            "openakita/skills@knowledge-capture", "openakita/skills@chinese-writing",
-            "openakita/skills@docx", "openakita/skills@summarizer",
+            "synapse/skills@knowledge-capture", "synapse/skills@chinese-writing",
+            "synapse/skills@docx", "synapse/skills@summarizer",
         ],
         skills_mode=SkillsMode.INCLUSIVE,
         custom_prompt=(
@@ -283,9 +283,9 @@ SYSTEM_PRESETS: list[AgentProfile] = [
         description="项目计划/进度追踪/周报管理",
         type=AgentType.SYSTEM,
         skills=[
-            "openakita/skills@xlsx", "openakita/skills@docx", "openakita/skills@pptx",
-            "openakita/skills@todoist-task", "openakita/skills@pretty-mermaid",
-            "openakita/skills@github-automation", "jimliu/baoyu-skills@baoyu-infographic",
+            "synapse/skills@xlsx", "synapse/skills@docx", "synapse/skills@pptx",
+            "synapse/skills@todoist-task", "synapse/skills@pretty-mermaid",
+            "synapse/skills@github-automation", "jimliu/baoyu-skills@baoyu-infographic",
         ],
         skills_mode=SkillsMode.INCLUSIVE,
         custom_prompt=(
@@ -311,8 +311,8 @@ SYSTEM_PRESETS: list[AgentProfile] = [
         description="外语学习/翻译/口语练习",
         type=AgentType.SYSTEM,
         skills=[
-            "openakita/skills@translate-pdf", "openakita/skills@chinese-writing",
-            "openakita/skills@summarizer", "jimliu/baoyu-skills@baoyu-url-to-markdown",
+            "synapse/skills@translate-pdf", "synapse/skills@chinese-writing",
+            "synapse/skills@summarizer", "jimliu/baoyu-skills@baoyu-url-to-markdown",
         ],
         skills_mode=SkillsMode.INCLUSIVE,
         custom_prompt=(
@@ -337,8 +337,8 @@ SYSTEM_PRESETS: list[AgentProfile] = [
         description="论文写作/文献综述/引用管理",
         type=AgentType.SYSTEM,
         skills=[
-            "openakita/skills@content-research-writer", "openakita/skills@pdf", "openakita/skills@docx",
-            "openakita/skills@chinese-writing", "openakita/skills@translate-pdf", "openakita/skills@summarizer",
+            "synapse/skills@content-research-writer", "synapse/skills@pdf", "synapse/skills@docx",
+            "synapse/skills@chinese-writing", "synapse/skills@translate-pdf", "synapse/skills@summarizer",
             "jimliu/baoyu-skills@baoyu-infographic", "jimliu/baoyu-skills@baoyu-format-markdown",
         ],
         skills_mode=SkillsMode.INCLUSIVE,
@@ -362,7 +362,7 @@ SYSTEM_PRESETS: list[AgentProfile] = [
         name="数学辅导",
         description="数学解题/公式推导/概念讲解",
         type=AgentType.SYSTEM,
-        skills=["openakita/skills@pretty-mermaid", "openakita/skills@xlsx", "openakita/skills@canvas-design"],
+        skills=["synapse/skills@pretty-mermaid", "synapse/skills@xlsx", "synapse/skills@canvas-design"],
         skills_mode=SkillsMode.INCLUSIVE,
         custom_prompt=(
             "你是数学教学专家。擅长解题思路讲解、公式推导、概念图示。"
@@ -388,9 +388,9 @@ SYSTEM_PRESETS: list[AgentProfile] = [
         description="日程安排/提醒/会议纪要",
         type=AgentType.SYSTEM,
         skills=[
-            "openakita/skills@todoist-task", "openakita/skills@datetime-tool",
-            "openakita/skills@google-calendar-automation", "openakita/skills@gmail-automation",
-            "openakita/skills@docx", "openakita/skills@summarizer",
+            "synapse/skills@todoist-task", "synapse/skills@datetime-tool",
+            "synapse/skills@google-calendar-automation", "synapse/skills@gmail-automation",
+            "synapse/skills@docx", "synapse/skills@summarizer",
         ],
         skills_mode=SkillsMode.INCLUSIVE,
         custom_prompt=(
@@ -414,8 +414,8 @@ SYSTEM_PRESETS: list[AgentProfile] = [
         description="读书笔记/知识库整理/Obsidian 管理",
         type=AgentType.SYSTEM,
         skills=[
-            "openakita/skills@obsidian-skills", "openakita/skills@notebooklm", "openakita/skills@knowledge-capture",
-            "openakita/skills@summarizer", "openakita/skills@pdf", "openakita/skills@translate-pdf",
+            "synapse/skills@obsidian-skills", "synapse/skills@notebooklm", "synapse/skills@knowledge-capture",
+            "synapse/skills@summarizer", "synapse/skills@pdf", "synapse/skills@translate-pdf",
             "jimliu/baoyu-skills@baoyu-url-to-markdown", "jimliu/baoyu-skills@baoyu-format-markdown",
         ],
         skills_mode=SkillsMode.INCLUSIVE,
@@ -440,8 +440,8 @@ SYSTEM_PRESETS: list[AgentProfile] = [
         description="语雀文档/知识库/周报管理",
         type=AgentType.SYSTEM,
         skills=[
-            "openakita/skills@yuque-skills", "openakita/skills@chinese-writing",
-            "openakita/skills@summarizer", "openakita/skills@content-research-writer",
+            "synapse/skills@yuque-skills", "synapse/skills@chinese-writing",
+            "synapse/skills@summarizer", "synapse/skills@content-research-writer",
             "jimliu/baoyu-skills@baoyu-format-markdown",
         ],
         skills_mode=SkillsMode.INCLUSIVE,
@@ -475,8 +475,8 @@ SYSTEM_PRESETS: list[AgentProfile] = [
             "obra/superpowers@requesting-code-review", "obra/superpowers@receiving-code-review",
             "obra/superpowers@using-git-worktrees", "obra/superpowers@subagent-driven-development",
             "obra/superpowers@dispatching-parallel-agents",
-            "openakita/skills@code-reviewer", "openakita/skills@github-automation",
-            "openakita/skills@changelog-generator",
+            "synapse/skills@code-reviewer", "synapse/skills@github-automation",
+            "synapse/skills@changelog-generator",
         ],
         skills_mode=SkillsMode.INCLUSIVE,
         custom_prompt=(
@@ -506,7 +506,7 @@ SYSTEM_PRESETS: list[AgentProfile] = [
             "browser-screenshot", "browser-status", "browser-switch-tab",
             "browser-task", "browser-type",
             "desktop-screenshot",
-            "openakita/skills@apify-scraper", "openakita/skills@summarizer",
+            "synapse/skills@apify-scraper", "synapse/skills@summarizer",
             "jimliu/baoyu-skills@baoyu-url-to-markdown",
         ],
         skills_mode=SkillsMode.INCLUSIVE,
@@ -531,9 +531,9 @@ SYSTEM_PRESETS: list[AgentProfile] = [
         description="数据分析师，擅长数据处理、可视化和统计",
         type=AgentType.SYSTEM,
         skills=[
-            "openakita/skills@xlsx", "openakita/skills@pdf",
-            "openakita/skills@pretty-mermaid", "openakita/skills@apify-scraper",
-            "openakita/skills@canvas-design",
+            "synapse/skills@xlsx", "synapse/skills@pdf",
+            "synapse/skills@pretty-mermaid", "synapse/skills@apify-scraper",
+            "synapse/skills@canvas-design",
         ],
         skills_mode=SkillsMode.INCLUSIVE,
         custom_prompt=(
@@ -557,8 +557,8 @@ SYSTEM_PRESETS: list[AgentProfile] = [
         description="CI/CD 流水线、容器编排、监控告警",
         type=AgentType.SYSTEM,
         skills=[
-            "openakita/skills@github-automation", "openakita/skills@changelog-generator",
-            "openakita/skills@code-reviewer",
+            "synapse/skills@github-automation", "synapse/skills@changelog-generator",
+            "synapse/skills@code-reviewer",
             "obra/superpowers@systematic-debugging", "obra/superpowers@verification-before-completion",
             "obra/superpowers@using-git-worktrees", "obra/superpowers@finishing-a-development-branch",
             "obra/superpowers@writing-plans", "obra/superpowers@executing-plans",
@@ -585,8 +585,8 @@ SYSTEM_PRESETS: list[AgentProfile] = [
         description="系统设计/架构图/技术选型",
         type=AgentType.SYSTEM,
         skills=[
-            "openakita/skills@pretty-mermaid", "openakita/skills@ppt-creator",
-            "openakita/skills@pptx", "openakita/skills@docx",
+            "synapse/skills@pretty-mermaid", "synapse/skills@ppt-creator",
+            "synapse/skills@pptx", "synapse/skills@docx",
             "obra/superpowers@brainstorming", "obra/superpowers@writing-plans",
             "obra/superpowers@executing-plans",
             "jimliu/baoyu-skills@baoyu-infographic",

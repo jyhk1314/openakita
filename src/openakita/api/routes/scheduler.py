@@ -26,7 +26,7 @@ router = APIRouter()
 def _notify_scheduler_change(action: str = "update") -> None:
     """Fire-and-forget WS broadcast for scheduler state changes."""
     try:
-        from openakita.api.routes.websocket import broadcast_event
+        from synapse.api.routes.websocket import broadcast_event
         asyncio.ensure_future(broadcast_event("scheduler:task_update", {"action": action}))
     except Exception:
         pass
@@ -103,7 +103,7 @@ async def create_task(request: Request, body: TaskCreateRequest):
     if scheduler is None:
         return {"error": "Agent not initialized"}
 
-    from openakita.scheduler.task import ScheduledTask, TaskType, TriggerType
+    from synapse.scheduler.task import ScheduledTask, TaskType, TriggerType
 
     try:
         trigger_type = TriggerType(body.trigger_type)
@@ -159,14 +159,14 @@ async def update_task(request: Request, task_id: str, body: TaskUpdateRequest):
         updates["chat_id"] = body.chat_id or None
 
     if body.task_type is not None:
-        from openakita.scheduler.task import TaskType
+        from synapse.scheduler.task import TaskType
         try:
             updates["task_type"] = TaskType(body.task_type)
         except ValueError:
             return {"error": f"Invalid task_type: {body.task_type}"}
 
     if body.trigger_type is not None:
-        from openakita.scheduler.task import TriggerType
+        from synapse.scheduler.task import TriggerType
         try:
             updates["trigger_type"] = TriggerType(body.trigger_type)
         except ValueError:
@@ -249,7 +249,7 @@ async def trigger_task(request: Request, task_id: str):
     if scheduler is None:
         return {"error": "Agent not initialized"}
 
-    from openakita.core.engine_bridge import to_engine
+    from synapse.core.engine_bridge import to_engine
 
     execution = await to_engine(scheduler.trigger_now(task_id))
     if execution is None:

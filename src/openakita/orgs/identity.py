@@ -288,8 +288,8 @@ class OrgIdentity:
         except (ImportError, AttributeError):
             pass
         try:
-            from openakita.agents.profile import ProfileStore
-            from openakita.config import settings
+            from synapse.agents.profile import ProfileStore
+            from synapse.config import settings
             store = ProfileStore(settings.data_dir / "agents")
             profile = store.get(profile_id)
             return profile.custom_prompt if profile else None

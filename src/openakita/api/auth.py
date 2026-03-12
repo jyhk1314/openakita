@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 ACCESS_TOKEN_TTL = 24 * 3600          # 24 hours
 REFRESH_TOKEN_TTL = 90 * 24 * 3600    # 90 days
-REFRESH_COOKIE_NAME = "openakita_refresh"
+REFRESH_COOKIE_NAME = "synapse_refresh"
 PASSWORD_ENV_VAR = "OPENAKITA_WEB_PASSWORD"
 
 AUTH_EXEMPT_PATHS = frozenset({

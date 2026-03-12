@@ -123,7 +123,7 @@ async def test_adapter_message_conversion():
     print("-" * 40)
     
     try:
-        from openakita.channels import MessageContent, UnifiedMessage, MessageType, MediaFile
+        from synapse.channels import MessageContent, UnifiedMessage, MessageType, MediaFile
         
         # 测试纯文本
         content1 = MessageContent.text_only("Hello World")

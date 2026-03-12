@@ -2,7 +2,7 @@
 
 import pytest
 
-from openakita.llm.types import (
+from synapse.llm.types import (
     ContentBlockType,
     EndpointConfig,
     LLMResponse,

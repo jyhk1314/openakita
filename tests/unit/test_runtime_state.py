@@ -4,7 +4,7 @@ import json
 import pytest
 from pathlib import Path
 
-from openakita.config import RuntimeState
+from synapse.config import RuntimeState
 
 
 @pytest.fixture

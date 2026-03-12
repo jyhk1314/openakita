@@ -2,7 +2,7 @@
 基础问答测试用例 (30个)
 """
 
-from openakita.testing.runner import TestCase
+from synapse.testing.runner import TestCase
 
 # 基础知识问答测试用例
 QA_BASIC_TESTS = [

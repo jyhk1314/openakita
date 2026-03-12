@@ -37,7 +37,7 @@ async def _hot_register_bot(request: Request, bot: dict) -> None:
             channel_name=channel_name, bot_id=bot_id, agent_profile_id=agent_id,
         )
         if adapter:
-            from openakita.core.engine_bridge import to_engine
+            from synapse.core.engine_bridge import to_engine
 
             await to_engine(gateway.register_adapter(adapter))
             logger.info(f"[Agents API] Hot-registered adapter: {channel_name}")
@@ -55,7 +55,7 @@ async def _hot_unregister_bot(request: Request, bot: dict) -> None:
     adapter = adapters.pop(channel_name, None)
     if adapter:
         try:
-            from openakita.core.engine_bridge import to_engine
+            from synapse.core.engine_bridge import to_engine
 
             await to_engine(adapter.stop())
             logger.info(f"[Agents API] Hot-unregistered adapter: {channel_name}")
@@ -126,7 +126,7 @@ class ProfileVisibilityRequest(BaseModel):
 @router.get("/api/agents/bots")
 async def list_bots():
     """List all configured bots from settings.im_bots."""
-    from openakita.config import settings
+    from synapse.config import settings
 
     return {"bots": list(settings.im_bots)}
 
@@ -134,7 +134,7 @@ async def list_bots():
 @router.post("/api/agents/bots")
 async def create_bot(body: BotCreateRequest, request: Request):
     """Add a new bot. Validates id uniqueness and type."""
-    from openakita.config import runtime_state, settings
+    from synapse.config import runtime_state, settings
 
     if body.id.strip() == "":
         raise HTTPException(status_code=400, detail="id must be non-empty")
@@ -172,7 +172,7 @@ async def create_bot(body: BotCreateRequest, request: Request):
 @router.put("/api/agents/bots/{bot_id}")
 async def update_bot(bot_id: str, body: BotUpdateRequest, request: Request):
     """Update an existing bot. Partial update (only provided fields are changed)."""
-    from openakita.config import runtime_state, settings
+    from synapse.config import runtime_state, settings
 
     bots = list(settings.im_bots)
     idx = next((i for i, b in enumerate(bots) if isinstance(b, dict) and b.get("id") == bot_id), None)
@@ -203,7 +203,7 @@ async def update_bot(bot_id: str, body: BotUpdateRequest, request: Request):
 @router.delete("/api/agents/bots/{bot_id}")
 async def delete_bot(bot_id: str, request: Request):
     """Remove a bot."""
-    from openakita.config import runtime_state, settings
+    from synapse.config import runtime_state, settings
 
     bots = list(settings.im_bots)
     target = next((b for b in bots if isinstance(b, dict) and b.get("id") == bot_id), None)
@@ -225,7 +225,7 @@ async def delete_bot(bot_id: str, request: Request):
 @router.post("/api/agents/bots/{bot_id}/toggle")
 async def toggle_bot(bot_id: str, body: BotToggleRequest, request: Request):
     """Enable or disable a bot."""
-    from openakita.config import runtime_state, settings
+    from synapse.config import runtime_state, settings
 
     bots = list(settings.im_bots)
     idx = next((i for i, b in enumerate(bots) if isinstance(b, dict) and b.get("id") == bot_id), None)
@@ -253,7 +253,7 @@ async def toggle_bot(bot_id: str, body: BotToggleRequest, request: Request):
 
 def _collect_env_bots() -> list[dict]:
     """Return a list of bots currently configured via .env (not in im_bots)."""
-    from openakita.config import settings
+    from synapse.config import settings
 
     existing_types = {
         b.get("type") for b in settings.im_bots if isinstance(b, dict)
@@ -359,7 +359,7 @@ BOT_TYPE_LABELS = {
 @router.post("/api/agents/bots/migrate-from-env")
 async def migrate_env_bots(request: Request):
     """Migrate .env-configured bots into im_bots for unified management."""
-    from openakita.config import runtime_state, settings
+    from synapse.config import runtime_state, settings
 
     env_bots = _collect_env_bots()
     migrated = []
@@ -430,8 +430,8 @@ class CategoryCreateRequest(BaseModel):
 @router.get("/api/agents/categories")
 async def list_categories():
     """Return all agent categories (builtin + custom) with agent counts."""
-    from openakita.agents.profile import ProfileStore
-    from openakita.config import settings
+    from synapse.agents.profile import ProfileStore
+    from synapse.config import settings
 
     store = ProfileStore(settings.data_dir / "agents")
     return {"categories": store.list_categories()}
@@ -440,8 +440,8 @@ async def list_categories():
 @router.post("/api/agents/categories")
 async def create_category(body: CategoryCreateRequest):
     """Create a custom agent category."""
-    from openakita.agents.profile import ProfileStore
-    from openakita.config import settings
+    from synapse.agents.profile import ProfileStore
+    from synapse.config import settings
 
     store = ProfileStore(settings.data_dir / "agents")
     try:
@@ -456,8 +456,8 @@ async def create_category(body: CategoryCreateRequest):
 @router.delete("/api/agents/categories/{category_id}")
 async def delete_category(category_id: str):
     """Delete a custom agent category. Rejects if builtin or has agents."""
-    from openakita.agents.profile import ProfileStore
-    from openakita.config import settings
+    from synapse.agents.profile import ProfileStore
+    from synapse.config import settings
 
     store = ProfileStore(settings.data_dir / "agents")
     try:
@@ -484,9 +484,9 @@ async def list_agent_profiles(include_hidden: bool = False):
     Query params:
         include_hidden: if True, also return hidden profiles (default False).
     """
-    from openakita.agents.presets import SYSTEM_PRESETS
-    from openakita.agents.profile import ProfileStore
-    from openakita.config import settings
+    from synapse.agents.presets import SYSTEM_PRESETS
+    from synapse.agents.profile import ProfileStore
+    from synapse.config import settings
 
     if not settings.multi_agent_enabled:
         return {"profiles": [], "multi_agent_enabled": False}
@@ -522,8 +522,8 @@ async def list_agent_profiles(include_hidden: bool = False):
 @router.post("/api/agents/profiles")
 async def create_agent_profile(body: ProfileCreateRequest):
     """Create a new custom agent profile."""
-    from openakita.agents.profile import AgentProfile, AgentType, ProfileStore, SkillsMode
-    from openakita.config import settings
+    from synapse.agents.profile import AgentProfile, AgentType, ProfileStore, SkillsMode
+    from synapse.config import settings
 
     if not settings.multi_agent_enabled:
         raise HTTPException(status_code=400, detail="Multi-agent mode is not enabled")
@@ -559,8 +559,8 @@ async def create_agent_profile(body: ProfileCreateRequest):
 @router.put("/api/agents/profiles/{profile_id}")
 async def update_agent_profile(profile_id: str, body: ProfileUpdateRequest):
     """Update a custom agent profile (system profiles have restricted updates)."""
-    from openakita.agents.profile import ProfileStore
-    from openakita.config import settings
+    from synapse.agents.profile import ProfileStore
+    from synapse.config import settings
 
     if not settings.multi_agent_enabled:
         raise HTTPException(status_code=400, detail="Multi-agent mode is not enabled")
@@ -587,8 +587,8 @@ async def update_agent_profile(profile_id: str, body: ProfileUpdateRequest):
 @router.delete("/api/agents/profiles/{profile_id}")
 async def delete_agent_profile(profile_id: str):
     """Delete a custom agent profile."""
-    from openakita.agents.profile import ProfileStore
-    from openakita.config import settings
+    from synapse.agents.profile import ProfileStore
+    from synapse.config import settings
 
     if not settings.multi_agent_enabled:
         raise HTTPException(status_code=400, detail="Multi-agent mode is not enabled")
@@ -610,9 +610,9 @@ async def delete_agent_profile(profile_id: str):
 @router.post("/api/agents/profiles/{profile_id}/reset")
 async def reset_agent_profile(profile_id: str):
     """Reset a system agent profile to its factory defaults."""
-    from openakita.agents.presets import get_preset_by_id
-    from openakita.agents.profile import ProfileStore
-    from openakita.config import settings
+    from synapse.agents.presets import get_preset_by_id
+    from synapse.agents.profile import ProfileStore
+    from synapse.config import settings
 
     if not settings.multi_agent_enabled:
         raise HTTPException(status_code=400, detail="Multi-agent mode is not enabled")
@@ -631,7 +631,7 @@ async def reset_agent_profile(profile_id: str):
         for field in keep_fields:
             reset_data[field] = getattr(existing, field, getattr(preset, field))
         reset_data["user_customized"] = False
-        from openakita.agents.profile import AgentProfile
+        from synapse.agents.profile import AgentProfile
         profile = AgentProfile.from_dict(reset_data)
         store._cache[profile_id] = profile
         store._persist(profile)
@@ -644,8 +644,8 @@ async def reset_agent_profile(profile_id: str):
 @router.patch("/api/agents/profiles/{profile_id}/visibility")
 async def update_profile_visibility(profile_id: str, body: ProfileVisibilityRequest):
     """Show or hide an agent profile (works for both SYSTEM and CUSTOM)."""
-    from openakita.agents.profile import ProfileStore
-    from openakita.config import settings
+    from synapse.agents.profile import ProfileStore
+    from synapse.config import settings
 
     if not settings.multi_agent_enabled:
         raise HTTPException(status_code=400, detail="Multi-agent mode is not enabled")
@@ -678,9 +678,9 @@ async def get_topology(request: Request):
 
     Single endpoint for the neural-network dashboard to poll.
     """
-    from openakita.agents.presets import SYSTEM_PRESETS
-    from openakita.agents.profile import ProfileStore
-    from openakita.config import settings
+    from synapse.agents.presets import SYSTEM_PRESETS
+    from synapse.agents.profile import ProfileStore
+    from synapse.config import settings
 
     pool = getattr(request.app.state, "agent_pool", None)
     orchestrator = getattr(request.app.state, "orchestrator", None)

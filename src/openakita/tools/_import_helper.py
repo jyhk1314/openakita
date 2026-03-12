@@ -5,7 +5,7 @@
 在 ImportError 时返回上下文相关的安装提示（打包环境→设置中心；开发环境→pip install）。
 
 Usage:
-    from openakita.tools._import_helper import import_or_hint
+    from synapse.tools._import_helper import import_or_hint
 
     hint = import_or_hint("playwright")
     if hint:
@@ -19,7 +19,7 @@ import importlib
 import logging
 from typing import Any
 
-from openakita.runtime_env import IS_FROZEN
+from synapse.runtime_env import IS_FROZEN
 
 logger = logging.getLogger(__name__)
 

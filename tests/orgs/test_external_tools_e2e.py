@@ -22,10 +22,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from openakita.orgs.manager import OrgManager
-from openakita.orgs.models import OrgNode, Organization, NodeStatus
-from openakita.orgs.runtime import OrgRuntime
-from openakita.orgs.tool_categories import expand_tool_categories, TOOL_CATEGORIES
+from synapse.orgs.manager import OrgManager
+from synapse.orgs.models import OrgNode, Organization, NodeStatus
+from synapse.orgs.runtime import OrgRuntime
+from synapse.orgs.tool_categories import expand_tool_categories, TOOL_CATEGORIES
 
 from tests.fixtures.mock_llm import MockLLMClient, MockBrain, MockResponse
 from tests.orgs.conftest import make_org, make_node, make_edge
@@ -469,7 +469,7 @@ class TestCloneInheritsExternalTools:
             edges=[make_edge("boss", "dev")],
         ).to_dict())
 
-        from openakita.orgs.scaler import OrgScaler
+        from synapse.orgs.scaler import OrgScaler
 
         runtime._save_org = lambda o: manager.update(o.id, o.to_dict())
         scaler = OrgScaler(runtime)

@@ -3,7 +3,7 @@
 import pytest
 from datetime import datetime
 
-from openakita.memory.types import (
+from synapse.memory.types import (
     ActionNode,
     Episode,
     Memory,

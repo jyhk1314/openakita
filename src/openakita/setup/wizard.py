@@ -19,10 +19,10 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 # 加载常量
-from openakita.setup.constants import _TOTAL_STEPS, _CHINA_SLUGS, _WHALECLOUD_SLUGS, _STEP_KEYS
-from openakita.setup.constants import _WELCOME_TITLE, _WELCOME_TEXT, _AGREEMENT_TITLE, _AGREEMENT_TEXT, _CONFIRM_PHRASE_ZH, _CONFIRM_PHRASE_EN, _CHOOSE_LOCALE_TEXT, _ADD_ANOTHER_LLM_ENDPOINT_TEXT, _ENABLE_EXTENDED_THINKING_MODE_TEXT
-from openakita.setup.constants import _PROMPT_ASK_CONTINUE_TEXT, _PROMPT_ASK_CONFIRM_TEXT, _PROMPT_ASK_SELECT_LANGUAGE_REGION_TEXT, _PROMPT_ASK_SELECT_LLM_PROVIDER_TEXT, _PROMPT_ASK_MODEL_NAME_TEXT, _PROMPT_ASK_CONFIGURE_PROMPT_COMPILER_TEXT, _PROMPT_ASK_SELECT_COMPILER_PROVIDER_TEXT, _PROMPT_ASK_BACKUP_COMPILER_ENDPOINT_TEXT, _PROMPT_ASK_SETUP_IM_CHANNEL_TEXT, _PROMPT_ASK_SELECT_EMBEDDING_MODEL_TEXT
-from openakita.setup.constants import _CONSOLE_PRINT_VECTOR_EMBEDDING_MODEL_TEXT
+from synapse.setup.constants import _TOTAL_STEPS, _CHINA_SLUGS, _WHALECLOUD_SLUGS, _STEP_KEYS
+from synapse.setup.constants import _WELCOME_TITLE, _WELCOME_TEXT, _AGREEMENT_TITLE, _AGREEMENT_TEXT, _CONFIRM_PHRASE_ZH, _CONFIRM_PHRASE_EN, _CHOOSE_LOCALE_TEXT, _ADD_ANOTHER_LLM_ENDPOINT_TEXT, _ENABLE_EXTENDED_THINKING_MODE_TEXT
+from synapse.setup.constants import _PROMPT_ASK_CONTINUE_TEXT, _PROMPT_ASK_CONFIRM_TEXT, _PROMPT_ASK_SELECT_LANGUAGE_REGION_TEXT, _PROMPT_ASK_SELECT_LLM_PROVIDER_TEXT, _PROMPT_ASK_MODEL_NAME_TEXT, _PROMPT_ASK_CONFIGURE_PROMPT_COMPILER_TEXT, _PROMPT_ASK_SELECT_COMPILER_PROVIDER_TEXT, _PROMPT_ASK_BACKUP_COMPILER_ENDPOINT_TEXT, _PROMPT_ASK_SETUP_IM_CHANNEL_TEXT, _PROMPT_ASK_SELECT_EMBEDDING_MODEL_TEXT
+from synapse.setup.constants import _CONSOLE_PRINT_VECTOR_EMBEDDING_MODEL_TEXT
 # 实例化控制台
 console = Console()
 
@@ -430,7 +430,7 @@ class SetupWizard:
 
         name = "primary" if index == 1 else f"endpoint-{index}"
 
-        from openakita.llm.capabilities import (
+        from synapse.llm.capabilities import (
             get_provider_slug_from_base_url,
             infer_capabilities,
         )
@@ -462,7 +462,7 @@ class SetupWizard:
 
     def _fetch_models(self, api_type: str, base_url: str, slug: str, api_key: str) -> list[dict]:
         """Fetch model list from provider API. Returns [] on failure."""
-        from openakita.setup_center.bridge import (
+        from synapse.setup_center.bridge import (
             _list_models_anthropic,
             _list_models_openai,
         )
@@ -681,7 +681,7 @@ class SetupWizard:
             api_type = "anthropic" if "anthropic.com" in base_url else "openai"
             provider = "anthropic" if api_type == "anthropic" else "openai-compatible"
 
-            from openakita.llm.capabilities import (
+            from synapse.llm.capabilities import (
                 get_provider_slug_from_base_url,
                 infer_capabilities,
             )

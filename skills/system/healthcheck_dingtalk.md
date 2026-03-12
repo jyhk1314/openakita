@@ -1,7 +1,7 @@
 # DingTalk 健康检查记录
 
 ## 背景
-- 报错：`openakita.channels.adapters.dingtalk` 发送图片失败，服务端返回“robot 不存在”。
+- 报错：`synapse.channels.adapters.dingtalk` 发送图片失败，服务端返回“robot 不存在”。
 - 常见原因：`robotCode` 配置错误/为空、机器人未创建或未启用、应用与群绑定不匹配。
 
 ## 当前本地配置发现（基于 `.env`）

@@ -93,7 +93,7 @@ class MediaHandler:
             self._whisper_loaded = True
             logger.info(f"Whisper model '{self.whisper_model}' loaded successfully")
         except ImportError:
-            from openakita.tools._import_helper import import_or_hint
+            from synapse.tools._import_helper import import_or_hint
             hint = import_or_hint("whisper")
             logger.warning(f"Whisper 不可用（本进程内不再重试）: {hint}")
             self._whisper_unavailable = True
@@ -173,7 +173,7 @@ class MediaHandler:
 
         # QQ/微信语音使用 SILK 编码（.amr 扩展名），ffmpeg 不支持
         # 需要先转换为 WAV 才能被 Whisper 识别
-        from openakita.channels.media.audio_utils import ensure_whisper_compatible
+        from synapse.channels.media.audio_utils import ensure_whisper_compatible
 
         compatible_path = ensure_whisper_compatible(audio_path)
 
@@ -275,7 +275,7 @@ class MediaHandler:
             return text.strip() if text.strip() else "[图片无可识别文字]"
 
         except ImportError:
-            from openakita.tools._import_helper import import_or_hint
+            from synapse.tools._import_helper import import_or_hint
             hint = import_or_hint("pytesseract")
             logger.warning(f"OCR 不可用: {hint}")
             return ""
@@ -354,7 +354,7 @@ class MediaHandler:
                 return "\n".join(text_parts)
 
             except ImportError:
-                from openakita.tools._import_helper import import_or_hint
+                from synapse.tools._import_helper import import_or_hint
                 hint = import_or_hint("fitz")
                 raise ImportError(f"PDF 提取不可用: {hint}")
 
@@ -372,7 +372,7 @@ class MediaHandler:
             return "\n".join(text_parts)
 
         except ImportError:
-            from openakita.tools._import_helper import import_or_hint
+            from synapse.tools._import_helper import import_or_hint
             hint = import_or_hint("docx")
             raise ImportError(f"DOCX 提取不可用: {hint}")
 
@@ -395,7 +395,7 @@ class MediaHandler:
             return "\n".join(text_parts)
 
         except ImportError:
-            from openakita.tools._import_helper import import_or_hint
+            from synapse.tools._import_helper import import_or_hint
             hint = import_or_hint("openpyxl")
             raise ImportError(f"XLSX 提取不可用: {hint}")
 
@@ -417,6 +417,6 @@ class MediaHandler:
             return "\n".join(text_parts)
 
         except ImportError:
-            from openakita.tools._import_helper import import_or_hint
+            from synapse.tools._import_helper import import_or_hint
             hint = import_or_hint("pptx")
             raise ImportError(f"PPTX 提取不可用: {hint}")

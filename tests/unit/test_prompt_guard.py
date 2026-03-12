@@ -2,7 +2,7 @@
 
 import pytest
 
-from openakita.prompt.guard import classify_task, GuardConfig
+from synapse.prompt.guard import classify_task, GuardConfig
 
 
 class TestTaskClassification:

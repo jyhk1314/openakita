@@ -20,7 +20,7 @@ router = APIRouter()
 
 def _project_root() -> Path:
     try:
-        from openakita.config import settings
+        from synapse.config import settings
         return Path(settings.project_root)
     except Exception:
         return Path.cwd()
@@ -54,7 +54,7 @@ class ImportRequest(BaseModel):
 @router.get("/api/workspace/backup-settings")
 async def get_backup_settings():
     """Read backup settings from data/backup_settings.json."""
-    from openakita.workspace.backup import read_backup_settings
+    from synapse.workspace.backup import read_backup_settings
 
     root = _project_root()
     settings = read_backup_settings(root)
@@ -64,7 +64,7 @@ async def get_backup_settings():
 @router.post("/api/workspace/backup-settings")
 async def save_backup_settings(body: BackupSettingsRequest):
     """Save backup settings and sync the scheduler task."""
-    from openakita.workspace.backup import (
+    from synapse.workspace.backup import (
         read_backup_settings,
         write_backup_settings,
     )
@@ -86,7 +86,7 @@ async def save_backup_settings(body: BackupSettingsRequest):
 @router.post("/api/workspace/export")
 async def export_backup(body: ExportRequest):
     """Create a workspace backup zip at the specified output directory."""
-    from openakita.workspace.backup import create_backup, read_backup_settings
+    from synapse.workspace.backup import create_backup, read_backup_settings
 
     root = _project_root()
 
@@ -118,7 +118,7 @@ async def export_backup(body: ExportRequest):
 @router.post("/api/workspace/import")
 async def import_backup(body: ImportRequest):
     """Restore workspace from a backup zip file."""
-    from openakita.workspace.backup import restore_backup
+    from synapse.workspace.backup import restore_backup
 
     root = _project_root()
 
@@ -145,7 +145,7 @@ async def import_backup(body: ImportRequest):
 @router.get("/api/workspace/backups")
 async def get_backup_list():
     """List existing backup files in the configured backup directory."""
-    from openakita.workspace.backup import list_backups, read_backup_settings
+    from synapse.workspace.backup import list_backups, read_backup_settings
 
     root = _project_root()
     settings = read_backup_settings(root)
@@ -163,7 +163,7 @@ async def get_backup_list():
 
 def _sync_backup_scheduler_task(settings: dict) -> None:
     """Create, update, or disable the system:workspace_backup scheduler task."""
-    from openakita.scheduler import get_active_scheduler
+    from synapse.scheduler import get_active_scheduler
 
     scheduler = get_active_scheduler()
     if scheduler is None:
@@ -182,7 +182,7 @@ def _sync_backup_scheduler_task(settings: dict) -> None:
         if existing.trigger_config.get("cron") != cron:
             existing.trigger_config = {"cron": cron}
             existing.trigger_type = _get_cron_trigger_type()
-            from openakita.scheduler.triggers import Trigger
+            from synapse.scheduler.triggers import Trigger
             new_trigger = Trigger.from_config("cron", {"cron": cron})
             scheduler._triggers[task_id] = new_trigger
             existing.next_run = new_trigger.get_next_run_time()
@@ -196,7 +196,7 @@ def _sync_backup_scheduler_task(settings: dict) -> None:
 
 def _register_backup_task(scheduler: object, settings: dict) -> None:
     """Register the workspace backup system task."""
-    from openakita.scheduler.task import ScheduledTask, TaskType, TriggerType
+    from synapse.scheduler.task import ScheduledTask, TaskType, TriggerType
 
     cron = settings.get("cron", "0 2 * * *")
     task = ScheduledTask(
@@ -221,5 +221,5 @@ def _register_backup_task(scheduler: object, settings: dict) -> None:
 
 
 def _get_cron_trigger_type():
-    from openakita.scheduler.task import TriggerType
+    from synapse.scheduler.task import TriggerType
     return TriggerType.CRON

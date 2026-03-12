@@ -3,16 +3,16 @@ Setup Center Bridge
 
 该模块用于给 Setup Center（Tauri App）提供一个稳定的 Python 入口：
 
-- `python -m openakita.setup_center.bridge list-providers`
-- `python -m openakita.setup_center.bridge list-models --api-type ... --base-url ... [--provider-slug ...]`
-- `python -m openakita.setup_center.bridge list-skills --workspace-dir ...`
+- `python -m synapse.setup_center.bridge list-providers`
+- `python -m synapse.setup_center.bridge list-models --api-type ... --base-url ... [--provider-slug ...]`
+- `python -m synapse.setup_center.bridge list-skills --workspace-dir ...`
 
 输出均为 JSON（stdout），错误输出到 stderr 并以非 0 退出码返回。
 """
 
 from __future__ import annotations
 
-import openakita._ensure_utf8  # noqa: F401  # isort: skip
+import synapse._ensure_utf8  # noqa: F401  # isort: skip
 
 import argparse
 import asyncio
@@ -41,7 +41,7 @@ def _to_dict(obj: Any) -> Any:
 
 
 def list_providers() -> None:
-    from openakita.llm.registries import list_providers as _list_providers
+    from synapse.llm.registries import list_providers as _list_providers
 
     providers = _list_providers()
     _json_print([_to_dict(p) for p in providers])
@@ -50,7 +50,7 @@ def list_providers() -> None:
 async def _list_models_openai(api_key: str, base_url: str, provider_slug: str | None) -> list[dict]:
     import httpx
 
-    from openakita.llm.capabilities import infer_capabilities
+    from synapse.llm.capabilities import infer_capabilities
 
     def _is_minimax_provider() -> bool:
         slug = (provider_slug or "").strip().lower()
@@ -193,7 +193,7 @@ async def _list_models_openai(api_key: str, base_url: str, provider_slug: str | 
 async def _list_models_anthropic(api_key: str, base_url: str, provider_slug: str | None) -> list[dict]:
     import httpx
 
-    from openakita.llm.capabilities import infer_capabilities
+    from synapse.llm.capabilities import infer_capabilities
 
     def _is_minimax_provider() -> bool:
         slug = (provider_slug or "").strip().lower()
@@ -357,7 +357,7 @@ async def health_check_endpoint(workspace_dir: str, endpoint_name: str | None) -
     """检测 LLM 端点连通性，同时更新业务状态（cooldown/mark_healthy）"""
     import time
 
-    from openakita.llm.client import LLMClient
+    from synapse.llm.client import LLMClient
 
     wd = Path(workspace_dir).expanduser().resolve()
     config_path = wd / "data" / "llm_endpoints.json"
@@ -597,8 +597,8 @@ def ensure_channel_deps(workspace_dir: str) -> None:
     import importlib
     import subprocess
 
-    from openakita.python_compat import patch_simplejson_jsondecodeerror
-    from openakita.runtime_env import get_channel_deps_dir, get_python_executable, inject_module_paths_runtime
+    from synapse.python_compat import patch_simplejson_jsondecodeerror
+    from synapse.runtime_env import get_channel_deps_dir, get_python_executable, inject_module_paths_runtime
 
     def _build_pip_env(py_path: Path) -> dict[str, str]:
         e = os.environ.copy()
@@ -839,7 +839,7 @@ def ensure_channel_deps(workspace_dir: str) -> None:
 
 
 def list_skills(workspace_dir: str) -> None:
-    from openakita.skills.loader import SkillLoader
+    from synapse.skills.loader import SkillLoader
 
     wd = Path(workspace_dir).expanduser().resolve()
     if not wd.exists() or not wd.is_dir():
@@ -951,7 +951,7 @@ def _try_platform_skill_download(skill_id: str, dest_dir: Path) -> bool:
     import urllib.request
     import zipfile
 
-    from openakita.config import settings
+    from synapse.config import settings
 
     hub_url = (getattr(settings, "hub_api_url", "") or "").rstrip("/")
     if not hub_url:
@@ -1021,7 +1021,7 @@ def _download_github_zip(repo_owner: str, repo_name: str, dest_dir: Path) -> Non
         )
 
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        tmp_extract = Path(tempfile.mkdtemp(prefix="openakita_zip_"))
+        tmp_extract = Path(tempfile.mkdtemp(prefix="synapse_zip_"))
         try:
             zf.extractall(tmp_extract)
             children = list(tmp_extract.iterdir())
@@ -1103,7 +1103,7 @@ def _download_gitee_zip(repo_owner: str, repo_name: str, dest_dir: Path) -> None
         )
 
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        tmp_extract = Path(tempfile.mkdtemp(prefix="openakita_gitee_"))
+        tmp_extract = Path(tempfile.mkdtemp(prefix="synapse_gitee_"))
         try:
             zf.extractall(tmp_extract)
             children = list(tmp_extract.iterdir())
@@ -1187,7 +1187,7 @@ def install_skill(workspace_dir: str, url: str) -> None:
             return
 
         # Strategy 2: git clone / ZIP download
-        tmp_parent = Path(tempfile.mkdtemp(prefix="openakita_skill_"))
+        tmp_parent = Path(tempfile.mkdtemp(prefix="synapse_skill_"))
         tmp_dir = tmp_parent / "repo"
         try:
             if _has_git():
@@ -1288,32 +1288,32 @@ def list_marketplace() -> None:
         {
             "name": "web-search",
             "description": "使用 Serper/Google 进行网络搜索",
-            "author": "openakita",
-            "url": "github:openakita/skills/web-search",
+            "author": "synapse",
+            "url": "github:synapse/skills/web-search",
             "stars": 42,
             "tags": ["搜索", "网络"],
         },
         {
             "name": "code-interpreter",
             "description": "Python 代码解释器，支持数据分析和可视化",
-            "author": "openakita",
-            "url": "github:openakita/skills/code-interpreter",
+            "author": "synapse",
+            "url": "github:synapse/skills/code-interpreter",
             "stars": 38,
             "tags": ["代码", "数据分析"],
         },
         {
             "name": "browser-use",
             "description": "浏览器自动化，支持网页操作和数据抓取",
-            "author": "openakita",
-            "url": "github:openakita/skills/browser-use",
+            "author": "synapse",
+            "url": "github:synapse/skills/browser-use",
             "stars": 25,
             "tags": ["浏览器", "自动化"],
         },
         {
             "name": "image-gen",
             "description": "AI 图片生成，支持 DALL-E / Stable Diffusion",
-            "author": "openakita",
-            "url": "github:openakita/skills/image-gen",
+            "author": "synapse",
+            "url": "github:synapse/skills/image-gen",
             "stars": 19,
             "tags": ["图片", "生成"],
         },
@@ -1323,7 +1323,7 @@ def list_marketplace() -> None:
 
 def get_skill_config(workspace_dir: str, skill_name: str) -> None:
     """获取技能的配置 schema"""
-    from openakita.skills.loader import SkillLoader
+    from synapse.skills.loader import SkillLoader
 
     wd = Path(workspace_dir).expanduser().resolve()
     loader = SkillLoader()
@@ -1345,7 +1345,7 @@ def get_skill_config(workspace_dir: str, skill_name: str) -> None:
 def main(argv: list[str] | None = None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
 
-    p = argparse.ArgumentParser(prog="openakita.setup_center.bridge")
+    p = argparse.ArgumentParser(prog="synapse.setup_center.bridge")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("list-providers", help="列出服务商（JSON）")
@@ -1447,7 +1447,7 @@ def main(argv: list[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
-    from openakita.runtime_env import IS_FROZEN, ensure_ssl_certs, inject_module_paths
+    from synapse.runtime_env import IS_FROZEN, ensure_ssl_certs, inject_module_paths
 
     if IS_FROZEN:
         ensure_ssl_certs()

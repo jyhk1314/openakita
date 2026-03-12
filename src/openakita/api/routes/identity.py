@@ -17,8 +17,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from openakita.config import settings
-from openakita.prompt.budget import estimate_tokens
+from synapse.config import settings
+from synapse.prompt.budget import estimate_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +138,7 @@ def validate_identity_file(name: str, content: str) -> dict[str, list[str]]:
             errors.append(f"YAML 语法错误: {e}")
 
     elif name == "MEMORY.md":
-        from openakita.memory.types import MEMORY_MD_MAX_CHARS
+        from synapse.memory.types import MEMORY_MD_MAX_CHARS
         if len(content) > MEMORY_MD_MAX_CHARS:
             warnings.append(
                 f"内容超出 {MEMORY_MD_MAX_CHARS} 字符限制"
@@ -310,7 +310,7 @@ async def reload_identity(request: Request):
     identity.reload()
 
     # Force recompile runtime artifacts
-    from openakita.prompt.compiler import compile_all
+    from synapse.prompt.compiler import compile_all
     identity_dir = _identity_dir()
     compile_all(identity_dir)
 
@@ -338,16 +338,16 @@ async def compile_identity(request: Request, mode: str = "rules"):
             if local:
                 brain = getattr(local, "brain", None)
         if brain:
-            from openakita.prompt.compiler import PromptCompiler
+            from synapse.prompt.compiler import PromptCompiler
             compiler = PromptCompiler(brain=brain)
             await compiler.compile_all(identity_dir)
             mode_used = "llm"
         else:
-            from openakita.prompt.compiler import compile_all
+            from synapse.prompt.compiler import compile_all
             compile_all(identity_dir)
             mode_used = "rules (LLM not available)"
     else:
-        from openakita.prompt.compiler import compile_all
+        from synapse.prompt.compiler import compile_all
         compile_all(identity_dir)
         mode_used = "rules"
 
@@ -356,7 +356,7 @@ async def compile_identity(request: Request, mode: str = "rules"):
     if agent:
         _try_rebuild_prompt(agent)
 
-    from openakita.prompt.compiler import get_compiled_content
+    from synapse.prompt.compiler import get_compiled_content
     compiled = get_compiled_content(identity_dir)
     _key_rt = {
         "agent_core": "runtime/agent.core.md",
@@ -383,7 +383,7 @@ async def compile_status():
     """Get compilation status: token counts, budget, freshness."""
     identity_dir = _identity_dir()
 
-    from openakita.prompt.compiler import check_compiled_outdated, get_compiled_content
+    from synapse.prompt.compiler import check_compiled_outdated, get_compiled_content
     compiled = get_compiled_content(identity_dir)
     outdated = check_compiled_outdated(identity_dir)
 

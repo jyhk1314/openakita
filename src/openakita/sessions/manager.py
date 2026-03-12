@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from openakita.utils.atomic_io import atomic_json_write
+from synapse.utils.atomic_io import atomic_json_write
 
 from .session import Session, SessionConfig, SessionState
 from .user import UserManager
@@ -418,7 +418,7 @@ class SessionManager:
                                 ):
                                     block["content"] = "[图片数据已清理，请重新截图]"
                                 else:
-                                    from openakita.core.tool_executor import smart_truncate
+                                    from synapse.core.tool_executor import smart_truncate
                                     block["content"], _ = smart_truncate(
                                         result_content, 4000,
                                         label="session_restore",

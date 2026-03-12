@@ -317,7 +317,7 @@ class SkillsHandler:
 
         # 查找技能目录（使用项目根目录，避免依赖 CWD）
         try:
-            from openakita.config import settings
+            from synapse.config import settings
             skills_dir = settings.project_root / "skills"
         except Exception:
             skills_dir = Path("skills")
@@ -409,7 +409,7 @@ class SkillsHandler:
             return "❌ 未指定要变更的技能"
 
         try:
-            from openakita.config import settings
+            from synapse.config import settings
             cfg_path = settings.project_root / "data" / "skills.json"
         except Exception:
             cfg_path = Path.cwd() / "data" / "skills.json"
@@ -484,7 +484,7 @@ class SkillsHandler:
 
         # 热重载
         try:
-            from openakita.core.agent import _collect_preset_referenced_skills
+            from synapse.core.agent import _collect_preset_referenced_skills
             effective = loader.compute_effective_allowlist(existing_allowlist) if loader else existing_allowlist
             agent_skills = _collect_preset_referenced_skills()
             if loader:

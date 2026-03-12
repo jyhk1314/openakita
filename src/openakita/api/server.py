@@ -89,7 +89,7 @@ def _find_web_dist() -> Path | None:
     """Locate the web frontend dist directory.
 
     Search order:
-    1. openakita/web/ (pip wheel install & PyInstaller bundle)
+    1. synapse/web/ (pip wheel install & PyInstaller bundle)
     2. apps/setup-center/dist-web/ (development)
     """
     # Inside the installed package
@@ -147,7 +147,7 @@ def create_app(
 ) -> FastAPI:
     """Create the FastAPI application with all routes mounted."""
 
-    from openakita import get_version_string
+    from synapse import get_version_string
 
     tags_metadata = [
         {"name": "认证", "description": "登录、登出、Token 刷新"},
@@ -203,7 +203,7 @@ def create_app(
     # middleware stack (last-added = outermost) CORS wraps auth, ensuring all
     # responses (including 401) carry proper CORS headers.
     try:
-        from openakita.config import settings
+        from synapse.config import settings
         data_dir = Path(settings.project_root) / "data"
     except Exception:
         data_dir = Path.cwd() / "data"
@@ -245,9 +245,9 @@ def create_app(
     app.state.agent_pool = agent_pool
 
     # Initialize OrgManager & OrgRuntime
-    from openakita.orgs.manager import OrgManager
-    from openakita.orgs.runtime import OrgRuntime
-    from openakita.orgs.templates import ensure_builtin_templates
+    from synapse.orgs.manager import OrgManager
+    from synapse.orgs.runtime import OrgRuntime
+    from synapse.orgs.templates import ensure_builtin_templates
     org_manager = OrgManager(data_dir)
     ensure_builtin_templates(data_dir / "org_templates")
     app.state.org_manager = org_manager
@@ -286,14 +286,14 @@ def create_app(
             from fastapi.responses import RedirectResponse
             return RedirectResponse(url="/web/")
         return {
-            "service": "openakita",
+            "service": "synapse",
             "api_version": "1.0.0",
             "status": "running",
         }
 
     # ── Serve uploaded avatar files ──
     from fastapi.staticfiles import StaticFiles as _StaticFiles
-    from openakita.config import settings as _settings
+    from synapse.config import settings as _settings
     _avatar_dir = _settings.data_dir / "avatars"
     _avatar_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/api/avatars", _StaticFiles(directory=str(_avatar_dir)), name="avatars")
@@ -333,7 +333,7 @@ def create_app(
         loop.slow_callback_duration = 0.5
         if hasattr(app.state, "org_runtime") and app.state.org_runtime:
             try:
-                from openakita.core.engine_bridge import to_engine
+                from synapse.core.engine_bridge import to_engine
 
                 await to_engine(app.state.org_runtime.start())
             except Exception as e:
@@ -343,7 +343,7 @@ def create_app(
     async def _shutdown_org_runtime():
         if hasattr(app.state, "org_runtime") and app.state.org_runtime:
             try:
-                from openakita.core.engine_bridge import to_engine
+                from synapse.core.engine_bridge import to_engine
 
                 await to_engine(app.state.org_runtime.shutdown())
             except Exception as e:
@@ -439,7 +439,7 @@ async def start_api_server(
                 pass
 
     api_thread = threading.Thread(
-        target=_api_thread, daemon=True, name="openakita-api",
+        target=_api_thread, daemon=True, name="synapse-api",
     )
     api_thread.start()
 
@@ -451,13 +451,13 @@ async def start_api_server(
     api_loop = api_loop_holder[0] if api_loop_holder else None
 
     # ── Register loops for the cross-loop bridge ─────────────────────
-    from openakita.core.engine_bridge import set_api_loop, set_engine_loop
+    from synapse.core.engine_bridge import set_api_loop, set_engine_loop
 
     set_engine_loop(engine_loop)
     if api_loop is not None:
         set_api_loop(api_loop)
 
-    from openakita import get_version_string
+    from synapse import get_version_string
 
     logger.info(
         f"HTTP API server starting on http://{host}:{port} "

@@ -5,7 +5,7 @@ UTF-8 编码强制模块 — 在所有入口点最早期导入
 导致中文、emoji 等 Unicode 字符输出乱码或崩溃的问题。
 
 用法: 在每个入口模块的最顶部添加:
-    import openakita._ensure_utf8  # noqa: F401
+    import synapse._ensure_utf8  # noqa: F401
 """
 
 import os

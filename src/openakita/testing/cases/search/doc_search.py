@@ -2,7 +2,7 @@
 文档搜索测试用例 (30个)
 """
 
-from openakita.testing.runner import TestCase
+from synapse.testing.runner import TestCase
 
 DOC_SEARCH_TESTS = [
     # 项目文档搜索
@@ -81,7 +81,7 @@ DOC_SEARCH_TESTS = [
         input={
             "action": "search_docstring",
             "query": "执行",
-            "path": "src/openakita",
+            "path": "src/synapse",
         },
         expected="length>=1",
         tags=["docstring", "function"],
@@ -94,7 +94,7 @@ DOC_SEARCH_TESTS = [
         input={
             "action": "search_docstring",
             "query": "Agent",
-            "path": "src/openakita",
+            "path": "src/synapse",
         },
         expected="length>=1",
         tags=["docstring", "class"],

@@ -77,8 +77,8 @@ async def api_client(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENAKITA_PROJECT_ROOT", str(ws))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
 
-    import openakita.config as config_mod
-    from openakita.config import Settings
+    import synapse.config as config_mod
+    from synapse.config import Settings
     test_settings = Settings(
         project_root=ws,
         database_path="data/agent.db",
@@ -89,7 +89,7 @@ async def api_client(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(config_mod, "settings", test_settings)
 
-    from openakita.core.agent import Agent
+    from synapse.core.agent import Agent
     agent = Agent(name="TestAgent")
 
     mock_client = MockLLMClient()
@@ -97,7 +97,7 @@ async def api_client(tmp_path, monkeypatch):
     agent._initialized = True
     agent.identity.load()
 
-    from openakita.api.server import create_app
+    from synapse.api.server import create_app
     app = create_app()
     app.state.agent = agent
     app.state.session_manager = None  # SSE flow handles missing session_manager gracefully
@@ -150,7 +150,7 @@ class TestDesktopUserChatFlow:
 
     async def test_error_when_no_agent(self, tmp_path, monkeypatch):
         """If agent is None, SSE should return an error event."""
-        from openakita.api.server import create_app
+        from synapse.api.server import create_app
         app = create_app()
         app.state.agent = None
         app.state.session_manager = None

@@ -2,7 +2,7 @@
 
 import pytest
 
-from openakita.tools.catalog import ToolCatalog, create_tool_catalog
+from synapse.tools.catalog import ToolCatalog, create_tool_catalog
 
 
 def _sample_tools() -> list[dict]:

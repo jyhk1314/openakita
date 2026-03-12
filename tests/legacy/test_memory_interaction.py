@@ -20,12 +20,12 @@ from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from openakita.memory.types import Memory, MemoryType, MemoryPriority, ConversationTurn
-from openakita.memory.vector_store import VectorStore
-from openakita.memory.extractor import MemoryExtractor
-from openakita.memory.manager import MemoryManager
-from openakita.memory.daily_consolidator import DailyConsolidator
-from openakita.sessions.session import Session
+from synapse.memory.types import Memory, MemoryType, MemoryPriority, ConversationTurn
+from synapse.memory.vector_store import VectorStore
+from synapse.memory.extractor import MemoryExtractor
+from synapse.memory.manager import MemoryManager
+from synapse.memory.daily_consolidator import DailyConsolidator
+from synapse.sessions.session import Session
 
 
 class MemoryInteractionTester:

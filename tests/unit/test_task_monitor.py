@@ -3,7 +3,7 @@
 import pytest
 import time
 
-from openakita.core.task_monitor import (
+from synapse.core.task_monitor import (
     TaskMonitor,
     TaskMetrics,
     TaskPhase,

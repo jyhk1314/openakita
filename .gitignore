@@ -161,7 +161,7 @@ indentity_compiler.txt
 *_report*.py
 create_report*.py
 fix_report.py
-!src/openakita/api/routes/bug_report.py
+!src/synapse/api/routes/bug_report.py
 
 # Image classification scripts (temporary)
 classify_*.py
@@ -187,7 +187,7 @@ generate_vision_tasks.py
 # Temporary documents
 Microsoft_BitNet_*.docx
 OPENAKITA_PROJECT_STATUS.txt
-openakita_project_summary.md
+synapse_project_summary.md
 CLASSIFICATION_SYSTEM.md
 classification_report.json
 skills_list.md
@@ -227,5 +227,5 @@ apps/setup-center/android/app/src/main/assets/capacitor.config.json
 $null
 botpy.log*
 OPENAKITA_RESEARCH_REPORT.md
-openakita-release.keystore
+synapse-release.keystore
 ppt_build/

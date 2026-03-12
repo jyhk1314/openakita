@@ -14,9 +14,9 @@ from pathlib import Path
 
 import pytest
 
-from openakita.memory.storage import MemoryStorage
-from openakita.memory.types import Attachment, AttachmentDirection
-from openakita.memory.unified_store import UnifiedStore
+from synapse.memory.storage import MemoryStorage
+from synapse.memory.types import Attachment, AttachmentDirection
+from synapse.memory.unified_store import UnifiedStore
 
 
 # =========================================================================

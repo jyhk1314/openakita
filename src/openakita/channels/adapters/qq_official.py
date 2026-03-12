@@ -52,7 +52,7 @@ def _import_botpy():
             botpy = _botpy
             botpy_message = _msg
         except ImportError:
-            from openakita.tools._import_helper import import_or_hint
+            from synapse.tools._import_helper import import_or_hint
             raise ImportError(import_or_hint("botpy"))
 
 
@@ -182,7 +182,7 @@ class QQBotAdapter(ChannelAdapter):
             return None
 
         try:
-            from openakita.api.routes.upload import get_upload_dir
+            from synapse.api.routes.upload import get_upload_dir
 
             upload_dir = get_upload_dir()
             unique_name = f"{int(time.time())}_{uuid.uuid4().hex[:8]}{src.suffix}"

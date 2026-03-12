@@ -970,8 +970,8 @@ class OrgToolHandler:
         self, system: str, user_content: str, max_tokens: int = 400,
     ) -> str:
         """统一的轻量 LLM 调用：兼容 Message 类型和 dict 类型 response。"""
-        from openakita.llm.client import chat as llm_chat
-        from openakita.llm.types import Message
+        from synapse.llm.client import chat as llm_chat
+        from synapse.llm.types import Message
 
         messages = [Message(role="user", content=user_content)]
         resp = await llm_chat(messages, system=system, max_tokens=max_tokens)

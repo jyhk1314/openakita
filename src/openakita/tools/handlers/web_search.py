@@ -79,7 +79,7 @@ class WebSearchHandler:
         try:
             from ddgs import DDGS  # noqa: F401
         except ImportError:
-            from openakita.tools._import_helper import import_or_hint
+            from synapse.tools._import_helper import import_or_hint
             return f"错误：{import_or_hint('ddgs')}"
 
         try:
@@ -112,7 +112,7 @@ class WebSearchHandler:
         try:
             from ddgs import DDGS  # noqa: F401
         except ImportError:
-            from openakita.tools._import_helper import import_or_hint
+            from synapse.tools._import_helper import import_or_hint
             return f"错误：{import_or_hint('ddgs')}"
 
         try:

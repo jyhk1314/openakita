@@ -91,7 +91,7 @@ def _find_bundled_browser_executable() -> str | None:
     """
     import sys
 
-    from openakita.runtime_env import IS_FROZEN
+    from synapse.runtime_env import IS_FROZEN
     if not IS_FROZEN:
         return None
 
@@ -305,7 +305,7 @@ class BrowserManager:
         try:
             from playwright.async_api import async_playwright
         except ImportError:
-            from openakita.tools._import_helper import import_or_hint
+            from synapse.tools._import_helper import import_or_hint
             hint = import_or_hint("playwright")
             logger.error(f"Playwright 导入失败: {hint}")
             self.state = BrowserState.ERROR
@@ -407,7 +407,7 @@ class BrowserManager:
             )
             return
 
-        from openakita.runtime_env import IS_FROZEN
+        from synapse.runtime_env import IS_FROZEN
 
         if IS_FROZEN:
             import sys
@@ -507,8 +507,8 @@ class BrowserManager:
             raise RuntimeError("Chrome executable not found")
 
         if use_oa_profile:
-            from .chrome_finder import get_openakita_chrome_profile, sync_chrome_cookies
-            user_data = get_openakita_chrome_profile()
+            from .chrome_finder import get_synapse_chrome_profile, sync_chrome_cookies
+            user_data = get_synapse_chrome_profile()
             if self._chrome_user_data:
                 sync_chrome_cookies(self._chrome_user_data, user_data)
             label = "OpenAkita profile"

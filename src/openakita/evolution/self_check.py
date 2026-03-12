@@ -297,7 +297,7 @@ class SelfChecker:
     ):
         self.brain = brain
         self.test_dir = test_dir or (
-            settings.project_root / "src" / "openakita" / "testing" / "cases"
+            settings.project_root / "src" / "synapse" / "testing" / "cases"
         )
         self.shell = ShellTool()
         self.file_tool = FileTool()
@@ -478,7 +478,7 @@ class SelfChecker:
         elif "file" in test.id:
             if isinstance(test.input, dict):
                 if test.input.get("action") == "write_read":
-                    test_file = str(Path(tempfile.gettempdir()) / "openakita_test.txt")
+                    test_file = str(Path(tempfile.gettempdir()) / "synapse_test.txt")
                     await self.file_tool.write(test_file, test.input["content"])
                     return await self.file_tool.read(test_file)
         return None
@@ -1274,8 +1274,8 @@ ID: {result.test_id}
                     "write_roots": [
                         str((project_root / "skills").resolve()),
                         str((project_root / "mcps").resolve()),
-                        str((project_root / "src" / "openakita" / "tools").resolve()),
-                        str((project_root / "src" / "openakita" / "channels").resolve()),
+                        str((project_root / "src" / "synapse" / "tools").resolve()),
+                        str((project_root / "src" / "synapse" / "channels").resolve()),
                     ],
                     # 禁止的 shell 关键词（尽量避免 OS/Windows 层操作）
                     "deny_shell_patterns": [
@@ -1318,7 +1318,7 @@ ID: {result.test_id}
 
 ## 要求
 1. 你需要 **直接修复** 工具层问题（内置工具/skills/MCP/channels 等），可以使用工具（shell、file、skills、call_mcp_tool 等）
-2. **禁止** 修改 Akita 核心系统代码（`src/openakita/core/`、`src/openakita/llm/`、`src/openakita/memory/`、`src/openakita/scheduler/`、`src/openakita/storage/`、`src/openakita/agents/` 等）
+2. **禁止** 修改 Akita 核心系统代码（`src/synapse/core/`、`src/synapse/llm/`、`src/synapse/memory/`、`src/synapse/scheduler/`、`src/synapse/storage/`、`src/synapse/agents/` 等）
 3. **禁止** 进行 Windows/系统层面优化与命令操作（注册表、计划任务、权限修复、服务/进程管理等）；如果需要这些操作，请写入“需人工处理”的结论
 4. 修复后验证结果是否正确（能用轻量验证就做，如 list_skills、list_mcp_servers、读取文件等）
 5. 完成后简要报告修复结果（做了什么、改了哪些文件、验证结果）
@@ -1542,7 +1542,7 @@ ID: {result.test_id}
                 pass
             else:
                 # Linux/Mac 下清理僵尸进程
-                await self.shell.run("pkill -9 -f 'openakita.*timeout' || true")
+                await self.shell.run("pkill -9 -f 'synapse.*timeout' || true")
 
             return True
         except Exception:

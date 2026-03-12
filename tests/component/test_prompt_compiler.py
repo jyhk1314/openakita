@@ -3,42 +3,42 @@
 import pytest
 from pathlib import Path
 
-from openakita.prompt.budget import BudgetConfig, BudgetResult, estimate_tokens
+from synapse.prompt.budget import BudgetConfig, BudgetResult, estimate_tokens
 
 
 class TestPromptCompileFunctions:
     """Test individual compile_* functions from prompt/compiler.py."""
 
     def test_compile_soul(self):
-        from openakita.prompt.compiler import compile_soul
+        from synapse.prompt.compiler import compile_soul
         result = compile_soul("You are OpenAkita, a loyal AI assistant.")
         assert isinstance(result, str)
         assert len(result) > 0
 
     def test_compile_soul_empty(self):
-        from openakita.prompt.compiler import compile_soul
+        from synapse.prompt.compiler import compile_soul
         result = compile_soul("")
         assert isinstance(result, str)
 
     def test_compile_agent_core(self):
-        from openakita.prompt.compiler import compile_agent_core
+        from synapse.prompt.compiler import compile_agent_core
         result = compile_agent_core("## Core Behaviors\n- Never give up\n- Be honest")
         assert isinstance(result, str)
 
     def test_compile_agent_tooling(self):
-        from openakita.prompt.compiler import compile_agent_tooling
+        from synapse.prompt.compiler import compile_agent_tooling
         result = compile_agent_tooling("## Tool Usage\n- Use tools wisely")
         assert isinstance(result, str)
 
     def test_compile_user(self):
-        from openakita.prompt.compiler import compile_user
+        from synapse.prompt.compiler import compile_user
         result = compile_user("User prefers Chinese. Name: 小明")
         assert isinstance(result, str)
 
 
 class TestCompileAll:
     def test_compile_all_with_identity_dir(self, tmp_path):
-        from openakita.prompt.compiler import compile_all
+        from synapse.prompt.compiler import compile_all
 
         identity_dir = tmp_path / "identity"
         identity_dir.mkdir()
@@ -49,7 +49,7 @@ class TestCompileAll:
         assert isinstance(result, dict)
 
     def test_compile_all_empty_dir(self, tmp_path):
-        from openakita.prompt.compiler import compile_all
+        from synapse.prompt.compiler import compile_all
 
         identity_dir = tmp_path / "identity"
         identity_dir.mkdir()
@@ -60,7 +60,7 @@ class TestCompileAll:
 
 class TestBuildSystemPrompt:
     def test_build_returns_string(self, tmp_path):
-        from openakita.prompt.builder import build_system_prompt
+        from synapse.prompt.builder import build_system_prompt
 
         identity_dir = tmp_path / "identity"
         identity_dir.mkdir()
@@ -71,7 +71,7 @@ class TestBuildSystemPrompt:
         assert len(prompt) > 0
 
     def test_build_includes_identity(self, tmp_path):
-        from openakita.prompt.builder import build_system_prompt
+        from synapse.prompt.builder import build_system_prompt
 
         identity_dir = tmp_path / "identity"
         identity_dir.mkdir()
@@ -81,7 +81,7 @@ class TestBuildSystemPrompt:
         assert "OpenAkita" in prompt or "loyal" in prompt or len(prompt) > 50
 
     def test_build_with_budget_config(self, tmp_path):
-        from openakita.prompt.builder import build_system_prompt
+        from synapse.prompt.builder import build_system_prompt
 
         identity_dir = tmp_path / "identity"
         identity_dir.mkdir()

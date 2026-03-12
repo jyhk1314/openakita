@@ -69,7 +69,7 @@ def detect_chrome_installation() -> tuple[str | None, str | None]:
     return None, None
 
 
-def get_openakita_chrome_profile() -> str:
+def get_synapse_chrome_profile() -> str:
     """
     获取 OpenAkita 专用的 Chrome profile 目录。
     独立于用户的 Chrome，可以在用户 Chrome 运行时使用。

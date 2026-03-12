@@ -4,8 +4,8 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
 
-from openakita.channels.base import ChannelAdapter
-from openakita.channels.types import MessageContent, OutgoingMessage
+from synapse.channels.base import ChannelAdapter
+from synapse.channels.types import MessageContent, OutgoingMessage
 
 
 class TestChannelAdapterInterface:
@@ -33,11 +33,11 @@ class TestTelegramAdapterInit:
     """Test TelegramAdapter can be instantiated with config."""
 
     def test_import_succeeds(self):
-        from openakita.channels.adapters.telegram import TelegramAdapter
+        from synapse.channels.adapters.telegram import TelegramAdapter
         assert TelegramAdapter.channel_name == "telegram"
 
     def test_init_with_token(self):
-        from openakita.channels.adapters.telegram import TelegramAdapter
+        from synapse.channels.adapters.telegram import TelegramAdapter
         adapter = TelegramAdapter(
             bot_token="123:TEST_TOKEN",
             require_pairing=False,
@@ -47,11 +47,11 @@ class TestTelegramAdapterInit:
 
 class TestFeishuAdapterInit:
     def test_import_succeeds(self):
-        from openakita.channels.adapters.feishu import FeishuAdapter
+        from synapse.channels.adapters.feishu import FeishuAdapter
         assert FeishuAdapter.channel_name == "feishu"
 
     def test_init_with_credentials(self):
-        from openakita.channels.adapters.feishu import FeishuAdapter
+        from synapse.channels.adapters.feishu import FeishuAdapter
         adapter = FeishuAdapter(
             app_id="test-app-id",
             app_secret="test-secret",
@@ -61,11 +61,11 @@ class TestFeishuAdapterInit:
 
 class TestDingTalkAdapterInit:
     def test_import_succeeds(self):
-        from openakita.channels.adapters.dingtalk import DingTalkAdapter
+        from synapse.channels.adapters.dingtalk import DingTalkAdapter
         assert DingTalkAdapter.channel_name == "dingtalk"
 
     def test_init_with_credentials(self):
-        from openakita.channels.adapters.dingtalk import DingTalkAdapter
+        from synapse.channels.adapters.dingtalk import DingTalkAdapter
         adapter = DingTalkAdapter(
             app_key="test-key",
             app_secret="test-secret",
@@ -75,22 +75,22 @@ class TestDingTalkAdapterInit:
 
 class TestOneBotAdapterInit:
     def test_import_succeeds(self):
-        from openakita.channels.adapters.onebot import OneBotAdapter
+        from synapse.channels.adapters.onebot import OneBotAdapter
         assert OneBotAdapter.channel_name == "onebot"
 
     def test_init_defaults(self):
-        from openakita.channels.adapters.onebot import OneBotAdapter
+        from synapse.channels.adapters.onebot import OneBotAdapter
         adapter = OneBotAdapter()
         assert adapter.channel_name == "onebot"
 
 
 class TestWeWorkAdapterInit:
     def test_import_succeeds(self):
-        from openakita.channels.adapters.wework_bot import WeWorkBotAdapter
+        from synapse.channels.adapters.wework_bot import WeWorkBotAdapter
         assert WeWorkBotAdapter.channel_name == "wework"
 
     def test_init_with_credentials(self):
-        from openakita.channels.adapters.wework_bot import WeWorkBotAdapter
+        from synapse.channels.adapters.wework_bot import WeWorkBotAdapter
         adapter = WeWorkBotAdapter(
             corp_id="test-corp",
             token="test-token",
@@ -101,11 +101,11 @@ class TestWeWorkAdapterInit:
 
 class TestQQBotAdapterInit:
     def test_import_succeeds(self):
-        from openakita.channels.adapters.qq_official import QQBotAdapter
+        from synapse.channels.adapters.qq_official import QQBotAdapter
         assert QQBotAdapter.channel_name == "qqbot"
 
     def test_init_with_credentials(self):
-        from openakita.channels.adapters.qq_official import QQBotAdapter
+        from synapse.channels.adapters.qq_official import QQBotAdapter
         adapter = QQBotAdapter(
             app_id="test-app-id",
             app_secret="test-secret",

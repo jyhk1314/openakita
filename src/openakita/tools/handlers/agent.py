@@ -473,7 +473,7 @@ class AgentToolHandler:
             if orch is None:
                 from ...config import settings
                 if settings.multi_agent_enabled:
-                    from openakita.agents.orchestrator import AgentOrchestrator
+                    from synapse.agents.orchestrator import AgentOrchestrator
                     orch = AgentOrchestrator()
                     gw = _main_mod._message_gateway
                     if gw:

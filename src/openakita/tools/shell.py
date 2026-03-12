@@ -381,7 +381,7 @@ class ShellTool:
 
     async def pip_install(self, package: str) -> CommandResult:
         """使用 pip 安装包（PyInstaller 兼容：使用 runtime_env 获取正确的 Python 解释器）"""
-        from openakita.runtime_env import IS_FROZEN, get_python_executable
+        from synapse.runtime_env import IS_FROZEN, get_python_executable
         py = get_python_executable()
         if py:
             return await self.run(f'"{py}" -m pip install {package}')

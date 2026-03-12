@@ -3,8 +3,8 @@
 import pytest
 from pathlib import Path
 
-from openakita.channels.media.storage import MediaStorage
-from openakita.channels.media.audio_utils import is_silk_file
+from synapse.channels.media.storage import MediaStorage
+from synapse.channels.media.audio_utils import is_silk_file
 
 
 class TestMediaStorage:

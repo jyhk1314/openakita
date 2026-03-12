@@ -3,7 +3,7 @@
 import pytest
 from pathlib import Path
 
-from openakita.tools.sticker import StickerEngine
+from synapse.tools.sticker import StickerEngine
 
 
 @pytest.fixture

@@ -90,7 +90,7 @@ def web_search(
     try:
         from ddgs import DDGS
     except ImportError:
-        from openakita.tools._import_helper import import_or_hint
+        from synapse.tools._import_helper import import_or_hint
         return f"错误：{import_or_hint('ddgs')}"
 
     # 限制结果数量
@@ -132,7 +132,7 @@ def news_search(
     try:
         from ddgs import DDGS
     except ImportError:
-        from openakita.tools._import_helper import import_or_hint
+        from synapse.tools._import_helper import import_or_hint
         return f"错误：{import_or_hint('ddgs')}"
 
     # 限制结果数量

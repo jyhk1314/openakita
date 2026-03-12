@@ -6,8 +6,8 @@ from datetime import datetime
 
 import pytest
 
-from openakita.memory.extractor import MemoryExtractor
-from openakita.memory.types import (
+from synapse.memory.extractor import MemoryExtractor
+from synapse.memory.types import (
     ConversationTurn,
     Episode,
     MemoryType,

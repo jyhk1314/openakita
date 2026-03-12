@@ -2,7 +2,7 @@
 浏览器工具测试用例 (预留，需要 Playwright 支持)
 """
 
-from openakita.testing.runner import TestCase
+from synapse.testing.runner import TestCase
 
 BROWSER_TESTS = [
     # 页面导航

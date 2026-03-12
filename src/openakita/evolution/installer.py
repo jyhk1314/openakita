@@ -74,7 +74,7 @@ class AutoInstaller:
     async def _try_pip_install(self, gap: CapabilityGap) -> InstallResult:
         """尝试通过 pip 安装"""
         # PyInstaller 兼容: 检查当前环境是否支持 pip install
-        from openakita.runtime_env import can_pip_install
+        from synapse.runtime_env import can_pip_install
         if not can_pip_install():
             return InstallResult(
                 success=False,

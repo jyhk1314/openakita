@@ -10,12 +10,12 @@ mode), so existing behaviour is fully preserved.
 
 Usage in API route handlers::
 
-    from openakita.core.engine_bridge import to_engine
+    from synapse.core.engine_bridge import to_engine
     result = await to_engine(runtime.send_command(org_id, ...))
 
 Usage for streaming (async generators that live in the engine loop)::
 
-    from openakita.core.engine_bridge import engine_stream
+    from synapse.core.engine_bridge import engine_stream
     return StreamingResponse(engine_stream(gen), ...)
 """
 

@@ -21,7 +21,7 @@ if sys.platform != "win32":
 try:
     import pyautogui
 except ImportError:
-    from openakita.tools._import_helper import import_or_hint
+    from synapse.tools._import_helper import import_or_hint
     raise ImportError(import_or_hint("pyautogui"))
 
 logger = logging.getLogger(__name__)

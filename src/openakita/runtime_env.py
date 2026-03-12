@@ -120,7 +120,7 @@ def _get_synapse_root() -> Path:
 def _get_bundled_internal_python() -> str | None:
     """查找 PyInstaller 打包时捆绑在 _internal/ 目录中的 Python 解释器。
 
-    构建时 openakita.spec 会将 sys.executable 和 pip 一起复制到 _internal/，
+    构建时 synapse.spec 会将 sys.executable 和 pip 一起复制到 _internal/，
     因此该 Python 版本与构建环境完全一致，不会产生兼容性问题。
     """
     if not IS_FROZEN:

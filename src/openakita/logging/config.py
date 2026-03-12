@@ -21,7 +21,7 @@ def setup_logging(
     log_dir: Path | None = None,
     log_level: str = "INFO",
     log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    log_file_prefix: str = "openakita",
+    log_file_prefix: str = "synapse",
     log_max_size_mb: int = 10,
     log_backup_count: int = 30,
     log_to_console: bool = True,

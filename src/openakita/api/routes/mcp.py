@@ -88,7 +88,7 @@ async def list_mcp_servers(request: Request):
     if client is None:
         return {"error": "Agent not initialized", "servers": []}
 
-    from openakita.config import settings
+    from synapse.config import settings
     if not settings.mcp_enabled:
         return {"mcp_enabled": False, "servers": [], "message": "MCP is disabled"}
 
@@ -223,7 +223,7 @@ async def get_mcp_instructions(request: Request, server_name: str):
 @router.post("/api/mcp/servers/add")
 async def add_mcp_server(request: Request, body: MCPServerAddRequest):
     """Add a new MCP server config (persisted to workspace data/mcp/servers/)."""
-    from openakita.tools.mcp import VALID_TRANSPORTS
+    from synapse.tools.mcp import VALID_TRANSPORTS
 
     import re
     if not body.name.strip():
@@ -237,7 +237,7 @@ async def add_mcp_server(request: Request, body: MCPServerAddRequest):
     if body.transport in ("streamable_http", "sse") and not body.url.strip():
         return {"status": "error", "message": f"{body.transport} 模式需要填写 URL"}
 
-    from openakita.config import settings
+    from synapse.config import settings
 
     name = body.name.strip()
     server_dir = settings.mcp_config_path / name
@@ -282,7 +282,7 @@ async def add_mcp_server(request: Request, body: MCPServerAddRequest):
         catalog.invalidate_cache()
 
     if client:
-        from openakita.tools.mcp import MCPServerConfig
+        from synapse.tools.mcp import MCPServerConfig
         client.add_server(MCPServerConfig(
             name=name,
             command=body.command,
@@ -317,7 +317,7 @@ async def add_mcp_server(request: Request, body: MCPServerAddRequest):
 @router.delete("/api/mcp/servers/{server_name}")
 async def remove_mcp_server(request: Request, server_name: str):
     """Remove an MCP server config (only workspace configs, not built-in)."""
-    from openakita.config import settings
+    from synapse.config import settings
 
     client = _get_mcp_client(request)
     if client and server_name in client.list_connected():

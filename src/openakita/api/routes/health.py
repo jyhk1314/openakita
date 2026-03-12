@@ -53,12 +53,12 @@ async def health(request: Request):
     """Basic health check - returns 200 if server is running."""
     import os
 
-    from openakita import __git_hash__, get_version_string
-    from openakita import __version__ as backend_version
+    from synapse import __git_hash__, get_version_string
+    from synapse import __version__ as backend_version
 
     return {
         "status": "ok",
-        "service": "openakita",
+        "service": "synapse",
         "version": backend_version,
         "git_hash": __git_hash__,
         "version_full": get_version_string(),
@@ -71,7 +71,7 @@ async def health(request: Request):
 
 def _get_llm_client(agent: object):
     """Resolve LLMClient from Agent."""
-    from openakita.core.agent import Agent
+    from synapse.core.agent import Agent
 
     actual = agent if isinstance(agent, Agent) else None
     if actual is None:
@@ -168,7 +168,7 @@ async def diagnostics():
     import platform
     import sys
 
-    from openakita import __version__ as backend_version
+    from synapse import __version__ as backend_version
 
     checks: list[dict] = []
 
@@ -210,13 +210,13 @@ async def diagnostics():
 
     # C3: Core package integrity
     try:
-        from openakita.setup_center import bridge  # noqa: F401
+        from synapse.setup_center import bridge  # noqa: F401
         checks.append({
             "id": "C3_CORE",
             "title": "核心引擎",
             "status": "pass",
             "code": "CORE_OK",
-            "evidence": [f"openakita {backend_version}"],
+            "evidence": [f"synapse {backend_version}"],
             "autoFix": False,
             "fixHint": None,
         })
@@ -287,7 +287,7 @@ async def health_check(request: Request, body: HealthCheckRequest):
 @router.get("/api/health/loop")
 async def health_loop(request: Request):
     """Event loop 健康状态与 LLM 并发统计。"""
-    from openakita.llm.client import LLMClient
+    from synapse.llm.client import LLMClient
 
     loop = asyncio.get_running_loop()
 
@@ -310,7 +310,7 @@ async def health_loop(request: Request):
                 "max": org_runtime.max_concurrent_nodes_per_org,
             }
 
-    from openakita.core.engine_bridge import is_dual_loop
+    from synapse.core.engine_bridge import is_dual_loop
 
     return {
         "dual_loop": is_dual_loop(),

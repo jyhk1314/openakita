@@ -4,7 +4,7 @@ import pytest
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from openakita.core.proactive import (
+from synapse.core.proactive import (
     ProactiveConfig,
     ProactiveEngine,
     ProactiveFeedbackTracker,

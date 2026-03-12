@@ -28,7 +28,7 @@ router = APIRouter()
 def _project_root() -> Path:
     """Return the project root (settings.project_root or cwd)."""
     try:
-        from openakita.config import settings
+        from synapse.config import settings
         return Path(settings.project_root)
     except Exception:
         return Path.cwd()
@@ -246,7 +246,7 @@ async def reload_config(request: Request):
         gateway = getattr(request.app.state, "gateway", None)
         if gateway and hasattr(gateway, "stt_client") and gateway.stt_client:
             try:
-                from openakita.llm.config import load_endpoints_config
+                from synapse.llm.config import load_endpoints_config
                 _, _, stt_eps, _ = load_endpoints_config()
                 gateway.stt_client.reload(stt_eps)
                 stt_reloaded = True
@@ -276,7 +276,7 @@ async def restart_service(request: Request):
     流程：设置重启标志 → 触发 shutdown_event → serve() 主循环检测标志后重新初始化。
     前端应在调用后轮询 /api/health 直到服务恢复。
     """
-    from openakita import config as cfg
+    from synapse import config as cfg
 
     cfg._restart_requested = True
     shutdown_event = getattr(request.app.state, "shutdown_event", None)
@@ -345,7 +345,7 @@ async def write_disabled_views(body: DisabledViewsRequest):
 @router.get("/api/config/agent-mode")
 async def read_agent_mode():
     """返回多Agent模式开关状态"""
-    from openakita.config import settings
+    from synapse.config import settings
 
     return {"multi_agent_enabled": settings.multi_agent_enabled}
 
@@ -356,8 +356,8 @@ def _hot_patch_agent_tools(request: Request, *, enable: bool) -> None:
     if agent is None:
         return
     try:
-        from openakita.tools.definitions.agent import AGENT_TOOLS
-        from openakita.tools.handlers.agent import create_handler as create_agent_handler
+        from synapse.tools.definitions.agent import AGENT_TOOLS
+        from synapse.tools.handlers.agent import create_handler as create_agent_handler
         tool_names = [t["name"] for t in AGENT_TOOLS]
 
         if enable:
@@ -383,7 +383,7 @@ def _hot_patch_agent_tools(request: Request, *, enable: bool) -> None:
 @router.post("/api/config/agent-mode")
 async def write_agent_mode(body: AgentModeRequest, request: Request):
     """切换多Agent模式（Beta）。修改立即生效并持久化。"""
-    from openakita.config import runtime_state, settings
+    from synapse.config import runtime_state, settings
 
     old = settings.multi_agent_enabled
     settings.multi_agent_enabled = body.enabled
@@ -403,7 +403,7 @@ async def write_agent_mode(body: AgentModeRequest, request: Request):
         except Exception as e:
             logger.warning(f"[Config API] Failed to init orchestrator on mode switch: {e}")
         try:
-            from openakita.agents.presets import ensure_presets_on_mode_enable
+            from synapse.agents.presets import ensure_presets_on_mode_enable
             ensure_presets_on_mode_enable(settings.data_dir / "agents")
         except Exception as e:
             logger.warning(f"[Config API] Failed to deploy presets: {e}")
@@ -429,7 +429,7 @@ async def list_providers_api():
     确保前后端数据一致。
     """
     try:
-        from openakita.llm.registries import list_providers
+        from synapse.llm.registries import list_providers
 
         providers = list_providers()
         return {
@@ -463,7 +463,7 @@ async def list_models_api(body: ListModelsRequest):
     直接复用 bridge.list_models 的逻辑，在后端进程内异步调用，无需 subprocess。
     """
     try:
-        from openakita.setup_center.bridge import (
+        from synapse.setup_center.bridge import (
             _list_models_anthropic,
             _list_models_openai,
         )

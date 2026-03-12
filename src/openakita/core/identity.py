@@ -436,7 +436,7 @@ class Identity:
             new_memory = re.sub(pattern, replacement, memory, flags=re.DOTALL)
 
             if new_memory != memory:
-                from openakita.memory.types import MEMORY_MD_MAX_CHARS, truncate_memory_md
+                from synapse.memory.types import MEMORY_MD_MAX_CHARS, truncate_memory_md
                 if len(new_memory) > MEMORY_MD_MAX_CHARS:
                     logger.warning(
                         f"MEMORY.md exceeds limit after section update "

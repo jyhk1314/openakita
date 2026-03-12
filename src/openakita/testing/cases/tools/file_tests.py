@@ -2,7 +2,7 @@
 文件工具测试用例 (30个)
 """
 
-from openakita.testing.runner import TestCase
+from synapse.testing.runner import TestCase
 
 FILE_TESTS = [
     # 读写测试
@@ -13,7 +13,7 @@ FILE_TESTS = [
         description="写入并读取文件",
         input={
             "action": "write_read",
-            "path": "/tmp/openakita_test_001.txt",
+            "path": "/tmp/synapse_test_001.txt",
             "content": "Hello, OpenAkita!",
         },
         expected="Hello, OpenAkita!",
@@ -26,7 +26,7 @@ FILE_TESTS = [
         description="追加内容",
         input={
             "action": "append_read",
-            "path": "/tmp/openakita_test_002.txt",
+            "path": "/tmp/synapse_test_002.txt",
             "initial": "Line 1\n",
             "append": "Line 2\n",
         },
@@ -40,7 +40,7 @@ FILE_TESTS = [
         description="检查文件存在",
         input={
             "action": "exists",
-            "path": "/tmp/openakita_test_001.txt",
+            "path": "/tmp/synapse_test_001.txt",
         },
         expected=True,
         tags=["file", "exists"],
@@ -64,7 +64,7 @@ FILE_TESTS = [
         description="创建目录",
         input={
             "action": "mkdir",
-            "path": "/tmp/openakita_test_dir",
+            "path": "/tmp/synapse_test_dir",
         },
         expected=True,
         tags=["file", "mkdir"],
@@ -76,8 +76,8 @@ FILE_TESTS = [
         description="复制文件",
         input={
             "action": "copy",
-            "src": "/tmp/openakita_test_001.txt",
-            "dst": "/tmp/openakita_test_001_copy.txt",
+            "src": "/tmp/synapse_test_001.txt",
+            "dst": "/tmp/synapse_test_001_copy.txt",
         },
         expected=True,
         tags=["file", "copy"],
@@ -90,7 +90,7 @@ FILE_TESTS = [
         input={
             "action": "search",
             "path": "/tmp",
-            "pattern": "openakita_test*.txt",
+            "pattern": "synapse_test*.txt",
         },
         expected="length>=1",
         tags=["file", "search"],
@@ -102,7 +102,7 @@ FILE_TESTS = [
         description="读取大文件部分内容",
         input={
             "action": "read_lines",
-            "path": "/tmp/openakita_test_001.txt",
+            "path": "/tmp/synapse_test_001.txt",
             "start": 0,
             "end": 10,
         },
@@ -116,7 +116,7 @@ FILE_TESTS = [
         description="获取文件信息",
         input={
             "action": "stat",
-            "path": "/tmp/openakita_test_001.txt",
+            "path": "/tmp/synapse_test_001.txt",
         },
         expected="contains:size",
         tags=["file", "stat"],
@@ -128,7 +128,7 @@ FILE_TESTS = [
         description="删除文件",
         input={
             "action": "delete",
-            "path": "/tmp/openakita_test_delete.txt",
+            "path": "/tmp/synapse_test_delete.txt",
         },
         expected=True,
         tags=["file", "delete"],

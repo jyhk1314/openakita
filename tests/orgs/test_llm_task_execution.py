@@ -21,9 +21,9 @@ from pathlib import Path
 
 import pytest
 
-from openakita.orgs.manager import OrgManager
-from openakita.orgs.runtime import OrgRuntime
-from openakita.orgs.models import NodeStatus, OrgStatus
+from synapse.orgs.manager import OrgManager
+from synapse.orgs.runtime import OrgRuntime
+from synapse.orgs.models import NodeStatus, OrgStatus
 from .conftest import make_org, make_node, make_edge
 
 _SKIP_REASON = "LLM tests require OPENAKITA_LLM_TESTS=1 env"

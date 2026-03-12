@@ -68,7 +68,7 @@ def _import_aiohttp():
 
             aiohttp = ah
         except ImportError:
-            from openakita.tools._import_helper import import_or_hint
+            from synapse.tools._import_helper import import_or_hint
             raise ImportError(import_or_hint("aiohttp"))
 
 
@@ -102,7 +102,7 @@ class BotMsgCrypt:
         try:
             from Crypto.Cipher import AES
         except ImportError:
-            from openakita.tools._import_helper import import_or_hint
+            from synapse.tools._import_helper import import_or_hint
             raise ImportError(import_or_hint("Crypto"))
 
         import os
@@ -135,7 +135,7 @@ class BotMsgCrypt:
         try:
             from Crypto.Cipher import AES
         except ImportError:
-            from openakita.tools._import_helper import import_or_hint
+            from synapse.tools._import_helper import import_or_hint
             raise ImportError(import_or_hint("Crypto"))
 
         encrypted = base64.b64decode(ciphertext)
@@ -241,7 +241,7 @@ class BotMsgCrypt:
         try:
             from Crypto.Cipher import AES
         except ImportError:
-            from openakita.tools._import_helper import import_or_hint
+            from synapse.tools._import_helper import import_or_hint
             raise ImportError(import_or_hint("Crypto"))
 
         iv = self.aes_key[:16]
@@ -1426,7 +1426,7 @@ class WeWorkBotAdapter(ChannelAdapter):
             img.save(output, format="JPEG", quality=90)
             return output.getvalue()
         except ImportError:
-            from openakita.tools._import_helper import import_or_hint
+            from synapse.tools._import_helper import import_or_hint
             hint = import_or_hint("PIL")
             logger.warning(f"WeWorkBot: {hint}，无法转换 {filename}，尝试发送原始数据")
             return raw_data

@@ -52,7 +52,7 @@ description: |
   {description}
 license: MIT
 metadata:
-  author: openakita-generator
+  author: synapse-generator
   version: "1.0.0"
 ---
 

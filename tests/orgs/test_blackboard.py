@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from openakita.orgs.blackboard import OrgBlackboard, MAX_ORG_MEMORIES
-from openakita.orgs.models import MemoryScope, MemoryType
+from synapse.orgs.blackboard import OrgBlackboard, MAX_ORG_MEMORIES
+from synapse.orgs.models import MemoryScope, MemoryType
 
 
 @pytest.fixture()

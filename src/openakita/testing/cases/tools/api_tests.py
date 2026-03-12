@@ -2,7 +2,7 @@
 API 操作测试用例 (30个)
 """
 
-from openakita.testing.runner import TestCase
+from synapse.testing.runner import TestCase
 
 API_TESTS = [
     # REST API 测试

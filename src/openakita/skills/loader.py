@@ -76,8 +76,8 @@ SYSTEM_SKILL_DIRECTORIES = [
 # 打包时默认不启用的外部技能（新安装 / 无 data/skills.json 时生效）。
 # 用户通过前端面板手动勾选后会创建 skills.json，之后以用户选择为准。
 DEFAULT_DISABLED_SKILLS: frozenset[str] = frozenset({
-    "openakita/skills@algorithmic-art",
-    "openakita/skills@apify-scraper",
+    "synapse/skills@algorithmic-art",
+    "synapse/skills@apify-scraper",
     "jimliu/baoyu-skills@baoyu-article-illustrator",
     "jimliu/baoyu-skills@baoyu-comic",
     "jimliu/baoyu-skills@baoyu-cover-image",
@@ -86,27 +86,27 @@ DEFAULT_DISABLED_SKILLS: frozenset[str] = frozenset({
     "jimliu/baoyu-skills@baoyu-infographic",
     "jimliu/baoyu-skills@baoyu-slide-deck",
     "jimliu/baoyu-skills@baoyu-url-to-markdown",
-    "openakita/skills@bilibili-watcher",
-    "openakita/skills@brand-guidelines",
-    "openakita/skills@changelog-generator",
-    "openakita/skills@chinese-novelist",
-    "openakita/skills@chinese-writing",
-    "openakita/skills@code-reviewer",
-    "openakita/skills@douyin-tool",
-    "openakita/skills@frontend-design",
-    "openakita/skills@github-automation",
-    "openakita/skills@gmail-automation",
-    "openakita/skills@google-calendar-automation",
-    "openakita/skills@image-understander",
-    "openakita/skills@internal-comms",
-    "openakita/skills@knowledge-capture",
-    "openakita/skills@moltbook",
-    "openakita/skills@notebooklm",
-    "openakita/skills@obsidian-skills",
-    "openakita/skills@ppt-creator",
-    "openakita/skills@pretty-mermaid",
-    "openakita/skills@slack-gif-creator",
-    "openakita/skills@summarizer",
+    "synapse/skills@bilibili-watcher",
+    "synapse/skills@brand-guidelines",
+    "synapse/skills@changelog-generator",
+    "synapse/skills@chinese-novelist",
+    "synapse/skills@chinese-writing",
+    "synapse/skills@code-reviewer",
+    "synapse/skills@douyin-tool",
+    "synapse/skills@frontend-design",
+    "synapse/skills@github-automation",
+    "synapse/skills@gmail-automation",
+    "synapse/skills@google-calendar-automation",
+    "synapse/skills@image-understander",
+    "synapse/skills@internal-comms",
+    "synapse/skills@knowledge-capture",
+    "synapse/skills@moltbook",
+    "synapse/skills@notebooklm",
+    "synapse/skills@obsidian-skills",
+    "synapse/skills@ppt-creator",
+    "synapse/skills@pretty-mermaid",
+    "synapse/skills@slack-gif-creator",
+    "synapse/skills@summarizer",
     "obra/superpowers@brainstorming",
     "obra/superpowers@dispatching-parallel-agents",
     "obra/superpowers@executing-plans",
@@ -121,15 +121,15 @@ DEFAULT_DISABLED_SKILLS: frozenset[str] = frozenset({
     "obra/superpowers@verification-before-completion",
     "obra/superpowers@writing-plans",
     "obra/superpowers@writing-skills",
-    "openakita/skills@theme-factory",
-    "openakita/skills@todoist-task",
-    "openakita/skills@translate-pdf",
-    "openakita/skills@video-downloader",
-    "openakita/skills@webapp-testing",
-    "openakita/skills@wechat-article",
-    "openakita/skills@xiaohongshu-creator",
-    "openakita/skills@youtube-summarizer",
-    "openakita/skills@yuque-skills",
+    "synapse/skills@theme-factory",
+    "synapse/skills@todoist-task",
+    "synapse/skills@translate-pdf",
+    "synapse/skills@video-downloader",
+    "synapse/skills@webapp-testing",
+    "synapse/skills@wechat-article",
+    "synapse/skills@xiaohongshu-creator",
+    "synapse/skills@youtube-summarizer",
+    "synapse/skills@yuque-skills",
 })
 
 
@@ -515,7 +515,7 @@ class SkillLoader:
 
         if script_path.suffix == ".py":
             # PyInstaller 兼容: 使用 runtime_env 获取正确的 Python 解释器
-            from openakita.runtime_env import get_python_executable
+            from synapse.runtime_env import get_python_executable
             py = get_python_executable()
             if not py:
                 return False, "Python 解释器不可用，无法执行脚本"

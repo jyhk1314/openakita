@@ -500,7 +500,7 @@ def _build_runtime_section() -> str:
 - **当前时间**: {current_time}
 - **操作系统**: {platform.system()} {platform.release()} ({platform.machine()})
 - **当前工作目录**: {os.getcwd()}
-- **OpenAkita 数据根目录**: {settings.openakita_home}
+- **OpenAkita 数据根目录**: {settings.synapse_home}
 - **工作区信息**: 需要操作系统文件（日志/配置/数据/截图等）时，先调用 `get_workspace_map` 获取目录布局
 - **临时目录**: data/temp/{shell_hint}
 
@@ -532,7 +532,7 @@ def _detect_deploy_mode() -> str:
 
     # 检查 editable install (pip install -e)
     try:
-        dist = importlib.metadata.distribution("openakita")
+        dist = importlib.metadata.distribution("synapse")
         direct_url = dist.read_text("direct_url.json")
         if direct_url and '"editable"' in direct_url:
             return "editable (pip install -e)"
@@ -545,7 +545,7 @@ def _detect_deploy_mode() -> str:
 
     # 检查是否通过 pip 安装
     try:
-        importlib.metadata.version("openakita")
+        importlib.metadata.version("synapse")
         return "pip install"
     except Exception:
         pass
@@ -789,7 +789,7 @@ def _build_memory_section(
         parts.append(pinned_rules)
 
     # Layer 2: Core Memory (MEMORY.md — 用户基本信息 + 永久规则)
-    from openakita.memory.types import MEMORY_MD_MAX_CHARS as _MD_MAX
+    from synapse.memory.types import MEMORY_MD_MAX_CHARS as _MD_MAX
     core_budget = min(budget_tokens // 2, 500)
     core_memory = _get_core_memory(memory_manager, max_chars=min(core_budget * 3, _MD_MAX))
     if core_memory:
@@ -877,7 +877,7 @@ def _get_core_memory(memory_manager: Optional["MemoryManager"], max_chars: int =
 
     截断策略委托给 ``truncate_memory_md``：按段落拆分，规则段落优先保留。
     """
-    from openakita.memory.types import truncate_memory_md
+    from synapse.memory.types import truncate_memory_md
 
     memory_path = getattr(memory_manager, "memory_md_path", None)
     if not memory_path:

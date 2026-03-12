@@ -3,7 +3,7 @@
 import pytest
 from pathlib import Path
 
-from openakita.core.user_profile import (
+from synapse.core.user_profile import (
     UserProfileManager,
     UserProfileItem,
     UserProfileState,

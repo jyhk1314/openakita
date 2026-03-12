@@ -2,7 +2,7 @@
 推理和逻辑测试用例 (35个)
 """
 
-from openakita.testing.runner import TestCase
+from synapse.testing.runner import TestCase
 
 REASONING_TESTS = [
     # 逻辑推理

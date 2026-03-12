@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from openakita.orgs.tools import ORG_NODE_TOOLS
-from openakita.orgs.tool_handler import OrgToolHandler
+from synapse.orgs.tools import ORG_NODE_TOOLS
+from synapse.orgs.tool_handler import OrgToolHandler
 
 
 class TestOrgNodeToolsConstant:

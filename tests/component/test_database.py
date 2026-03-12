@@ -3,7 +3,7 @@
 import pytest
 from datetime import datetime, timedelta
 
-from openakita.storage.database import Database
+from synapse.storage.database import Database
 
 
 @pytest.fixture

@@ -56,7 +56,7 @@ class VisionAnalyzer:
     def llm_client(self):
         """懒加载 LLM 客户端"""
         if self._llm_client is None:
-            from openakita.llm.client import get_default_client
+            from synapse.llm.client import get_default_client
 
             self._llm_client = get_default_client()
         return self._llm_client
@@ -78,7 +78,7 @@ class VisionAnalyzer:
         Returns:
             模型响应文本
         """
-        from openakita.llm.types import ImageBlock, ImageContent, Message, TextBlock
+        from synapse.llm.types import ImageBlock, ImageContent, Message, TextBlock
 
         # 将图片转换为 base64
         b64_data = self._capture.to_base64(image, resize_for_api=True)

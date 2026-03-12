@@ -5,7 +5,7 @@
 让 LLM 能根据错误类型决定：重试 / 换方案 / 报告用户。
 
 Usage:
-    from openakita.tools.errors import ToolError, ErrorType
+    from synapse.tools.errors import ToolError, ErrorType
 
     try:
         result = await shell_tool.run(command)

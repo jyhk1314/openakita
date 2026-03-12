@@ -2,7 +2,7 @@
 代码搜索测试用例 (30个)
 """
 
-from openakita.testing.runner import TestCase
+from synapse.testing.runner import TestCase
 
 CODE_SEARCH_TESTS = [
     # 本地代码搜索
@@ -14,7 +14,7 @@ CODE_SEARCH_TESTS = [
         input={
             "action": "search_code",
             "pattern": "def execute",
-            "path": "src/openakita",
+            "path": "src/synapse",
         },
         expected="length>=1",
         tags=["code", "search", "function"],
@@ -27,7 +27,7 @@ CODE_SEARCH_TESTS = [
         input={
             "action": "search_code",
             "pattern": "class.*Skill",
-            "path": "src/openakita",
+            "path": "src/synapse",
         },
         expected="length>=1",
         tags=["code", "search", "class"],
@@ -40,7 +40,7 @@ CODE_SEARCH_TESTS = [
         input={
             "action": "search_code",
             "pattern": "^import|^from.*import",
-            "path": "src/openakita",
+            "path": "src/synapse",
         },
         expected="length>=5",
         tags=["code", "search", "import"],
@@ -53,7 +53,7 @@ CODE_SEARCH_TESTS = [
         input={
             "action": "search_code",
             "pattern": "TODO|FIXME",
-            "path": "src/openakita",
+            "path": "src/synapse",
         },
         expected="length>=0",
         tags=["code", "search", "todo"],
@@ -66,7 +66,7 @@ CODE_SEARCH_TESTS = [
         input={
             "action": "search_code",
             "pattern": "async def",
-            "path": "src/openakita",
+            "path": "src/synapse",
             "file_pattern": "*.py",
         },
         expected="length>=5",
@@ -81,7 +81,7 @@ CODE_SEARCH_TESTS = [
         input={
             "action": "search_files",
             "pattern": "*.py",
-            "path": "src/openakita",
+            "path": "src/synapse",
         },
         expected="length>=10",
         tags=["file", "search", "glob"],
@@ -121,7 +121,7 @@ CODE_SEARCH_TESTS = [
         input={
             "action": "semantic_search",
             "query": "执行shell命令的函数",
-            "path": "src/openakita",
+            "path": "src/synapse",
         },
         expected="contains:shell",
         tags=["semantic", "search"],
@@ -134,7 +134,7 @@ CODE_SEARCH_TESTS = [
         input={
             "action": "semantic_search",
             "query": "管理技能注册的类",
-            "path": "src/openakita",
+            "path": "src/synapse",
         },
         expected="contains:Registry",
         tags=["semantic", "search"],

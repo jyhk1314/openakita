@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from openakita.channels import MessageGateway
+    from synapse.channels import MessageGateway
 
 logger = logging.getLogger(__name__)
 
@@ -132,23 +132,23 @@ class AgentOrchestrator:
         """
         try:
             if self._profile_store is None:
-                from openakita.agents.profile import ProfileStore
-                from openakita.config import settings
+                from synapse.agents.profile import ProfileStore
+                from synapse.config import settings
 
                 self._profile_store = ProfileStore(settings.data_dir / "agents")
 
             if self._pool is None:
-                from openakita.agents.factory import AgentFactory, AgentInstancePool
+                from synapse.agents.factory import AgentFactory, AgentInstancePool
 
                 self._pool = AgentInstancePool(AgentFactory())
 
             if self._fallback is None:
-                from openakita.agents.fallback import FallbackResolver
+                from synapse.agents.fallback import FallbackResolver
 
                 self._fallback = FallbackResolver(self._profile_store)
 
             if self._log_dir is None:
-                from openakita.config import settings as _s
+                from synapse.config import settings as _s
                 self._log_dir = _s.data_dir / "delegation_logs"
                 self._log_dir.mkdir(parents=True, exist_ok=True)
         except Exception as e:
@@ -336,7 +336,7 @@ class AgentOrchestrator:
 
             # Agent Harness: record delegation completion
             try:
-                from openakita.tracing.tracer import get_tracer
+                from synapse.tracing.tracer import get_tracer
                 tracer = get_tracer()
                 tracer.record_decision(
                     decision_type="delegation_complete",
@@ -422,7 +422,7 @@ class AgentOrchestrator:
         - No iteration progress for ``idle_timeout`` seconds, OR
         - Total elapsed time exceeds ``hard_timeout`` (only if configured > 0).
         """
-        from openakita.config import settings
+        from synapse.config import settings
 
         idle_timeout = float(
             getattr(settings, "progress_timeout_seconds", 0) or _DEFAULT_IDLE_TIMEOUT
@@ -823,7 +823,7 @@ class AgentOrchestrator:
 
         # Agent Harness: Decision Trace — delegation span
         try:
-            from openakita.tracing.tracer import get_tracer
+            from synapse.tracing.tracer import get_tracer
             tracer = get_tracer()
             tracer.record_decision(
                 decision_type="delegation",
@@ -1018,7 +1018,7 @@ def _build_work_summary(record: dict) -> str:
     Returns a concise multi-line text covering:
     task, status, tools used, deliverable files, and result brief.
     """
-    from openakita.core.tool_executor import smart_truncate
+    from synapse.core.tool_executor import smart_truncate
 
     agent_name = record.get("agent_name", "unknown")
     task, _ = smart_truncate(record.get("task_message", ""), 300, save_full=False, label="ws_task")
@@ -1068,7 +1068,7 @@ def _persist_sub_agent_record(
     trace_raw = getattr(agent, "_last_finalized_trace", None) or []
     trace_raw = list(trace_raw)
 
-    from openakita.core.tool_executor import smart_truncate
+    from synapse.core.tool_executor import smart_truncate
 
     tools_used: list[dict] = []
     for it in trace_raw:

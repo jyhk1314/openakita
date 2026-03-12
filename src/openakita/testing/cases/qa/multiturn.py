@@ -2,7 +2,7 @@
 多轮对话测试用例 (35个)
 """
 
-from openakita.testing.runner import TestCase
+from synapse.testing.runner import TestCase
 
 MULTITURN_TESTS = [
     # 上下文记忆

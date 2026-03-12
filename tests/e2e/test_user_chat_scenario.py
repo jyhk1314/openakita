@@ -92,8 +92,8 @@ async def user_agent(test_workspace, mock_client, monkeypatch):
     monkeypatch.setenv("OPENAKITA_PROJECT_ROOT", str(test_workspace))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-placeholder")
 
-    import openakita.config as config_mod
-    from openakita.config import Settings
+    import synapse.config as config_mod
+    from synapse.config import Settings
     test_settings = Settings(
         project_root=test_workspace,
         database_path="data/agent.db",
@@ -104,7 +104,7 @@ async def user_agent(test_workspace, mock_client, monkeypatch):
     )
     monkeypatch.setattr(config_mod, "settings", test_settings)
 
-    from openakita.core.agent import Agent
+    from synapse.core.agent import Agent
     agent = Agent(name="TestAgent")
 
     _inject_mock_brain(agent, mock_client)

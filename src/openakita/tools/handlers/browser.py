@@ -53,7 +53,7 @@ class BrowserHandler:
         """检查浏览器组件是否已初始化，返回错误消息或 None。"""
         has_manager = hasattr(self.agent, "browser_manager") and self.agent.browser_manager
         if not has_manager:
-            from openakita.runtime_env import IS_FROZEN
+            from synapse.runtime_env import IS_FROZEN
             if IS_FROZEN:
                 return "❌ 浏览器服务未启动。请尝试重启应用，如仍有问题请查看日志排查原因。"
             else:
@@ -265,7 +265,7 @@ class BrowserHandler:
             except Exception:
                 pass
 
-            from openakita.runtime_env import IS_FROZEN
+            from synapse.runtime_env import IS_FROZEN
             if IS_FROZEN:
                 error_msg = (
                     "无法启动浏览器。浏览器组件已内置，请尝试重启应用。"

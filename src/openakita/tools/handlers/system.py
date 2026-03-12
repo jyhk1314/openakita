@@ -146,7 +146,7 @@ class SystemHandler:
             "## 工作区路径地图",
             "",
             f"- **项目根目录**: {root}",
-            f"- **用户数据目录**: {settings.openakita_home}",
+            f"- **用户数据目录**: {settings.synapse_home}",
             f"- **Identity**: {identity_rel}/ — 身份文档 (SOUL.md, AGENT.md, USER.md, MEMORY.md)",
             f"- **用户技能**: {user_skills_dir}/ — 用户安装的技能 ({user_skill_count} 个)",
             f"- **项目技能**: skills/ — 项目自带技能 ({project_skill_count} 个)" if project_skills_dir.is_dir() else None,
