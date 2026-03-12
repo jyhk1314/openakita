@@ -4,7 +4,7 @@ export type PlatformInfo = {
   os: string;
   arch: string;
   homeDir: string;
-  openakitaRootDir: string;
+  synapseRootDir: string;
 };
 
 export type WorkspaceSummary = {
@@ -84,7 +84,7 @@ export type PythonContractResult = {
 export type PythonEnvironmentSnapshot = {
   platform: string;
   bundledPythonPath?: string | null;
-  openakitaVersion?: string | null;
+  synapseVersion?: string | null;
 };
 
 export type PythonDiagnostic = {

@@ -1880,10 +1880,10 @@ export function ChatView({
 
   // ── Multi-device busy lock ──
   const clientIdRef = useRef(() => {
-    let id = sessionStorage.getItem("openakita_client_id");
+    let id = sessionStorage.getItem("synapse_client_id");
     if (!id) {
       id = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : genId();
-      sessionStorage.setItem("openakita_client_id", id);
+      sessionStorage.setItem("synapse_client_id", id);
     }
     return id;
   });
@@ -2022,8 +2022,8 @@ export function ChatView({
         logger.warn("Chat", "SSE stream aborted after app resume", { convId });
       }
     };
-    window.addEventListener("openakita_app_resumed", handler);
-    return () => window.removeEventListener("openakita_app_resumed", handler);
+    window.addEventListener("synapse_app_resumed", handler);
+    return () => window.removeEventListener("synapse_app_resumed", handler);
   }, []);
 
   // ── 切换对话时加载对应消息 ──

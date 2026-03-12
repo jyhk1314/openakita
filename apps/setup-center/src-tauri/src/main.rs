@@ -365,7 +365,7 @@ fn bundled_backend_dir() -> PathBuf {
 
         // deb 常见布局: /usr/lib/<app-name>/resources/synapse-server/
         // productName = "OpenAkita Desktop" → Tauri deb 使用 kebab-case
-        for app_name in &["openakita-desktop", "open-akita-desktop"] {
+        for app_name in &["synapse-desktop", "synapse-desktop"] {
             candidates.push(PathBuf::from(format!(
                 "/usr/lib/{}/resources/synapse-server",
                 app_name
@@ -374,7 +374,7 @@ fn bundled_backend_dir() -> PathBuf {
 
         // 若 exe 在 /usr/bin/，尝试同级 /usr/lib/<app>/
         if let Some(usr_dir) = exe_dir.parent() {
-            for app_name in &["openakita-desktop", "open-akita-desktop"] {
+            for app_name in &["synapse-desktop", "synapse-desktop"] {
                 candidates.push(
                     usr_dir
                         .join("lib")
@@ -388,7 +388,7 @@ fn bundled_backend_dir() -> PathBuf {
         // AppImage: 解压后 exe 在 <mount>/usr/bin/，resources 可能在 <mount>/usr/lib/<app>/
         // 也可能在 <mount>/resources/ (Tauri AppImage 平坦布局)
         if let Some(mount_root) = exe_dir.parent().and_then(|p| p.parent()) {
-            for app_name in &["openakita-desktop", "open-akita-desktop"] {
+            for app_name in &["synapse-desktop", "synapse-desktop"] {
                 candidates.push(
                     mount_root
                         .join("lib")
@@ -417,7 +417,7 @@ fn bundled_backend_dir() -> PathBuf {
     primary
 }
 
-/// 获取安装包内置的 Python 解释器路径（openakita-server/_internal）
+/// 获取安装包内置的 Python 解释器路径（synapse-server/_internal）
 fn bundled_internal_python_path() -> Option<PathBuf> {
     let bundled = bundled_backend_dir();
     if !bundled.exists() {
@@ -573,7 +573,7 @@ fn set_custom_root_dir(path: Option<String>, migrate: bool) -> Result<RootDirInf
         }
         fs::create_dir_all(&target).map_err(|e| format!("无法创建目标目录: {e}"))?;
         // 验证目录可写
-        let test_file = target.join(".openakita_write_test");
+        let test_file = target.join(".synapse_write_test");
         fs::write(&test_file, "test").map_err(|e| format!("目标目录无写入权限: {e}"))?;
         let _ = fs::remove_file(&test_file);
     }
@@ -655,7 +655,7 @@ fn is_first_run() -> bool {
 #[serde(rename_all = "camelCase")]
 struct EnvironmentCheck {
     /// 实际检查的根目录路径，便于用户核对是否与已删除的目录一致（如以管理员运行可能为另一用户目录）
-    openakita_root: String,
+    synapse_root: String,
     has_old_venv: bool,
     has_old_runtime: bool,
     has_old_workspaces: bool,
@@ -706,7 +706,7 @@ fn check_environment() -> EnvironmentCheck {
     let old_version = state.last_installed_version.clone();
     let current_version = env!("CARGO_PKG_VERSION").to_string();
 
-    // Check running processes (extract workspace_id from filename: openakita-{ws_id}.pid)
+    // Check running processes (extract workspace_id from filename: synapse-{ws_id}.pid)
     let mut running = Vec::new();
     if let Ok(entries) = fs::read_dir(run_dir()) {
         for entry in entries.flatten() {
@@ -714,7 +714,7 @@ fn check_environment() -> EnvironmentCheck {
             if path.extension().and_then(|e| e.to_str()) == Some("pid") {
                 let ws_id = path.file_stem()
                     .and_then(|s| s.to_str())
-                    .and_then(|s| s.strip_prefix("openakita-"))
+                    .and_then(|s| s.strip_prefix("synapse-"))
                     .unwrap_or("unknown");
                 if let Ok(content) = fs::read_to_string(&path) {
                     if let Ok(data) = serde_json::from_str::<PidFileData>(&content) {
@@ -740,7 +740,7 @@ fn check_environment() -> EnvironmentCheck {
     }
 
     EnvironmentCheck {
-        openakita_root: root.to_string_lossy().to_string(),
+        synapse_root: root.to_string_lossy().to_string(),
         has_old_venv,
         has_old_runtime,
         has_old_workspaces,
@@ -890,7 +890,7 @@ fn workspace_dir(id: &str) -> PathBuf {
 }
 
 fn service_pid_file(workspace_id: &str) -> PathBuf {
-    run_dir().join(format!("openakita-{}.pid", workspace_id))
+    run_dir().join(format!("synapse-{}.pid", workspace_id))
 }
 
 // ── PID 文件 JSON 格式 ──
@@ -971,11 +971,11 @@ fn list_service_pids() -> Vec<ServicePidEntry> {
         let Some(name) = p.file_name().and_then(|s| s.to_str()) else {
             continue;
         };
-        if !name.starts_with("openakita-") || !name.ends_with(".pid") {
+        if !name.starts_with("synapse-") || !name.ends_with(".pid") {
             continue;
         }
         let ws = name
-            .trim_start_matches("openakita-")
+            .trim_start_matches("synapse-")
             .trim_end_matches(".pid")
             .to_string();
         if let Some(data) = read_pid_file(&ws) {
@@ -1115,7 +1115,7 @@ fn stop_service_pid_entry(ent: &ServicePidEntry, port: Option<u16>) -> Result<()
 
 /// 启动锁文件路径
 fn service_lock_file(workspace_id: &str) -> PathBuf {
-    run_dir().join(format!("openakita-{}.lock", workspace_id))
+    run_dir().join(format!("synapse-{}.lock", workspace_id))
 }
 
 /// 尝试获取启动锁（原子创建文件），成功返回 true
@@ -1222,7 +1222,7 @@ fn is_pid_file_valid(data: &PidFileData) -> bool {
     // 旧格式没有 started_at：不能仅靠 PID 存活来判断——
     // Windows 上 PID 会被复用，必须验证进程身份。
     if data.started_at == 0 {
-        return is_openakita_process(data.pid);
+        return is_synapse_process(data.pid);
     }
     if let Some(actual_create) = get_process_create_time(data.pid) {
         let diff = if data.started_at > actual_create {
@@ -1232,12 +1232,12 @@ fn is_pid_file_valid(data: &PidFileData) -> bool {
         };
         if diff > 5 {
             // 时间不匹配——PID 被复用了，再验证一下进程身份
-            return is_openakita_process(data.pid);
+            return is_synapse_process(data.pid);
         }
         true // 时间匹配
     } else {
         // 无法获取进程创建时间，退回到进程身份验证
-        is_openakita_process(data.pid)
+        is_synapse_process(data.pid)
     }
 }
 
@@ -1380,9 +1380,9 @@ fn kill_pid(pid: u32) -> Result<(), String> {
     }
 }
 
-/// 检查指定 PID 是否属于 OpenAkita 后端进程（python/openakita-server）。
+/// 检查指定 PID 是否属于 OpenAkita 后端进程（python/synapse-server）。
 /// 用于判断 PID 文件是否有效——避免 Windows PID 复用导致的误判。
-fn is_openakita_process(pid: u32) -> bool {
+fn is_synapse_process(pid: u32) -> bool {
     if pid == 0 || !is_pid_running(pid) {
         return false;
     }
@@ -1424,10 +1424,10 @@ fn is_openakita_process(pid: u32) -> bool {
             return true;
         }
         if !exe_name.contains("python") {
-            return false; // 既不是 python 也不是 openakita-server，肯定不是后端
+            return false; // 既不是 python 也不是 synapse-server，肯定不是后端
         }
 
-        // Step 2: python 进程需进一步检查命令行是否包含 openakita
+        // Step 2: python 进程需进一步检查命令行是否包含 synapse
         let mut c = Command::new("powershell");
         c.args([
             "-NoProfile",
@@ -1441,21 +1441,21 @@ fn is_openakita_process(pid: u32) -> bool {
         apply_no_window(&mut c);
         if let Ok(out) = c.output() {
             let s = String::from_utf8_lossy(&out.stdout).to_lowercase();
-            return s.contains("openakita");
+            return s.contains("synapse");
         }
         false
     }
     #[cfg(target_os = "linux")]
     {
         if let Ok(cmdline) = fs::read_to_string(format!("/proc/{}/cmdline", pid)) {
-            return cmdline.to_lowercase().contains("openakita");
+            return cmdline.to_lowercase().contains("synapse");
         }
         let output = Command::new("ps")
             .args(["-p", &pid.to_string(), "-o", "args="])
             .output();
         if let Ok(out) = output {
             let s = String::from_utf8_lossy(&out.stdout).to_lowercase();
-            return s.contains("openakita");
+            return s.contains("synapse");
         }
         false
     }
@@ -1466,16 +1466,16 @@ fn is_openakita_process(pid: u32) -> bool {
             .output();
         if let Ok(out) = output {
             let s = String::from_utf8_lossy(&out.stdout).to_lowercase();
-            return s.contains("openakita");
+            return s.contains("synapse");
         }
         false
     }
 }
 
-/// 扫描并杀死所有进程名为 python/pythonw 且命令行包含 "openakita" 和 "serve" 的进程。
+/// 扫描并杀死所有进程名为 python/pythonw 且命令行包含 "synapse" 和 "serve" 的进程。
 /// 用于托盘退出时兜底清理孤儿进程（PID 文件可能已被删除但进程仍存活）。
 /// 返回被杀掉的 PID 列表。
-fn kill_openakita_orphans() -> Vec<u32> {
+fn kill_synapse_orphans() -> Vec<u32> {
     let mut killed = Vec::new();
     #[cfg(windows)]
     {
@@ -1524,7 +1524,7 @@ fn kill_openakita_orphans() -> Vec<u32> {
             }
         }
 
-        // Step 2: 对每个 python 进程查命令行，判断是否是 openakita serve 进程
+        // Step 2: 对每个 python 进程查命令行，判断是否是 synapse serve 进程
         // 使用 PowerShell Get-CimInstance 替代已废弃的 wmic（Windows 11 已移除 wmic）
         for ppid in python_pids {
             let mut c = Command::new("powershell");
@@ -1598,7 +1598,7 @@ fn kill_openakita_orphans() -> Vec<u32> {
     killed
 }
 
-/// 扫描所有进程名含 python 且命令行包含 "openakita" 和 "serve" 的进程。
+/// 扫描所有进程名含 python 且命令行包含 "synapse" 和 "serve" 的进程。
 /// 返回 OpenAkitaProcess 列表，供前端多进程检测使用。
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -1714,8 +1714,8 @@ fn synapse_stop_all_processes() -> Vec<u32> {
         }
     }
 
-    // 第 2 层：兜底扫描所有命令行含 openakita serve 的 python 进程并杀掉
-    let orphans = kill_openakita_orphans();
+    // 第 2 层：兜底扫描所有命令行含 synapse serve 的 python 进程并杀掉
+    let orphans = kill_synapse_orphans();
     for pid in orphans {
         if !stopped.contains(&pid) {
             stopped.push(pid);
@@ -1975,7 +1975,7 @@ fn set_current_workspace(id: String) -> Result<(), String> {
 fn bundled_backend_version() -> Option<String> {
     let version_file = bundled_backend_dir()
         .join("_internal")
-        .join("openakita")
+        .join("synapse")
         .join("_bundled_version.txt");
     fs::read_to_string(&version_file)
         .ok()
@@ -2391,7 +2391,7 @@ fn main() {
                     let _ = fs::remove_file(std::path::PathBuf::from(&ent.pid_file));
                     remove_heartbeat_file(&ent.workspace_id);
                 }
-                kill_openakita_orphans();
+                kill_synapse_orphans();
             }
         });
 }
@@ -2512,7 +2512,7 @@ fn synapse_check_pid_alive(workspace_id: String) -> Result<bool, String> {
             return Ok(false);
         }
         // PID 存活，但需验证是否真的是 OpenAkita 进程
-        if !is_openakita_process(data.pid) {
+        if !is_synapse_process(data.pid) {
             // PID 被其他进程复用了，清理 stale PID 文件和心跳文件
             let _ = fs::remove_file(service_pid_file(&workspace_id));
             remove_heartbeat_file(&workspace_id);
@@ -2841,7 +2841,7 @@ fn synapse_service_start(venv_dir: String, workspace_id: String) -> Result<Servi
 
     let log_dir = ws_dir.join("logs");
     fs::create_dir_all(&log_dir).map_err(|e| format!("create logs dir failed: {e}"))?;
-    let log_path = log_dir.join("openakita-serve.log");
+    let log_path = log_dir.join("synapse-serve.log");
     let log_file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -2998,7 +2998,7 @@ fn synapse_service_stop(workspace_id: String) -> Result<ServiceStatus, String> {
 #[tauri::command]
 fn synapse_service_log(workspace_id: String, tail_bytes: Option<u64>) -> Result<ServiceLogChunk, String> {
     let ws_dir = workspace_dir(&workspace_id);
-    let log_path = ws_dir.join("logs").join("openakita-serve.log");
+    let log_path = ws_dir.join("logs").join("synapse-serve.log");
     let path_str = log_path.to_string_lossy().to_string();
     let tail = tail_bytes.unwrap_or(40_000).min(400_000);
 
@@ -3197,7 +3197,7 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 // 3. 兜底扫描孤儿进程（精确匹配）
-                kill_openakita_orphans();
+                kill_synapse_orphans();
 
                 std::thread::sleep(std::time::Duration::from_millis(600));
 
@@ -3206,7 +3206,7 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     .into_iter()
                     .filter(|x| x.started_by != "external" && is_pid_running(x.pid))
                     .collect::<Vec<_>>();
-                let still_orphans = kill_openakita_orphans();
+                let still_orphans = kill_synapse_orphans();
 
                 if still_pid.is_empty() && still_orphans.is_empty() {
                     // 全部清理干净，安全退出
@@ -3486,7 +3486,7 @@ fn export_workspace_backup_native(
     fs::create_dir_all(&out).map_err(|e| format!("create output dir: {e}"))?;
 
     let ts = chrono_like_timestamp();
-    let zip_name = format!("openakita-backup-{workspace_id}-{ts}.zip");
+    let zip_name = format!("synapse-backup-{workspace_id}-{ts}.zip");
     let zip_path = out.join(&zip_name);
 
     let file = fs::File::create(&zip_path).map_err(|e| format!("create zip: {e}"))?;
@@ -3506,7 +3506,7 @@ fn export_workspace_backup_native(
                       "data/output", "data/screenshots"];
     let exclude_dirs = ["logs", "data/llm_debug", "data/delegation_logs",
                         "data/traces", "data/react_traces", "data/temp",
-                        "data/tool_overflow", "data/selfcheck", "data/openakita_docs",
+                        "data/tool_overflow", "data/selfcheck", "data/synapse_docs",
                         "identity/runtime", "node_modules", "Lib", "__pycache__"];
 
     let mut file_count: u64 = 0;
@@ -4134,7 +4134,7 @@ fn parse_diagnostics_json(json: &serde_json::Value) -> Option<PythonDiagnostic> 
             .to_string(),
         bundled_python_path: None,
         synapse_version: env_obj
-            .and_then(|e| e.get("openakitaVersion"))
+            .and_then(|e| e.get("synapseVersion"))
             .and_then(|v| v.as_str())
             .map(String::from),
     };
@@ -4427,7 +4427,7 @@ async fn pip_install(
         }
         let _ = run_streaming(up, "pip upgrade (best-effort)", &mut log, &emit_line);
 
-        emit_stage("安装 openakita（pip）", 70);
+        emit_stage("安装 synapse（pip）", 70);
         let mut c = Command::new(&py);
         apply_no_window(&mut c);
         strip_harmful_python_env(&mut c);
@@ -4464,25 +4464,25 @@ async fn pip_install(
         }
         verify.args([
             "-c",
-            "import openakita; import openakita.setup_center.bridge; print(getattr(openakita,'__version__',''))",
+            "import synapse; import synapse.setup_center.bridge; print(getattr(synapse,'__version__',''))",
         ]);
-        let v = verify.output().map_err(|e| format!("verify openakita failed: {e}"))?;
+        let v = verify.output().map_err(|e| format!("verify synapse failed: {e}"))?;
         if !v.status.success() {
             let stdout = String::from_utf8_lossy(&v.stdout).to_string();
             let stderr = String::from_utf8_lossy(&v.stderr).to_string();
             return Err(format!(
-                "openakita 已安装，但缺少 Setup Center 所需模块（openakita.setup_center.bridge）。\n这通常意味着你安装的 openakita 版本过旧或来源不包含该模块。\nstdout:\n{}\nstderr:\n{}",
+                "synapse 已安装，但缺少 Setup Center 所需模块（synapse.setup_center.bridge）。\n这通常意味着你安装的 synapse 版本过旧或来源不包含该模块。\nstdout:\n{}\nstderr:\n{}",
                 stdout, stderr
             ));
         }
 
         let ver = String::from_utf8_lossy(&v.stdout).trim().to_string();
         log.push_str("=== verify ===\n");
-        log.push_str("import openakita.setup_center.bridge: OK\n");
-        emit_line("import openakita.setup_center.bridge: OK\n");
+        log.push_str("import synapse.setup_center.bridge: OK\n");
+        emit_line("import synapse.setup_center.bridge: OK\n");
         if !ver.is_empty() {
-            log.push_str(&format!("openakita version: {ver}\n"));
-            emit_line(&format!("openakita version: {ver}\n"));
+            log.push_str(&format!("synapse version: {ver}\n"));
+            emit_line(&format!("synapse version: {ver}\n"));
         }
         emit_stage("完成", 100);
 
@@ -4550,7 +4550,7 @@ fn run_python_module_json(
 #[tauri::command]
 async fn synapse_list_providers(venv_dir: String) -> Result<String, String> {
     spawn_blocking_result(move || {
-        run_python_module_json(&venv_dir, "openakita.setup_center.bridge", &["list-providers"], &[])
+        run_python_module_json(&venv_dir, "synapse.setup_center.bridge", &["list-providers"], &[])
     })
     .await
 }
@@ -4562,7 +4562,7 @@ async fn synapse_list_skills(venv_dir: String, workspace_id: String) -> Result<S
         let wd_str = wd.to_string_lossy().to_string();
         run_python_module_json(
             &venv_dir,
-            "openakita.setup_center.bridge",
+            "synapse.setup_center.bridge",
             &["list-skills", "--workspace-dir", &wd_str],
             &[],
         )
@@ -4587,7 +4587,7 @@ async fn synapse_list_models(
 
         run_python_module_json(
             &venv_dir,
-            "openakita.setup_center.bridge",
+            "synapse.setup_center.bridge",
             &args,
             &[("SETUPCENTER_API_KEY", api_key.as_str())],
         )
@@ -4600,7 +4600,7 @@ async fn synapse_version(venv_dir: String) -> Result<String, String> {
     spawn_blocking_result(move || {
         // 1. 尝试从打包后端读取 _bundled_version.txt（最快且无需 Python）
         let bundled = bundled_backend_dir();
-        let version_file = bundled.join("_internal").join("openakita").join("_bundled_version.txt");
+        let version_file = bundled.join("_internal").join("synapse").join("_bundled_version.txt");
         if version_file.exists() {
             if let Ok(v) = fs::read_to_string(&version_file) {
                 let v = v.trim().to_string();
@@ -4622,9 +4622,9 @@ async fn synapse_version(venv_dir: String) -> Result<String, String> {
         }
         c.args([
             "-c",
-            "import openakita; print(getattr(openakita,'__version__',''))",
+            "import synapse; print(getattr(synapse,'__version__',''))",
         ]);
-        let out = c.output().map_err(|e| format!("get openakita version failed: {e}"))?;
+        let out = c.output().map_err(|e| format!("get synapse version failed: {e}"))?;
         if !out.status.success() {
             let stderr = String::from_utf8_lossy(&out.stderr).to_string();
             let stdout = String::from_utf8_lossy(&out.stdout).to_string();
@@ -4657,7 +4657,7 @@ async fn synapse_health_check_endpoint(
             args.push("--endpoint-name");
             args.push(&ep_name_str);
         }
-        run_python_module_json(&venv_dir, "openakita.setup_center.bridge", &args, &[])
+        run_python_module_json(&venv_dir, "synapse.setup_center.bridge", &args, &[])
     })
     .await
 }
@@ -4684,7 +4684,7 @@ async fn synapse_health_check_im(
             args.push("--channel");
             args.push(&ch_str);
         }
-        run_python_module_json(&venv_dir, "openakita.setup_center.bridge", &args, &[])
+        run_python_module_json(&venv_dir, "synapse.setup_center.bridge", &args, &[])
     })
     .await
 }
@@ -4704,7 +4704,7 @@ async fn synapse_ensure_channel_deps(
             "--workspace-dir",
             &wd_str,
         ];
-        run_python_module_json(&venv_dir, "openakita.setup_center.bridge", &args, &[])
+        run_python_module_json(&venv_dir, "synapse.setup_center.bridge", &args, &[])
     })
     .await
 }
@@ -4726,7 +4726,7 @@ async fn synapse_install_skill(
             "--url",
             &url,
         ];
-        run_python_module_json(&venv_dir, "openakita.setup_center.bridge", &args, &[])
+        run_python_module_json(&venv_dir, "synapse.setup_center.bridge", &args, &[])
     })
     .await
 }
@@ -4748,7 +4748,7 @@ async fn synapse_uninstall_skill(
             "--skill-name",
             &skill_name,
         ];
-        run_python_module_json(&venv_dir, "openakita.setup_center.bridge", &args, &[])
+        run_python_module_json(&venv_dir, "synapse.setup_center.bridge", &args, &[])
     })
     .await
 }
@@ -4760,7 +4760,7 @@ async fn synapse_list_marketplace(
 ) -> Result<String, String> {
     spawn_blocking_result(move || {
         let args = vec!["list-marketplace"];
-        run_python_module_json(&venv_dir, "openakita.setup_center.bridge", &args, &[])
+        run_python_module_json(&venv_dir, "synapse.setup_center.bridge", &args, &[])
     })
     .await
 }
@@ -4782,7 +4782,7 @@ async fn synapse_get_skill_config(
             "--skill-name",
             &skill_name,
         ];
-        run_python_module_json(&venv_dir, "openakita.setup_center.bridge", &args, &[])
+        run_python_module_json(&venv_dir, "synapse.setup_center.bridge", &args, &[])
     })
     .await
 }
@@ -4815,7 +4815,7 @@ async fn fetch_pypi_versions(package: String, index_url: Option<String>) -> Resu
 
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(10))
-            .user_agent("openakita-setup-center")
+            .user_agent("synapse-setup-center")
             .build()
             .map_err(|e| format!("HTTP client error: {e}"))?;
 
@@ -4881,7 +4881,7 @@ async fn http_get_json(url: String) -> Result<String, String> {
     spawn_blocking_result(move || {
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
-            .user_agent("openakita-desktop/1.0")
+            .user_agent("synapse-desktop/1.0")
             .build()
             .map_err(|e| format!("HTTP client error: {e}"))?;
 
@@ -4918,7 +4918,7 @@ async fn http_proxy_request(
         let timeout = timeout_secs.unwrap_or(30);
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(timeout))
-            .user_agent("openakita-desktop/1.0")
+            .user_agent("synapse-desktop/1.0")
             .build()
             .map_err(|e| format!("HTTP client error: {e}"))?;
 
@@ -5126,7 +5126,7 @@ fn export_env_backup(workspace_id: String, dest_path: Option<String>) -> Result<
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        downloads_dir.join(format!("openakita-env-backup-{ts}.env"))
+        downloads_dir.join(format!("synapse-env-backup-{ts}.env"))
     };
 
     if let Some(parent) = dest.parent() {
@@ -5164,7 +5164,7 @@ fn export_diagnostic_bundle(
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        downloads_dir.join(format!("openakita-diagnostic-{ts}.zip"))
+        downloads_dir.join(format!("synapse-diagnostic-{ts}.zip"))
     };
 
     if let Some(parent) = dest.parent() {
@@ -5593,8 +5593,8 @@ fn write_path_value(key: &winreg::RegKey, value: &str) -> Result<(), String> {
 #[cfg(not(target_os = "windows"))]
 fn unix_add_to_path(bin_dir: &Path) -> Result<(), String> {
     let bin_str = bin_dir.to_string_lossy().to_string();
-    let marker_start = "# >>> openakita cli >>>";
-    let marker_end = "# <<< openakita cli <<<";
+    let marker_start = "# >>> synapse cli >>>";
+    let marker_end = "# <<< synapse cli <<<";
     let block = format!(
         "{}\nexport PATH=\"{}:$PATH\"\n{}\n",
         marker_start, bin_str, marker_end
@@ -5717,7 +5717,7 @@ fn unix_remove_from_path(_bin_dir: &Path) -> Result<(), String> {
 
 #[cfg(not(target_os = "windows"))]
 fn unix_is_in_path(bin_dir: &Path) -> bool {
-    let marker_start = "# >>> openakita cli >>>";
+    let marker_start = "# >>> synapse cli >>>";
     let home = match home_dir() {
         Some(h) => h,
         None => return false,
@@ -5978,7 +5978,7 @@ mod tests {
     }
 
     #[test]
-    fn test_openakita_root_dir_is_valid() {
+    fn test_synapse_root_dir_is_valid() {
         let root = synapse_root_dir();
         assert!(!root.to_string_lossy().is_empty());
         // Should contain .synapse unless overridden by OPENAKITA_ROOT

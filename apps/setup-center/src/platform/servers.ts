@@ -9,8 +9,8 @@ export interface ServerEntry {
   lastConnectedAt?: number;
 }
 
-const STORAGE_KEY = "openakita_servers";
-const ACTIVE_KEY = "openakita_active_server";
+const STORAGE_KEY = "synapse_servers";
+const ACTIVE_KEY = "synapse_active_server";
 
 function readList(): ServerEntry[] {
   try {

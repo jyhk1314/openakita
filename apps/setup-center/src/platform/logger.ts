@@ -99,8 +99,8 @@ async function flushToTauri(lines: string[]): Promise<void> {
 function _getApiBase(): string {
   if (!IS_CAPACITOR) return "";
   try {
-    const raw = localStorage.getItem("openakita_servers");
-    const activeId = localStorage.getItem("openakita_active_server");
+    const raw = localStorage.getItem("synapse_servers");
+    const activeId = localStorage.getItem("synapse_active_server");
     if (raw && activeId) {
       const list = JSON.parse(raw) as { id: string; url: string }[];
       const s = list.find((x) => x.id === activeId);
@@ -373,8 +373,8 @@ if (typeof window !== "undefined") {
     let base = "";
     if (IS_CAPACITOR) {
       try {
-        const raw = localStorage.getItem("openakita_servers");
-        const activeId = localStorage.getItem("openakita_active_server");
+        const raw = localStorage.getItem("synapse_servers");
+        const activeId = localStorage.getItem("synapse_active_server");
         if (raw && activeId) {
           const list = JSON.parse(raw) as { id: string; url: string }[];
           const s = list.find((x) => x.id === activeId);

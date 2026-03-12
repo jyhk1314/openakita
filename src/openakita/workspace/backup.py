@@ -88,7 +88,7 @@ _ALWAYS_EXCLUDE_DIRS = {
     "data/temp",
     "data/tool_overflow",
     "data/selfcheck",
-    "data/openakita_docs",
+    "data/synapse_docs",
     "identity/runtime",
     "node_modules",
     "Lib",

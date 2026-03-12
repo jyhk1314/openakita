@@ -241,7 +241,7 @@ async def diagnostics():
             "platform": f"{sys.platform}-{platform.machine()}",
             "pythonVersion": platform.python_version(),
             "runtimeType": runtime_type,
-            "openakitaVersion": backend_version,
+            "synapseVersion": backend_version,
             "pid": os.getpid(),
         },
     }

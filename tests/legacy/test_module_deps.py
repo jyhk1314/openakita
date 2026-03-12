@@ -37,7 +37,7 @@ class TestInjectModulePaths:
         (modules_dir / "vector-memory" / "site-packages").mkdir(parents=True)
         (modules_dir / "browser" / "site-packages").mkdir(parents=True)
 
-        with patch("openakita.runtime_env._get_openakita_root", return_value=tmp_path):
+        with patch("openakita.runtime_env._get_synapse_root", return_value=tmp_path):
             original_path_len = len(sys.path)
             from openakita.runtime_env import inject_module_paths_runtime
 
@@ -57,7 +57,7 @@ class TestInjectModulePaths:
         modules_dir = tmp_path / "modules"
         # 不创建任何子目录
 
-        with patch("openakita.runtime_env._get_openakita_root", return_value=tmp_path):
+        with patch("openakita.runtime_env._get_synapse_root", return_value=tmp_path):
             from openakita.runtime_env import inject_module_paths_runtime
 
             count = inject_module_paths_runtime()
@@ -69,7 +69,7 @@ class TestInjectModulePaths:
         modules_dir = tmp_path / "modules"
         (modules_dir / "browser" / "site-packages").mkdir(parents=True)
 
-        with patch("openakita.runtime_env._get_openakita_root", return_value=tmp_path):
+        with patch("openakita.runtime_env._get_synapse_root", return_value=tmp_path):
             from openakita.runtime_env import inject_module_paths_runtime
 
             count1 = inject_module_paths_runtime()
@@ -91,7 +91,7 @@ class TestInjectModulePaths:
 
         original_first = sys.path[0] if sys.path else ""
 
-        with patch("openakita.runtime_env._get_openakita_root", return_value=tmp_path):
+        with patch("openakita.runtime_env._get_synapse_root", return_value=tmp_path):
             from openakita.runtime_env import inject_module_paths_runtime
 
             inject_module_paths_runtime()
@@ -141,7 +141,7 @@ class TestRegisterDllDirectories:
         from openakita.runtime_env import inject_module_paths_runtime
 
         # 不应抛异常
-        with patch("openakita.runtime_env._get_openakita_root", return_value=tmp_path):
+        with patch("openakita.runtime_env._get_synapse_root", return_value=tmp_path):
             inject_module_paths_runtime()
 
 

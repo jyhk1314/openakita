@@ -120,7 +120,7 @@ export function App() {
     checkAuth(IS_CAPACITOR ? (getActiveServer()?.url || "") : "").then((ok) => {
       if (ok) {
         installFetchInterceptor();
-        if (!isPasswordUserSet() && !localStorage.getItem("openakita_pw_banner_dismissed")) {
+        if (!isPasswordUserSet() && !localStorage.getItem("synapse_pw_banner_dismissed")) {
           setShowPwBanner(true);
         }
       }
@@ -202,7 +202,7 @@ export function App() {
   useEffect(() => {
     try {
       document.getElementById("boot")?.remove();
-      window.dispatchEvent(new Event("openakita_app_ready"));
+      window.dispatchEvent(new Event("synapse_app_ready"));
     } catch {
       // ignore
     }
@@ -242,7 +242,7 @@ export function App() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [disabledViews, setDisabledViews] = useState<string[]>([]);
   const [multiAgentEnabled, setMultiAgentEnabled] = useState(false);
-  const [storeVisible, setStoreVisible] = useState(() => localStorage.getItem("openakita_storeVisible") === "true");
+  const [storeVisible, setStoreVisible] = useState(() => localStorage.getItem("synapse_storeVisible") === "true");
 
   // ── Data mode: "local" (Tauri commands) or "remote" (HTTP API) ──
   // Web mode always starts in "remote" since the backend is already running
@@ -250,7 +250,7 @@ export function App() {
   const [apiBaseUrl, setApiBaseUrl] = useState(() =>
     IS_CAPACITOR ? (getActiveServer()?.url || "")
     : IS_WEB ? ""
-    : (localStorage.getItem("openakita_apiBaseUrl") || "http://127.0.0.1:18900"),
+    : (localStorage.getItem("synapse_apiBaseUrl") || "http://127.0.0.1:18900"),
   );
   const [connectDialogOpen, setConnectDialogOpen] = useState(false);
   const [connectAddress, setConnectAddress] = useState("");
@@ -295,7 +295,7 @@ export function App() {
   const [obInstallLog, setObInstallLog] = useState<string[]>([]);
   const [obInstalling, setObInstalling] = useState(false);
   const [obEnvCheck, setObEnvCheck] = useState<{
-    openakitaRoot: string;
+    synapseRoot: string;
     hasOldVenv: boolean; hasOldRuntime: boolean; hasOldWorkspaces: boolean;
     oldVersion: string | null; currentVersion: string; conflicts: string[];
     diskUsageMb: number; runningProcesses: string[];
@@ -434,7 +434,7 @@ export function App() {
   const [pipIndexPresetId, setPipIndexPresetId] = useState<"official" | "tuna" | "aliyun" | "custom">("aliyun");
   const [customIndexUrl, setCustomIndexUrl] = useState<string>("");
   const [venvReady, setVenvReady] = useState(false);
-  const [openakitaInstalled, setOpenakitaInstalled] = useState(false);
+  const [synapseInstalled, setSynapseInstalled] = useState(false);
   const [pypiVersions, setPypiVersions] = useState<string[]>([]);
   const [pypiVersionsLoading, setPypiVersionsLoading] = useState(false);
   const [selectedPypiVersion, setSelectedPypiVersion] = useState<string>(""); // "" = 推荐同版本
@@ -565,7 +565,7 @@ export function App() {
   const [serviceLogError, setServiceLogError] = useState<string | null>(null);
   const serviceLogRef = useRef<HTMLPreElement>(null);
   const [appVersion, setAppVersion] = useState<string>("");
-  const [openakitaVersion, setOpenakitaVersion] = useState<string>("");
+  const [synapseVersion, setSynapseVersion] = useState<string>("");
 
   // Health check state
   const [endpointHealth, setEndpointHealth] = useState<Record<string, {
@@ -602,7 +602,7 @@ export function App() {
       const cur = await invoke<string | null>("get_current_workspace_id");
       setCurrentWorkspaceId(cur);
     } else {
-      setInfo({ os: "web", arch: "", homeDir: "", openakitaRootDir: "" });
+      setInfo({ os: "web", arch: "", homeDir: "", synapseRootDir: "" });
       if (!currentWorkspaceId) setCurrentWorkspaceId("default");
     }
   }
@@ -662,11 +662,11 @@ export function App() {
         if (!cancelled) {
           try {
             const plat = await invoke<PlatformInfo>("get_platform_info");
-            const vd = joinPath(plat.openakitaRootDir, "venv");
+            const vd = joinPath(plat.synapseRootDir, "venv");
             const v = await invoke<string>("synapse_version", { venvDir: vd });
             if (!cancelled && v) {
-              setOpenakitaInstalled(true);
-              setOpenakitaVersion(v);
+              setSynapseInstalled(true);
+              setSynapseVersion(v);
               setVenvStatus(`安装完成 (v${v})`);
               setVenvReady(true);
             }
@@ -785,7 +785,7 @@ export function App() {
         // 立即重连 WebSocket（后台期间连接可能已断开）
         reconnectWsNow();
         // 通知 ChatView 等组件检查进行中的 SSE 流
-        window.dispatchEvent(new Event("openakita_app_resumed"));
+        window.dispatchEvent(new Event("synapse_app_resumed"));
         logger.info("App", "Resumed from background");
       }
     };
@@ -881,7 +881,7 @@ export function App() {
 
   const venvDir = useMemo(() => {
     if (!info) return "";
-    return joinPath(info.openakitaRootDir, "venv");
+    return joinPath(info.synapseRootDir, "venv");
   }, [info]);
 
   // tray/menu bar -> open status panel
@@ -1031,7 +1031,7 @@ export function App() {
   useEffect(() => {
     if (!venvStatus) return;
     if (venvStatus.includes("venv 就绪")) setVenvReady(true);
-    if (venvStatus.includes("安装完成")) setOpenakitaInstalled(true);
+    if (venvStatus.includes("安装完成")) setSynapseInstalled(true);
   }, [venvStatus]);
 
   async function ensureEnvLoaded(workspaceId: string): Promise<EnvMap> {
@@ -1133,8 +1133,8 @@ export function App() {
       if (d && d.summary === "healthy") {
         setNotice(t("config.pyRepairDone"));
         setVenvReady(true);
-        const openakitaOk = d.contracts.some((c) => c.id === "C3_OPENAKITA_IN_VENV" && c.status === "pass");
-        setOpenakitaInstalled(openakitaOk);
+        const synapseOk = d.contracts.some((c) => c.id === "C3_SYNAPSE_IN_VENV" && c.status === "pass");
+        setSynapseInstalled(synapseOk);
         await persistPythonEnvConfig(venvDir);
         try {
           const cands = await invoke<PythonCandidate[]>("detect_python");
@@ -1198,9 +1198,9 @@ export function App() {
       if (!shouldUseHttpApi()) {
         try {
           const v = await invoke<string>("synapse_version", { venvDir });
-          setOpenakitaVersion(v || "");
+          setSynapseVersion(v || "");
         } catch {
-          setOpenakitaVersion("");
+          setSynapseVersion("");
         }
       }
     } catch (e) {
@@ -3449,10 +3449,10 @@ export function App() {
     if (!currentWorkspaceId && dataMode !== "remote") return;
     if (!!busy) return;
     if (skillsDetail) return;
-    if (!openakitaInstalled && dataMode !== "remote") return;
+    if (!synapseInstalled && dataMode !== "remote") return;
     void doRefreshSkills();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, stepId, currentWorkspaceId, openakitaInstalled, skillsDetail, dataMode]);
+  }, [view, stepId, currentWorkspaceId, synapseInstalled, skillsDetail, dataMode]);
 
   async function doRefreshSkills() {
     if (!currentWorkspaceId && dataMode !== "remote") {
@@ -5109,7 +5109,7 @@ export function App() {
     async function runReset(removeVenv: boolean, removeEmbedded: boolean) {
       setBusy(t("adv.resetting"));
       try {
-        await invoke<string>("remove_openakita_runtime", { removeVenv: removeVenv, removeEmbeddedPython: removeEmbedded });
+        await invoke<string>("remove_synapse_runtime", { removeVenv: removeVenv, removeEmbeddedPython: removeEmbedded });
         setPyDiag(null);
         setNotice(t("adv.resetDone"));
       } catch (e) { setError(String(e)); } finally { setBusy(null); }
@@ -5553,7 +5553,7 @@ export function App() {
                 onClick={() => {
                   const next = !storeVisible;
                   setStoreVisible(next);
-                  localStorage.setItem("openakita_storeVisible", String(next));
+                  localStorage.setItem("synapse_storeVisible", String(next));
                 }}
                 style={{
                   width: 40, height: 22, borderRadius: 11, cursor: "pointer",
@@ -6541,7 +6541,7 @@ export function App() {
       updateTask("backend-check", { status: "running" });
       logTask("检查后端环境", "running");
       try {
-        const effectiveVenv = venvDir || (info ? joinPath(info.openakitaRootDir, "venv") : "");
+        const effectiveVenv = venvDir || (info ? joinPath(info.synapseRootDir, "venv") : "");
         const backendInfo = await invoke<{
           bundled: boolean;
           venvReady: boolean;
@@ -6668,7 +6668,7 @@ export function App() {
       updateTask("service-start", { status: "running" });
       logTask("启动后端服务", "running");
       log(t("onboarding.progress.startingService"));
-      const effectiveVenv = venvDir || (info ? joinPath(info.openakitaRootDir, "venv") : "");
+      const effectiveVenv = venvDir || (info ? joinPath(info.synapseRootDir, "venv") : "");
       try {
         await invoke("synapse_service_start", { venvDir: effectiveVenv, workspaceId: activeWsId });
         log(t("onboarding.progress.serviceStarted"));
@@ -6776,7 +6776,7 @@ export function App() {
                         {obEnvCheck.conflicts.map((c, i) => <li key={i}>{c}</li>)}
                       </ul>
                       <p className="obEnvCheckPath" style={{ marginTop: 8, fontSize: 12, opacity: 0.85 }}>
-                        检查路径: {obEnvCheck.openakitaRoot ?? "(未知)"}
+                        检查路径: {obEnvCheck.synapseRoot ?? "(未知)"}
                       </p>
                       <button
                         type="button"
@@ -6790,7 +6790,7 @@ export function App() {
                   )}
                   {obEnvCheck.conflicts.length === 0 && (
                     <p className="obEnvCheckPath" style={{ fontSize: 12, opacity: 0.75 }}>
-                      检查路径: {obEnvCheck.openakitaRoot ?? "(未知)"}
+                      检查路径: {obEnvCheck.synapseRoot ?? "(未知)"}
                     </p>
                   )}
                 </>
@@ -7670,7 +7670,7 @@ export function App() {
         checkAuth(url).then((ok) => {
           if (ok) {
             installFetchInterceptor();
-            if (!isPasswordUserSet() && !localStorage.getItem("openakita_pw_banner_dismissed")) setShowPwBanner(true);
+            if (!isPasswordUserSet() && !localStorage.getItem("synapse_pw_banner_dismissed")) setShowPwBanner(true);
           }
           setWebAuthed(ok);
           setAuthChecking(false);
@@ -7861,14 +7861,14 @@ export function App() {
               setView("wizard");
               setStepId("advanced");
               setShowPwBanner(false);
-              localStorage.setItem("openakita_pw_banner_dismissed", "1");
+              localStorage.setItem("synapse_pw_banner_dismissed", "1");
             }}>{t("web.passwordBannerAction", { defaultValue: "去设置" })}</button>
             <button style={{
               background: "none", border: "none", cursor: "pointer", padding: 2,
               color: "var(--warning-text, #92400e)", fontSize: 16, lineHeight: 1, opacity: 0.6,
             }} onClick={() => {
               setShowPwBanner(false);
-              localStorage.setItem("openakita_pw_banner_dismissed", "1");
+              localStorage.setItem("synapse_pw_banner_dismissed", "1");
             }} title={t("common.close", { defaultValue: "关闭" })}>×</button>
           </div>
         )}
@@ -7931,14 +7931,14 @@ export function App() {
                       const authOk = IS_TAURI ? await checkAuth(url) : true;
                       if (!authOk) {
                         setApiBaseUrl(url);
-                        localStorage.setItem("openakita_apiBaseUrl", url);
+                        localStorage.setItem("synapse_apiBaseUrl", url);
                         setConnectDialogOpen(false);
                         setTauriRemoteLoginUrl(url);
                         if (data.version) checkVersionMismatch(data.version);
                         return;
                       }
                       setApiBaseUrl(url);
-                      localStorage.setItem("openakita_apiBaseUrl", url);
+                      localStorage.setItem("synapse_apiBaseUrl", url);
                       setDataMode("remote");
                       setServiceStatus({ running: true, pid: null, pidFile: "" });
                       setConnectDialogOpen(false);
@@ -8075,7 +8075,7 @@ export function App() {
               {updateProgress.status === "idle" && (
                 <button style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "var(--muted)" }} onClick={() => {
                   setNewRelease(null);
-                  localStorage.setItem("openakita_release_dismissed", newRelease.latest);
+                  localStorage.setItem("synapse_release_dismissed", newRelease.latest);
                 }}>&times;</button>
               )}
             </div>
@@ -8119,7 +8119,7 @@ export function App() {
               {updateProgress.status === "idle" && (
                 <button className="btnSmall" style={{ fontSize: 11 }} onClick={() => {
                   setNewRelease(null);
-                  localStorage.setItem("openakita_release_dismissed", newRelease.latest);
+                  localStorage.setItem("synapse_release_dismissed", newRelease.latest);
                 }}>{t("version.dismiss")}</button>
               )}
               {updateProgress.status === "error" && (

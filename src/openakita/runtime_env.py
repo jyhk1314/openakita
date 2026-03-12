@@ -105,7 +105,7 @@ def get_configured_venv_path() -> str | None:
     return None
 
 
-def _get_openakita_root() -> Path:
+def _get_synapse_root() -> Path:
     """获取 Synapse 根目录路径 (避免循环导入 config)。
 
     优先使用 OPENAKITA_ROOT 环境变量，默认 ~/.synapse.
@@ -169,7 +169,7 @@ def get_python_executable() -> str | None:
     except Exception:
         pass
 
-    root = _get_openakita_root()
+    root = _get_synapse_root()
 
     # 2. 检查 ~/.synapse/venv/
     if sys.platform == "win32":
@@ -252,7 +252,7 @@ def get_channel_deps_dir() -> Path:
     路径: ~/.synapse/modules/channel-deps/site-packages
     该目录会被 inject_module_paths() 自动扫描并注入到 sys.path。
     """
-    return _get_openakita_root() / "modules" / "channel-deps" / "site-packages"
+    return _get_synapse_root() / "modules" / "channel-deps" / "site-packages"
 
 
 def ensure_ssl_certs() -> None:
@@ -335,7 +335,7 @@ def _sanitize_sys_path() -> None:
     import os
 
     meipass = getattr(sys, "_MEIPASS", "")
-    openakita_root = str(_get_openakita_root())
+    synapse_root = str(_get_synapse_root())
 
     suspicious = []
     for p in list(sys.path):
@@ -345,7 +345,7 @@ def _sanitize_sys_path() -> None:
         if meipass and p.startswith(meipass):
             continue
         # 允许: 项目数据目录 (~/.synapse/)
-        if p.startswith(openakita_root):
+        if p.startswith(synapse_root):
             continue
         # 允许: 当前工作目录 ('' 或 '.')
         if p in ("", "."):
@@ -407,7 +407,7 @@ def inject_module_paths() -> None:
     # 来源 2：扫描 ~/.synapse/modules/*/site-packages（兜底）
     # 跳过已内置到 core 包的模块，避免外部旧版本与内置版本冲突
     _BUILTIN_MODULE_IDS = {"browser"}
-    modules_base = _get_openakita_root() / "modules"
+    modules_base = _get_synapse_root() / "modules"
     if modules_base.exists():
         for module_dir in modules_base.iterdir():
             if not module_dir.is_dir():
@@ -481,7 +481,7 @@ def inject_module_paths_runtime() -> int:
     injected = []
 
     # 扫描 ~/.synapse/modules/*/site-packages
-    modules_base = _get_openakita_root() / "modules"
+    modules_base = _get_synapse_root() / "modules"
     if modules_base.exists():
         for module_dir in modules_base.iterdir():
             if not module_dir.is_dir():

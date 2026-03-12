@@ -4,7 +4,7 @@
 
 import { IS_TAURI, IS_CAPACITOR } from "./detect";
 
-const ACCESS_TOKEN_KEY = "openakita_access_token";
+const ACCESS_TOKEN_KEY = "synapse_access_token";
 
 let _tauriRemoteMode = false;
 let _localAuthMode = false;
