@@ -140,13 +140,13 @@
   ; 所有命令通过 nsExec 在隐藏控制台中执行，完全无弹窗。
   ; 策略：Stop-Process 杀主进程 + taskkill /T 杀子进程树（Stop-Process 不杀子进程）。
 
-  ; 1) 杀掉 Setup Center + openakita-server（合并为单次 PowerShell 调用）
+  ; 1) 杀掉 Setup Center + synapse-server（合并为单次 PowerShell 调用）
   DetailPrint "Stopping OpenAkita processes..."
-  nsExec::ExecToLog 'powershell -NoProfile -Command "Get-Process -Name openakita-setup-center,openakita-server -EA SilentlyContinue | Stop-Process -Force"'
+  nsExec::ExecToLog 'powershell -NoProfile -Command "Get-Process -Name openakita-setup-center,synapse-server -EA SilentlyContinue | Stop-Process -Force"'
   Pop $0
   nsExec::ExecToLog 'taskkill /IM openakita-setup-center.exe /T /F'
   Pop $0
-  nsExec::ExecToLog 'taskkill /IM openakita-server.exe /T /F'
+  nsExec::ExecToLog 'taskkill /IM synapse-server.exe /T /F'
   Pop $0
 
   ; 2) 杀掉 PID 文件追踪的服务进程（python 方式启动的后端）
@@ -177,11 +177,11 @@
 
 !macro NSIS_HOOK_PREUNINSTALL
   ; 卸载前：强制杀掉残留进程（合并 PowerShell 调用，nsExec 无弹窗）
-  nsExec::ExecToLog 'powershell -NoProfile -Command "Get-Process -Name openakita-setup-center,openakita-server -EA SilentlyContinue | Stop-Process -Force"'
+  nsExec::ExecToLog 'powershell -NoProfile -Command "Get-Process -Name openakita-setup-center,synapse-server -EA SilentlyContinue | Stop-Process -Force"'
   Pop $0
   nsExec::ExecToLog 'taskkill /IM openakita-setup-center.exe /T /F'
   Pop $0
-  nsExec::ExecToLog 'taskkill /IM openakita-server.exe /T /F'
+  nsExec::ExecToLog 'taskkill /IM synapse-server.exe /T /F'
   Pop $0
   !insertmacro _OpenAkita_KillAllServicePids
   Sleep 2000

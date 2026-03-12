@@ -338,7 +338,7 @@ export function MCPView({ serviceRunning, apiBaseUrl = "http://127.0.0.1:18900" 
                     className="input"
                     value={form.args}
                     onChange={e => setForm({ ...form, args: e.target.value })}
-                    placeholder={'如: -m openakita.mcp_servers.web_search\n或每行一个参数:\n-y\n@anthropic/mcp-server-filesystem\n"C:\\My Path\\dir"'}
+                    placeholder={'如: -m synapse.mcp_servers.web_search\n或每行一个参数:\n-y\n@anthropic/mcp-server-filesystem\n"C:\\My Path\\dir"'}
                     rows={2}
                     style={{ resize: "vertical", fontFamily: "monospace", fontSize: 12 }}
                   />

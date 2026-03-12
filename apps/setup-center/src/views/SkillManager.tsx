@@ -561,7 +561,7 @@ export function SkillManager({
       // Fallback: Tauri 本地命令（仅本地模式，且 HTTP 未成功时）
       if (!data && IS_TAURI && dataMode !== "remote" && venvDir && currentWorkspaceId) {
         try {
-          const raw = await invoke<string>("openakita_list_skills", { venvDir, workspaceId: currentWorkspaceId });
+          const raw = await invoke<string>("synapse_list_skills", { venvDir, workspaceId: currentWorkspaceId });
           data = JSON.parse(raw);
         } catch {
           // Tauri 也失败了——如果 HTTP 也失败了，显示错误
@@ -830,7 +830,7 @@ export function SkillManager({
       }
 
       if (!installed && IS_TAURI && currentWorkspaceId) {
-        await invoke<string>("openakita_install_skill", {
+        await invoke<string>("synapse_install_skill", {
           venvDir,
           workspaceId: currentWorkspaceId,
           url: folderPath,
@@ -1067,7 +1067,7 @@ export function SkillManager({
 
       // 方式2：服务未运行 → Tauri invoke（本地模式）
       if (!installed && IS_TAURI && dataMode !== "remote" && currentWorkspaceId) {
-        await invoke<string>("openakita_install_skill", {
+        await invoke<string>("synapse_install_skill", {
           venvDir,
           workspaceId: currentWorkspaceId,
           url: skill.url,
@@ -1131,7 +1131,7 @@ export function SkillManager({
       }
 
       if (!installed && IS_TAURI && dataMode !== "remote" && currentWorkspaceId) {
-        await invoke<string>("openakita_install_skill", {
+        await invoke<string>("synapse_install_skill", {
           venvDir,
           workspaceId: currentWorkspaceId,
           url,

@@ -25,7 +25,7 @@
     <script>
       (function() {
         try {
-          var pref = localStorage.getItem('openakita-theme-pref') || 'system';
+          var pref = localStorage.getItem('synapse-theme-pref') || 'system';
           var theme = pref;
           if (pref === 'system') {
             theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';

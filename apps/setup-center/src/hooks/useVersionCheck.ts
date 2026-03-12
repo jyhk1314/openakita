@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { getAppVersion, checkForUpdate, relaunchApp, type UpdateInfo } from "../platform";
 
-const GITHUB_REPO = "openakita/openakita";
 
 export function compareSemver(a: string, b: string): number {
   const parse = (v: string) => v.replace(/^v/, "").split(".").map((s) => parseInt(s, 10) || 0);
@@ -39,41 +38,8 @@ export function useVersionCheck() {
   }, [desktopVersion]);
 
   const checkForAppUpdate = useCallback(async () => {
-    const dismissKey = "openakita_release_dismissed";
-    try {
-      const update = await checkForUpdate();
-      if (update) {
-        const dismissed = localStorage.getItem(dismissKey);
-        if (dismissed !== update.version) {
-          setUpdateAvailable(update);
-          setNewRelease({
-            latest: update.version,
-            current: desktopVersion,
-            url: `https://github.com/${GITHUB_REPO}/releases/tag/v${update.version}`,
-          });
-        }
-      }
-    } catch {
-      try {
-        const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
-          signal: AbortSignal.timeout(4000),
-          headers: { Accept: "application/vnd.github.v3+json" },
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-        const tagName = (data.tag_name || "").replace(/^v/, "");
-        if (tagName && compareSemver(tagName, desktopVersion) > 0) {
-          const dismissed = localStorage.getItem(dismissKey);
-          if (dismissed !== tagName) {
-            setNewRelease({
-              latest: tagName,
-              current: desktopVersion,
-              url: data.html_url || `https://github.com/${GITHUB_REPO}/releases`,
-            });
-          }
-        }
-      } catch { /* both methods failed */ }
-    }
+    const dismissKey = "synapse_release_dismissed";
+    // TODO: Implement app update check
   }, [desktopVersion]);
 
   const doDownloadAndInstall = useCallback(async () => {

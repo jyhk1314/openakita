@@ -1,12 +1,12 @@
 export type Theme = "light" | "dark" | "system";
 
 export function initTheme() {
-  const pref = (localStorage.getItem("openakita-theme-pref") as Theme) || "system";
+  const pref = (localStorage.getItem("synapse-theme-pref") as Theme) || "system";
   applyTheme(pref);
 
   const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
   const listener = (e: MediaQueryListEvent) => {
-    const currentPref = localStorage.getItem("openakita-theme-pref") as Theme | null;
+    const currentPref = localStorage.getItem("synapse-theme-pref") as Theme | null;
     if (!currentPref || currentPref === "system") {
       document.documentElement.setAttribute("data-theme", e.matches ? "dark" : "light");
     }
@@ -37,14 +37,14 @@ export function applyTheme(theme: Theme) {
   }
 }
 
-export const THEME_CHANGE_EVENT = "openakita-theme-change";
+export const THEME_CHANGE_EVENT = "synapse-theme-change";
 
 export function setThemePref(theme: Theme) {
-  localStorage.setItem("openakita-theme-pref", theme);
+  localStorage.setItem("synapse-theme-pref", theme);
   applyTheme(theme);
   window.dispatchEvent(new CustomEvent(THEME_CHANGE_EVENT, { detail: theme }));
 }
 
 export function getThemePref(): Theme {
-  return (localStorage.getItem("openakita-theme-pref") as Theme) || "system";
+  return (localStorage.getItem("synapse-theme-pref") as Theme) || "system";
 }

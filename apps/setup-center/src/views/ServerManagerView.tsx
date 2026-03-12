@@ -137,7 +137,7 @@ export function ServerManagerView({
       <div style={containerStyle}>
         <div style={cardStyle}>
           <div style={{ textAlign: "center", marginBottom: 20 }}>
-            <img src={logoUrl} alt="OpenAkita" style={{ width: 48, height: 48, borderRadius: 10, marginBottom: 8 }} />
+            <img src={logoUrl} alt="Synapse" style={{ width: 48, height: 48, borderRadius: 10, marginBottom: 8 }} />
             <h2 style={{ margin: "0 0 4px", fontSize: 18, fontWeight: 600 }}>
               {mode === "edit"
                 ? t("server.editTitle", { defaultValue: "编辑服务器" })
@@ -219,7 +219,7 @@ export function ServerManagerView({
     <div style={containerStyle}>
       <div style={cardStyle}>
         <div style={{ textAlign: "center", marginBottom: 16 }}>
-          <img src={logoUrl} alt="OpenAkita" style={{ width: 48, height: 48, borderRadius: 10, marginBottom: 8 }} />
+          <img src={logoUrl} alt="Synapse" style={{ width: 48, height: 48, borderRadius: 10, marginBottom: 8 }} />
           <h2 style={{ margin: "0 0 4px", fontSize: 18, fontWeight: 600 }}>
             {t("server.listTitle", { defaultValue: "我的服务器" })}
           </h2>

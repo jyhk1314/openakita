@@ -336,7 +336,7 @@ class AgentInstancePool:
     def _get_shared_profile_store():
         """Get the orchestrator's ProfileStore to share the _ephemeral dict."""
         try:
-            from openakita.main import _orchestrator
+            from synapse.main import _orchestrator
             if _orchestrator and hasattr(_orchestrator, "_profile_store"):
                 return _orchestrator._profile_store
         except (ImportError, AttributeError):

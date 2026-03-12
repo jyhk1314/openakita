@@ -351,7 +351,7 @@ export function IMConfigView(props: IMConfigViewProps) {
               </button>
             )}
             <button className="btnSmall" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12 }}
-              onClick={async () => { const ok = await copyToClipboard("https://github.com/anthropic-lab/openakita/blob/main/docs/im-channels.md"); if (ok) setNotice(t("config.imGuideDocCopied")); }}
+              onClick={async () => { const ok = await copyToClipboard("https://alidocs.dingtalk.com/i/nodes/ZX6GRezwJl7D5pKOcQXyrbRaVdqbropQ"); if (ok) setNotice(t("config.imGuideDocCopied")); }}
               title={t("config.imGuideDoc")}
             ><IconBook size={13} />{t("config.imGuideDoc")}</button>
           </div>

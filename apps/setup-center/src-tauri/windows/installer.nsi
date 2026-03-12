@@ -916,14 +916,14 @@ Section Install
   ; 写入 openakita.cmd
   ${If} $R1 = ${BST_CHECKED}
    FileOpen $R4 "$INSTDIR\bin\openakita.cmd" w
-   FileWrite $R4 '@echo off$\r$\n"%~dp0..\resources\openakita-server\openakita-server.exe" %*$\r$\n'
+   FileWrite $R4 '@echo off$\r$\n"%~dp0..\resources\synapse-server\synapse-server.exe" %*$\r$\n'
    FileClose $R4
   ${EndIf}
 
   ; 写入 oa.cmd
   ${If} $R2 = ${BST_CHECKED}
    FileOpen $R4 "$INSTDIR\bin\oa.cmd" w
-   FileWrite $R4 '@echo off$\r$\n"%~dp0..\resources\openakita-server\openakita-server.exe" %*$\r$\n'
+   FileWrite $R4 '@echo off$\r$\n"%~dp0..\resources\synapse-server\synapse-server.exe" %*$\r$\n'
    FileClose $R4
   ${EndIf}
 

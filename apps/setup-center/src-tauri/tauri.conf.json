@@ -16,7 +16,7 @@
       "icons/icon.icns"
     ],
     "resources": [
-      "resources/openakita-server/"
+      "resources/synapse-server/"
     ],
     "macOS": {
       "entitlements": "Entitlements.plist",

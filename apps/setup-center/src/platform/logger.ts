@@ -222,7 +222,7 @@ function buildExportText(
   serverUrl: string,
 ): string {
   const sections: string[] = [];
-  sections.push("====== OpenAkita Log Export ======");
+  sections.push("====== Synapse Log Export ======");
   sections.push(`Date: ${formatDateForExport(Date.now())}`);
   sections.push(`Platform: ${platform}`);
   sections.push(`App Version: ${version}`);
@@ -310,7 +310,7 @@ async function exportLogs(): Promise<ExportResult> {
     serverUrl || apiBase,
   );
 
-  const filename = `openakita-logs-${dateLabel()}.log`;
+  const filename = `synapse-logs-${dateLabel()}.log`;
 
   // --- Tauri: save file + show in folder ---
   if (IS_TAURI) {

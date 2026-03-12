@@ -27,7 +27,7 @@ async def _hot_register_bot(request: Request, bot: dict) -> None:
         logger.info("[Agents API] No running gateway, bot will activate on next restart")
         return
     try:
-        from openakita.main import _create_bot_adapter
+        from synapse.main import _create_bot_adapter
 
         channel_name = _bot_channel_name(bot)
         bot_id = bot.get("id", "")
@@ -664,7 +664,7 @@ async def update_profile_visibility(profile_id: str, body: ProfileVisibilityRequ
 async def get_agent_health():
     """Get health metrics from the orchestrator."""
     try:
-        from openakita.main import _orchestrator
+        from synapse.main import _orchestrator
         if _orchestrator:
             return {"health": _orchestrator.get_health_stats()}
     except Exception:
@@ -686,7 +686,7 @@ async def get_topology(request: Request):
     orchestrator = getattr(request.app.state, "orchestrator", None)
     if orchestrator is None:
         try:
-            from openakita.main import _orchestrator
+            from synapse.main import _orchestrator
             orchestrator = _orchestrator
         except (ImportError, AttributeError):
             pass

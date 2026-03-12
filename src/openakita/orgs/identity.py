@@ -281,7 +281,7 @@ class OrgIdentity:
 
     def _get_profile_prompt(self, profile_id: str) -> str | None:
         try:
-            from openakita.main import _orchestrator
+            from synapse.main import _orchestrator
             if _orchestrator and hasattr(_orchestrator, "_profile_store"):
                 profile = _orchestrator._profile_store.get(profile_id)
                 return profile.custom_prompt if profile else None

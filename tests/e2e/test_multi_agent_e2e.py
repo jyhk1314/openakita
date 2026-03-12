@@ -305,8 +305,8 @@ def orchestrator(profile_store, factory, tmp_path, monkeypatch) -> AgentOrchestr
     orch._log_dir = tmp_path / "delegation_logs"
     orch._log_dir.mkdir(parents=True, exist_ok=True)
 
-    # Inject orchestrator into openakita.main so AgentToolHandler can find it
-    import openakita.main as main_mod
+    # Inject orchestrator into synapse.main so AgentToolHandler can find it
+    import synapse.main as main_mod
     monkeypatch.setattr(main_mod, "_orchestrator", orch, raising=False)
 
     return orch

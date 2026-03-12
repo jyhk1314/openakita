@@ -77,7 +77,7 @@ export function isTokenExpiringSoon(token: string, thresholdSeconds = 3600): boo
 let _refreshPromise: Promise<string | null> | null = null;
 
 /** Dispatched when refresh fails — App listens and redirects to login. */
-export const AUTH_EXPIRED_EVENT = "openakita-auth-expired";
+export const AUTH_EXPIRED_EVENT = "synapse-auth-expired";
 
 export async function refreshAccessToken(apiBase = ""): Promise<string | null> {
   if (_localAuthMode) return null;

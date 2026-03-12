@@ -468,7 +468,7 @@ class AgentToolHandler:
 
     def _get_orchestrator(self):
         try:
-            import openakita.main as _main_mod
+            import synapse.main as _main_mod
             orch = _main_mod._orchestrator
             if orch is None:
                 from ...config import settings

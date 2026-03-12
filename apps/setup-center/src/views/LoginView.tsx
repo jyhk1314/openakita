@@ -80,7 +80,7 @@ export function LoginView({
       >
         <img
           src={logoUrl}
-          alt="OpenAkita"
+          alt="Synapse"
           style={{ width: 56, height: 56, marginBottom: 12, borderRadius: 12 }}
         />
         <h2 style={{
@@ -89,7 +89,7 @@ export function LoginView({
           fontWeight: 600,
           color: "var(--text, #1e293b)",
         }}>
-          OpenAkita Web
+          Synapse Web
         </h2>
         <p style={{
           margin: "0 0 20px",
@@ -244,19 +244,6 @@ export function LoginView({
         }}>
           {t("login.hint")}
         </p>
-        <a
-          href="https://openakita.ai"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            fontSize: 12,
-            color: "var(--brand, #0ea5e9)",
-            textDecoration: "none",
-            opacity: 0.8,
-          }}
-        >
-          openakita.ai - {t("login.downloadDesktop", { defaultValue: "下载桌面端" })}
-        </a>
       </div>
     </div>
   );

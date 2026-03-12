@@ -1,7 +1,7 @@
 """
 运行时环境检测 - 兼容 PyInstaller 打包和常规 Python 环境
 
-PyInstaller 打包后 sys.executable 指向 openakita-server.exe 而非 Python 解释器，
+PyInstaller 打包后 sys.executable 指向 synapse-server.exe 而非 Python 解释器，
 本模块提供统一的运行时环境检测层，确保 pip install / 脚本执行等功能正常工作。
 """
 

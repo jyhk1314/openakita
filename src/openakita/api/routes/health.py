@@ -140,7 +140,7 @@ async def orchestrator_state(request: Request):
     orchestrator = getattr(request.app.state, "orchestrator", None)
     if orchestrator is None:
         try:
-            from openakita.main import _orchestrator
+            from synapse.main import _orchestrator
             orchestrator = _orchestrator
         except (ImportError, AttributeError):
             pass

@@ -957,7 +957,7 @@ class MessageGateway:
                 logger.warning(f"[Gateway] Failed to deploy presets: {e}")
             # Initialize orchestrator — rollback on failure
             try:
-                from openakita.main import _init_orchestrator
+                from synapse.main import _init_orchestrator
                 await _init_orchestrator()
             except Exception as e:
                 logger.error(f"[Gateway] Failed to init orchestrator, rolling back: {e}")

@@ -823,7 +823,7 @@ class OrgRuntime:
     def _get_shared_profile(self, profile_id: str) -> Any:
         """Get an AgentProfile from the shared ProfileStore via orchestrator."""
         try:
-            from openakita.main import _orchestrator
+            from synapse.main import _orchestrator
             if _orchestrator and hasattr(_orchestrator, "_profile_store"):
                 return _orchestrator._profile_store.get(profile_id)
         except (ImportError, AttributeError):

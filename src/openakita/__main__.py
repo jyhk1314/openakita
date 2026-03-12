@@ -12,7 +12,7 @@ if IS_FROZEN:
     ensure_ssl_certs()
     inject_module_paths()
 
-from openakita.main import app
+from synapse.main import app
 
 if __name__ == "__main__":
     app()

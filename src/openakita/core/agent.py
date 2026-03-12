@@ -1192,7 +1192,7 @@ class Agent:
         池中旧版本 Agent 将在下次 get_or_create 时惰性重建。
         """
         try:
-            from openakita.main import _desktop_pool, _orchestrator
+            from synapse.main import _desktop_pool, _orchestrator
             for src in (_desktop_pool, _orchestrator):
                 if src is None:
                     continue

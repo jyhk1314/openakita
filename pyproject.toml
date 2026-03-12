@@ -138,8 +138,8 @@ dev = [
 ]
 
 [project.scripts]
-openakita = "openakita.main:app"
-synapse = "openakita.main:app"
+openakita = "synapse.main:app"
+synapse = "synapse.main:app"
 
 [build-system]
 requires = ["hatchling"]

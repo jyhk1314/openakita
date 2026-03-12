@@ -74,9 +74,9 @@ def _collect_system_info() -> dict:
     # OpenAkita version
     try:
         from openakita import get_version_string
-        info["openakita_version"] = get_version_string()
+        info["synapse_version"] = get_version_string()
     except Exception:
-        info["openakita_version"] = "unknown"
+        info["synapse_version"] = "unknown"
 
     # Key package versions
     packages: dict[str, str] = {}
@@ -508,7 +508,7 @@ async def submit_bug_report(
                 except Exception:
                     pass
 
-    sys_info_brief = f"OS: {sys_info.get('os', '?')} | Python: {sys_info.get('python', '?')} | OpenAkita: {sys_info.get('openakita_version', '?')}"
+    sys_info_brief = f"OS: {sys_info.get('os', '?')} | Python: {sys_info.get('python', '?')} | OpenAkita: {sys_info.get('synapse_version', '?')}"
     return await _try_upload_or_save(
         report_id=report_id,
         report_type="bug",

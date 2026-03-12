@@ -38,7 +38,7 @@ class SubprocessBridge:
         """获取可用的系统 Python 路径（缓存结果）。"""
         if self._python is None:
             py = get_python_executable()
-            # 打包环境下 sys.executable 是 openakita-server.exe，不可用
+            # 打包环境下 sys.executable 是 synapse-server.exe，不可用
             if py and (not IS_FROZEN or py != sys.executable):
                 self._python = py
             else:

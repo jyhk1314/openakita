@@ -331,20 +331,20 @@ fn bundled_backend_dir() -> PathBuf {
 
     // macOS: exe 在 .app/Contents/MacOS/，Tauri 将 resources 放在
     // .app/Contents/Resources/ 下并保留原始目录结构。
-    // tauri.conf.json 配置 "resources": ["resources/openakita-server/"]，
-    // 因此实际路径是 .app/Contents/Resources/resources/openakita-server/
+    // tauri.conf.json 配置 "resources": ["resources/synapse-server/"]，
+    // 因此实际路径是 .app/Contents/Resources/resources/synapse-server/
     #[cfg(target_os = "macos")]
     {
         if let Some(contents_dir) = exe_dir.parent() {
             let primary = contents_dir
                 .join("Resources")
                 .join("resources")
-                .join("openakita-server");
+                .join("synapse-server");
             if primary.exists() {
                 return primary;
             }
             // 兼容可能的简化布局（无额外 resources/ 前缀）
-            let fallback = contents_dir.join("Resources").join("openakita-server");
+            let fallback = contents_dir.join("Resources").join("synapse-server");
             if fallback.exists() {
                 return fallback;
             }
@@ -352,7 +352,7 @@ fn bundled_backend_dir() -> PathBuf {
     }
 
     // Windows / Linux: 主路径 — resources 位于 exe 同级目录
-    let primary = exe_dir.join("resources").join("openakita-server");
+    let primary = exe_dir.join("resources").join("synapse-server");
     if primary.exists() {
         return primary;
     }
@@ -363,11 +363,11 @@ fn bundled_backend_dir() -> PathBuf {
     {
         let mut candidates: Vec<PathBuf> = vec![];
 
-        // deb 常见布局: /usr/lib/<app-name>/resources/openakita-server/
+        // deb 常见布局: /usr/lib/<app-name>/resources/synapse-server/
         // productName = "OpenAkita Desktop" → Tauri deb 使用 kebab-case
         for app_name in &["openakita-desktop", "open-akita-desktop"] {
             candidates.push(PathBuf::from(format!(
-                "/usr/lib/{}/resources/openakita-server",
+                "/usr/lib/{}/resources/synapse-server",
                 app_name
             )));
         }
@@ -380,7 +380,7 @@ fn bundled_backend_dir() -> PathBuf {
                         .join("lib")
                         .join(app_name)
                         .join("resources")
-                        .join("openakita-server"),
+                        .join("synapse-server"),
                 );
             }
         }
@@ -394,10 +394,10 @@ fn bundled_backend_dir() -> PathBuf {
                         .join("lib")
                         .join(app_name)
                         .join("resources")
-                        .join("openakita-server"),
+                        .join("synapse-server"),
                 );
             }
-            candidates.push(mount_root.join("resources").join("openakita-server"));
+            candidates.push(mount_root.join("resources").join("synapse-server"));
         }
 
         for c in &candidates {
@@ -455,16 +455,16 @@ fn get_backend_executable(venv_dir: &str) -> (PathBuf, Vec<String>) {
     // 1. 优先: 内嵌的 PyInstaller 打包后端
     let bundled_dir = bundled_backend_dir();
     let bundled_exe = if cfg!(windows) {
-        bundled_dir.join("openakita-server.exe")
+        bundled_dir.join("synapse-server.exe")
     } else {
-        bundled_dir.join("openakita-server")
+        bundled_dir.join("synapse-server")
     };
     if bundled_exe.exists() {
         return (bundled_exe, vec!["serve".to_string()]);
     }
     // 2. 降级: venv python（开发模式 / 旧安装）
     eprintln!(
-        "[backend] bundled openakita-server not found at: {}\n\
+        "[backend] bundled synapse-server not found at: {}\n\
          [backend] current_exe: {:?}\n\
          [backend] falling back to venv python in: {}",
         bundled_exe.display(),
@@ -472,7 +472,7 @@ fn get_backend_executable(venv_dir: &str) -> (PathBuf, Vec<String>) {
         venv_dir,
     );
     let py = venv_pythonw_path(venv_dir);
-    (py, vec!["-m".into(), "openakita.main".into(), "serve".into()])
+    (py, vec!["-m".into(), "synapse.main".into(), "serve".into()])
 }
 
 /// 构建可选模块路径字符串（自动从 module_definitions 获取模块列表）
@@ -766,9 +766,9 @@ struct BackendAvailability {
 fn check_backend_availability(venv_dir: String) -> BackendAvailability {
     let bundled_dir = bundled_backend_dir();
     let bundled_exe = if cfg!(windows) {
-        bundled_dir.join("openakita-server.exe")
+        bundled_dir.join("synapse-server.exe")
     } else {
-        bundled_dir.join("openakita-server")
+        bundled_dir.join("synapse-server")
     };
     let venv_py = venv_pythonw_path(&venv_dir);
     let bundled = bundled_exe.exists();
@@ -1419,8 +1419,8 @@ fn is_openakita_process(pid: u32) -> bool {
             win::CloseHandle(snap);
         }
 
-        // 进程名包含 python 或 openakita-server → 可能是后端
-        if exe_name.contains("openakita-server") {
+        // 进程名包含 python 或 synapse-server → 可能是后端
+        if exe_name.contains("synapse-server") {
             return true;
         }
         if !exe_name.contains("python") {
@@ -1503,8 +1503,8 @@ fn kill_openakita_orphans() -> Vec<u32> {
                 if name_lower.contains("python") {
                     python_pids.push(pe.th32_process_id);
                 }
-                // PyInstaller 打包后端进程名为 openakita-server.exe
-                if name_lower.contains("openakita-server") {
+                // PyInstaller 打包后端进程名为 synapse-server.exe
+                if name_lower.contains("synapse-server") {
                     bundled_pids.push(pe.th32_process_id);
                 }
                 if unsafe { win::Process32NextW(snap, &mut pe) } == 0 {
@@ -1516,7 +1516,7 @@ fn kill_openakita_orphans() -> Vec<u32> {
             win::CloseHandle(snap);
         }
 
-        // Step 1.5: 直接 kill 孤立的 openakita-server.exe (PyInstaller bundled backend)
+        // Step 1.5: 直接 kill 孤立的 synapse-server.exe (PyInstaller bundled backend)
         for ppid in bundled_pids {
             if is_pid_running(ppid) {
                 let _ = kill_pid(ppid);
@@ -1541,7 +1541,7 @@ fn kill_openakita_orphans() -> Vec<u32> {
             if let Ok(out) = c.output() {
                 let s = String::from_utf8_lossy(&out.stdout).to_lowercase();
                 // 精确匹配模块调用签名
-                if s.contains("openakita.main") && (s.contains(" serve") || s.ends_with("serve")) {
+                if s.contains("synapse.main") && (s.contains(" serve") || s.ends_with("serve")) {
                     if is_pid_running(ppid) {
                         let _ = kill_pid(ppid);
                         killed.push(ppid);
@@ -1552,7 +1552,7 @@ fn kill_openakita_orphans() -> Vec<u32> {
     }
     #[cfg(not(windows))]
     {
-        // 搜索 openakita.main serve (venv 模式) 和 openakita-server (PyInstaller 模式)
+        // 搜索 synapse.main serve (venv 模式) 和 synapse-server (PyInstaller 模式)
         let patterns = [
             "ps aux | grep '[o]penakita\\.main.*serve' | awk '{print $2}'",
             "ps aux | grep '[o]penakita-server' | awk '{print $2}'",
@@ -1608,7 +1608,7 @@ struct OpenAkitaProcess {
 }
 
 #[tauri::command]
-fn openakita_list_processes() -> Vec<OpenAkitaProcess> {
+fn synapse_list_processes() -> Vec<OpenAkitaProcess> {
     let mut out = Vec::new();
     #[cfg(windows)]
     {
@@ -1701,7 +1701,7 @@ fn openakita_list_processes() -> Vec<OpenAkitaProcess> {
 /// 停止所有检测到的 OpenAkita serve 进程。
 /// 返回被停止的 PID 列表。
 #[tauri::command]
-fn openakita_stop_all_processes() -> Vec<u32> {
+fn synapse_stop_all_processes() -> Vec<u32> {
     let mut stopped = Vec::new();
 
     // 第 1 层：按 PID 文件逐一停止
@@ -1998,7 +1998,7 @@ enum VersionCheckResult {
 
 /// DMG 覆盖安装后版本对账：检查运行中后端的版本，必要时替换。
 ///
-/// macOS 上通过 DMG 拖拽覆盖安装后，旧的 openakita-server 进程可能仍在端口上
+/// macOS 上通过 DMG 拖拽覆盖安装后，旧的 synapse-server 进程可能仍在端口上
 /// 服务。新版 app 启动时必须检测版本不匹配并主动替换，否则会一直使用旧后端。
 ///
 /// 此函数合并了「是否有后端在运行」和「版本是否匹配」两个检查，
@@ -2282,7 +2282,7 @@ fn main() {
                         let venv_dir = synapse_root_dir().join("venv").to_string_lossy().to_string();
                         let ws_clone = ws_id.clone();
                         std::thread::spawn(move || {
-                            let _ = openakita_service_start(venv_dir, ws_clone);
+                            let _ = synapse_service_start(venv_dir, ws_clone);
                         AUTO_START_IN_PROGRESS.store(false, Ordering::SeqCst);
                         });
                 }
@@ -2320,28 +2320,28 @@ fn main() {
             pip_uninstall,
             autostart_is_enabled,
             autostart_set_enabled,
-            openakita_service_status,
-            openakita_service_start,
-            openakita_service_stop,
-            openakita_service_log,
-            openakita_check_pid_alive,
+            synapse_service_status,
+            synapse_service_start,
+            synapse_service_stop,
+            synapse_service_log,
+            synapse_check_pid_alive,
             set_tray_backend_status,
             is_backend_auto_starting,
             get_auto_start_backend,
             set_auto_start_backend,
             get_auto_update,
             set_auto_update,
-            openakita_list_skills,
-            openakita_list_providers,
-            openakita_list_models,
-            openakita_version,
-            openakita_health_check_endpoint,
-            openakita_health_check_im,
-            openakita_ensure_channel_deps,
-            openakita_install_skill,
-            openakita_uninstall_skill,
-            openakita_list_marketplace,
-            openakita_get_skill_config,
+            synapse_list_skills,
+            synapse_list_providers,
+            synapse_list_models,
+            synapse_version,
+            synapse_health_check_endpoint,
+            synapse_health_check_im,
+            synapse_ensure_channel_deps,
+            synapse_install_skill,
+            synapse_uninstall_skill,
+            synapse_list_marketplace,
+            synapse_get_skill_config,
             fetch_pypi_versions,
             http_get_json,
             http_proxy_request,
@@ -2352,8 +2352,8 @@ fn main() {
             export_env_backup,
             export_diagnostic_bundle,
             open_external_url,
-            openakita_list_processes,
-            openakita_stop_all_processes,
+            synapse_list_processes,
+            synapse_stop_all_processes,
             is_first_run,
             check_environment,
             check_backend_availability,
@@ -2442,7 +2442,7 @@ struct ServiceLogChunk {
 }
 
 #[tauri::command]
-fn openakita_service_status(workspace_id: String) -> Result<ServiceStatus, String> {
+fn synapse_service_status(workspace_id: String) -> Result<ServiceStatus, String> {
     let pid_file = service_pid_file(&workspace_id);
     let pf = pid_file.to_string_lossy().to_string();
 
@@ -2486,7 +2486,7 @@ fn openakita_service_status(workspace_id: String) -> Result<ServiceStatus, Strin
 /// 除了检查 PID 存活，还验证进程身份和心跳文件。
 /// 如果心跳超过 60 秒没更新且 HTTP 不可达，自动清理进程和 PID 文件。
 #[tauri::command]
-fn openakita_check_pid_alive(workspace_id: String) -> Result<bool, String> {
+fn synapse_check_pid_alive(workspace_id: String) -> Result<bool, String> {
     // 优先 MANAGED_CHILD（由 Tauri 直接管理的子进程，不需要额外校验身份）
     {
         let mut guard = MANAGED_CHILD.lock().unwrap();
@@ -2754,7 +2754,7 @@ fn read_env_kv(path: &Path) -> Vec<(String, String)> {
 }
 
 #[tauri::command]
-fn openakita_service_start(venv_dir: String, workspace_id: String) -> Result<ServiceStatus, String> {
+fn synapse_service_start(venv_dir: String, workspace_id: String) -> Result<ServiceStatus, String> {
     fs::create_dir_all(run_dir()).map_err(|e| format!("create run dir failed: {e}"))?;
     let pid_file = service_pid_file(&workspace_id);
     let pf = pid_file.to_string_lossy().to_string();
@@ -2827,7 +2827,7 @@ fn openakita_service_start(venv_dir: String, workspace_id: String) -> Result<Ser
     let (backend_exe, backend_args) = get_backend_executable(&venv_dir);
     if !backend_exe.exists() {
         let bundled_dir = bundled_backend_dir();
-        let bundled_name = if cfg!(windows) { "openakita-server.exe" } else { "openakita-server" };
+        let bundled_name = if cfg!(windows) { "synapse-server.exe" } else { "synapse-server" };
         return Err(format!(
             "后端可执行文件不存在: {}\n\
              已检查路径:\n  - bundled: {}/{}\n  - venv: {}\n\
@@ -2956,7 +2956,7 @@ fn openakita_service_start(venv_dir: String, workspace_id: String) -> Result<Ser
 }
 
 #[tauri::command]
-fn openakita_service_stop(workspace_id: String) -> Result<ServiceStatus, String> {
+fn synapse_service_stop(workspace_id: String) -> Result<ServiceStatus, String> {
     let pid_file = service_pid_file(&workspace_id);
     let port = read_workspace_api_port(&workspace_id);
     let effective_port = port.unwrap_or(18900);
@@ -2996,7 +2996,7 @@ fn openakita_service_stop(workspace_id: String) -> Result<ServiceStatus, String>
 }
 
 #[tauri::command]
-fn openakita_service_log(workspace_id: String, tail_bytes: Option<u64>) -> Result<ServiceLogChunk, String> {
+fn synapse_service_log(workspace_id: String, tail_bytes: Option<u64>) -> Result<ServiceLogChunk, String> {
     let ws_dir = workspace_dir(&workspace_id);
     let log_path = ws_dir.join("logs").join("openakita-serve.log");
     let path_str = log_path.to_string_lossy().to_string();
@@ -3855,7 +3855,7 @@ struct PythonContractResult {
 struct PythonEnvironmentSnapshot {
     platform: String,
     bundled_python_path: Option<String>,
-    openakita_version: Option<String>,
+    synapse_version: Option<String>,
 }
 
 fn python_diag_trace_id() -> String {
@@ -3881,7 +3881,7 @@ fn python_diag_generated_at() -> String {
 ///   1. If the backend is running → call GET /api/diagnostics (the backend
 ///      self-reports, no fragile _internal/python3 invocation needed).
 ///   2. If the backend is NOT running → basic file-existence check on the
-///      bundled openakita-server binary.
+///      bundled synapse-server binary.
 #[tauri::command]
 fn diagnose_python_env(venv_dir: String) -> PythonDiagnostic {
     let _ = venv_dir;
@@ -3930,9 +3930,9 @@ fn diagnose_python_env(venv_dir: String) -> PythonDiagnostic {
     // --- Strategy 2: backend not reachable — static file check ---
     let bundled_dir = bundled_backend_dir();
     let bundled_exe = if cfg!(windows) {
-        bundled_dir.join("openakita-server.exe")
+        bundled_dir.join("synapse-server.exe")
         } else {
-        bundled_dir.join("openakita-server")
+        bundled_dir.join("synapse-server")
     };
     let internal_dir = bundled_dir.join("_internal");
 
@@ -3989,7 +3989,7 @@ fn diagnose_python_env(venv_dir: String) -> PythonDiagnostic {
         environment: PythonEnvironmentSnapshot {
             platform: format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH),
             bundled_python_path: None,
-            openakita_version: None,
+            synapse_version: None,
         },
         trace_id,
         generated_at: python_diag_generated_at(),
@@ -4012,7 +4012,7 @@ fn make_backend_starting_diagnostic(trace_id: String, port: u16, phase: &str) ->
         environment: PythonEnvironmentSnapshot {
             platform: format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH),
             bundled_python_path: None,
-            openakita_version: None,
+            synapse_version: None,
         },
         trace_id,
         generated_at: python_diag_generated_at(),
@@ -4035,7 +4035,7 @@ fn make_backend_api_unreachable_diagnostic(trace_id: String, port: u16) -> Pytho
         environment: PythonEnvironmentSnapshot {
             platform: format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH),
             bundled_python_path: None,
-            openakita_version: None,
+            synapse_version: None,
         },
         trace_id,
         generated_at: python_diag_generated_at(),
@@ -4133,7 +4133,7 @@ fn parse_diagnostics_json(json: &serde_json::Value) -> Option<PythonDiagnostic> 
             .unwrap_or("")
             .to_string(),
         bundled_python_path: None,
-        openakita_version: env_obj
+        synapse_version: env_obj
             .and_then(|e| e.get("openakitaVersion"))
             .and_then(|v| v.as_str())
             .map(String::from),
@@ -4165,7 +4165,7 @@ fn install_bundled_python_sync(
     _log_path: Option<PathBuf>,
 ) -> Result<BundledPythonInstallResult, String> {
     let py = bundled_internal_python_path().ok_or_else(|| {
-        "安装包内置 Python 不可用。请重新安装 OpenAkita 以恢复 resources/openakita-server/_internal".to_string()
+        "安装包内置 Python 不可用。请重新安装 OpenAkita 以恢复 resources/synapse-server/_internal".to_string()
     })?;
     let bundled_dir = bundled_backend_dir();
     Ok(BundledPythonInstallResult {
@@ -4548,7 +4548,7 @@ fn run_python_module_json(
 }
 
 #[tauri::command]
-async fn openakita_list_providers(venv_dir: String) -> Result<String, String> {
+async fn synapse_list_providers(venv_dir: String) -> Result<String, String> {
     spawn_blocking_result(move || {
         run_python_module_json(&venv_dir, "openakita.setup_center.bridge", &["list-providers"], &[])
     })
@@ -4556,7 +4556,7 @@ async fn openakita_list_providers(venv_dir: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn openakita_list_skills(venv_dir: String, workspace_id: String) -> Result<String, String> {
+async fn synapse_list_skills(venv_dir: String, workspace_id: String) -> Result<String, String> {
     spawn_blocking_result(move || {
         let wd = workspace_dir(&workspace_id);
         let wd_str = wd.to_string_lossy().to_string();
@@ -4571,7 +4571,7 @@ async fn openakita_list_skills(venv_dir: String, workspace_id: String) -> Result
 }
 
 #[tauri::command]
-async fn openakita_list_models(
+async fn synapse_list_models(
     venv_dir: String,
     api_type: String,
     base_url: String,
@@ -4596,7 +4596,7 @@ async fn openakita_list_models(
 }
 
 #[tauri::command]
-async fn openakita_version(venv_dir: String) -> Result<String, String> {
+async fn synapse_version(venv_dir: String) -> Result<String, String> {
     spawn_blocking_result(move || {
         // 1. 尝试从打包后端读取 _bundled_version.txt（最快且无需 Python）
         let bundled = bundled_backend_dir();
@@ -4638,7 +4638,7 @@ async fn openakita_version(venv_dir: String) -> Result<String, String> {
 /// Health check LLM endpoints via Python bridge.
 /// Returns JSON array of health results.
 #[tauri::command]
-async fn openakita_health_check_endpoint(
+async fn synapse_health_check_endpoint(
     venv_dir: String,
     workspace_id: String,
     endpoint_name: Option<String>,
@@ -4665,7 +4665,7 @@ async fn openakita_health_check_endpoint(
 /// Health check IM channels via Python bridge.
 /// Returns JSON array of health results.
 #[tauri::command]
-async fn openakita_health_check_im(
+async fn synapse_health_check_im(
     venv_dir: String,
     workspace_id: String,
     channel: Option<String>,
@@ -4692,7 +4692,7 @@ async fn openakita_health_check_im(
 /// Ensure IM channel dependencies are installed via Python bridge.
 /// Returns JSON with status/installed/message.
 #[tauri::command]
-async fn openakita_ensure_channel_deps(
+async fn synapse_ensure_channel_deps(
     venv_dir: String,
     workspace_id: String,
 ) -> Result<String, String> {
@@ -4711,7 +4711,7 @@ async fn openakita_ensure_channel_deps(
 
 /// Install a skill from URL/path.
 #[tauri::command]
-async fn openakita_install_skill(
+async fn synapse_install_skill(
     venv_dir: String,
     workspace_id: String,
     url: String,
@@ -4733,7 +4733,7 @@ async fn openakita_install_skill(
 
 /// Uninstall a skill by name.
 #[tauri::command]
-async fn openakita_uninstall_skill(
+async fn synapse_uninstall_skill(
     venv_dir: String,
     workspace_id: String,
     skill_name: String,
@@ -4755,7 +4755,7 @@ async fn openakita_uninstall_skill(
 
 /// List marketplace skills.
 #[tauri::command]
-async fn openakita_list_marketplace(
+async fn synapse_list_marketplace(
     venv_dir: String,
 ) -> Result<String, String> {
     spawn_blocking_result(move || {
@@ -4767,7 +4767,7 @@ async fn openakita_list_marketplace(
 
 /// Get skill config schema.
 #[tauri::command]
-async fn openakita_get_skill_config(
+async fn synapse_get_skill_config(
     venv_dir: String,
     workspace_id: String,
     skill_name: String,
@@ -5365,7 +5365,7 @@ fn generate_wrapper_content(backend_exe: &Path) -> String {
     #[cfg(target_os = "windows")]
     {
         let _ = backend_exe; // Windows 使用相对路径，不需要绝对路径
-        format!("@echo off\r\n\"%~dp0..\\resources\\openakita-server\\openakita-server.exe\" %*\r\n")
+        format!("@echo off\r\n\"%~dp0..\\resources\\synapse-server\\synapse-server.exe\" %*\r\n")
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -5894,8 +5894,8 @@ mod tests {
         let dir = bundled_backend_dir();
         assert!(!dir.to_string_lossy().is_empty());
         assert!(
-            dir.to_string_lossy().contains("openakita-server"),
-            "bundled_backend_dir should contain 'openakita-server': {:?}",
+            dir.to_string_lossy().contains("synapse-server"),
+            "bundled_backend_dir should contain 'synapse-server': {:?}",
             dir
         );
     }
@@ -5916,7 +5916,7 @@ mod tests {
             exe_str
         );
         assert!(args.contains(&"-m".to_string()));
-        assert!(args.contains(&"openakita.main".to_string()));
+        assert!(args.contains(&"synapse.main".to_string()));
         assert!(args.contains(&"serve".to_string()));
     }
 

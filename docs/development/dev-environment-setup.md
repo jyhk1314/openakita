@@ -103,7 +103,17 @@ npm run tauri dev
 
 桌面窗口会热重载，便于联调后端 API 与前端功能。
 
-### 5. 进入前端部署引导
+### 5. 生成/更新应用图标
+
+更换应用图标源图后，需重新生成各平台图标（含 Windows `.ico`、macOS `.icns` 等）：
+
+```bash
+npm run tauri icon src-tauri/icons/icon.png
+```
+
+在 `apps/setup-center` 目录下执行，输出到 `src-tauri/icons/`。
+
+### 6. 进入前端部署引导
 
 在 Tauri 桌面窗口中：
 

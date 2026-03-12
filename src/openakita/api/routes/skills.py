@@ -248,7 +248,7 @@ async def update_skill_config(request: Request):
 
 @router.post("/api/skills/install")
 async def install_skill(request: Request):
-    """安装技能（远程模式替代 Tauri openakita_install_skill 命令）。
+    """安装技能（远程模式替代 Tauri synapse_install_skill 命令）。
 
     POST body: { "url": "github:user/repo/skill" }
     安装完成后自动重新加载技能并应用 allowlist。

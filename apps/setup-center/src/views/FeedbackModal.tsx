@@ -9,7 +9,7 @@ type FeedbackMode = "bug" | "feature";
 type SystemInfo = {
   os?: string;
   python?: string;
-  openakita_version?: string;
+  synapse_version?: string;
   packages?: Record<string, string>;
   memory_total_gb?: number;
   disk_free_gb?: number;
@@ -496,7 +496,7 @@ export function FeedbackModal({ open, onClose, apiBase, initialMode = "bug" }: F
                     setDownloading(true);
                     const url = submitResult.downloadUrl;
                     const ts = Math.floor(Date.now() / 1000);
-                    const filename = `openakita-feedback-${ts}.zip`;
+                    const filename = `synapse-feedback-${ts}.zip`;
                     try {
                       const dest = await downloadFile(url, filename);
                       await showInFolder(dest);

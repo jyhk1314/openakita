@@ -1,7 +1,7 @@
 {
-  "name": "OpenAkita",
-  "short_name": "OpenAkita",
-  "description": "AI Agent - Web Interface",
+  "name": "Synapse",
+  "short_name": "Synapse",
+  "description": "AI Developer Agent - Web Interface",
   "start_url": "/web/",
   "scope": "/web/",
   "display": "standalone",

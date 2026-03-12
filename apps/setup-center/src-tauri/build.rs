@@ -5,6 +5,9 @@ fn main() {
     // 注意：这里生成的只是占位图标。正式发布建议用 `tauri icon` 生成完整图标集。
     ensure_placeholder_windows_icon();
 
+    // 图标变更时强制重新嵌入，避免任务栏仍显示旧图标
+    println!("cargo:rerun-if-changed=icons/icon.ico");
+
     ensure_resource_dir();
     ensure_gitignored_placeholders();
 
@@ -12,7 +15,7 @@ fn main() {
 }
 
 fn ensure_resource_dir() {
-    let dir = std::path::Path::new("resources").join("openakita-server");
+    let dir = std::path::Path::new("resources").join("synapse-server");
     if !dir.exists() {
         let _ = std::fs::create_dir_all(&dir);
     }

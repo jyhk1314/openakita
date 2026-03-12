@@ -394,9 +394,9 @@ async def write_agent_mode(body: AgentModeRequest, request: Request):
 
     if body.enabled and not old:
         try:
-            from openakita.main import _init_orchestrator
+            from synapse.main import _init_orchestrator
             await _init_orchestrator()
-            from openakita.main import _orchestrator
+            from synapse.main import _orchestrator
             if _orchestrator is not None:
                 request.app.state.orchestrator = _orchestrator
                 logger.info("[Config API] Orchestrator initialized and bound to app.state")
@@ -458,7 +458,7 @@ async def list_providers_api():
 
 @router.post("/api/config/list-models")
 async def list_models_api(body: ListModelsRequest):
-    """拉取 LLM 端点的模型列表（远程模式替代 Tauri openakita_list_models 命令）。
+    """拉取 LLM 端点的模型列表（远程模式替代 Tauri synapse_list_models 命令）。
 
     直接复用 bridge.list_models 的逻辑，在后端进程内异步调用，无需 subprocess。
     """

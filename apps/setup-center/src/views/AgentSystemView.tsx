@@ -68,7 +68,7 @@ export function AgentSystemView(props: AgentSystemViewProps) {
         {/* Core Parameters */}
         <div className="label">{t("config.agentCore")}</div>
         <div className="grid3" style={{ marginTop: 4 }}>
-          <FT k="AGENT_NAME" label={t("config.agentName")} placeholder="OpenAkita" />
+          <FT k="AGENT_NAME" label={t("config.agentName")} placeholder="Synapse" />
           <FT k="MAX_ITERATIONS" label={t("config.agentMaxIter")} placeholder="300" help={t("config.agentMaxIterHelp")} />
           <FS k="THINKING_MODE" label={t("config.agentThinking")} options={[
             { value: "auto", label: "auto (自动判断)" },

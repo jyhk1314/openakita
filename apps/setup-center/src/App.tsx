@@ -308,7 +308,7 @@ export function App() {
   } | null>(null);
 
   // CLI 命令注册状态
-  const [obCliOpenakita, setObCliOpenakita] = useState(true);
+  const [obCliSynapse, setObCliSynapse] = useState(true);
   const [obCliOa, setObCliOa] = useState(true);
   const [obCliAddToPath, setObCliAddToPath] = useState(true);
   const [obAutostart, setObAutostart] = useState(true); // 开机自启，默认勾选
@@ -429,7 +429,6 @@ export function App() {
   const [pythonCandidates, setPythonCandidates] = useState<PythonCandidate[]>([]);
   const [selectedPythonIdx, setSelectedPythonIdx] = useState<number>(-1);
   const [venvStatus, setVenvStatus] = useState<string>("");
-  const [installLog, setInstallLog] = useState<string>("");
   const [installLiveLog, setInstallLiveLog] = useState<string>("");
   const [installProgress, setInstallProgress] = useState<{ stage: string; percent: number } | null>(null);
   const [extras, setExtras] = useState<string>("all");
@@ -438,11 +437,6 @@ export function App() {
   const [customIndexUrl, setCustomIndexUrl] = useState<string>("");
   const [venvReady, setVenvReady] = useState(false);
   const [openakitaInstalled, setOpenakitaInstalled] = useState(false);
-  const [installSource, setInstallSource] = useState<InstallSource>("pypi");
-  const [githubRepo, setGithubRepo] = useState<string>("openakita/openakita");
-  const [githubRefType, setGithubRefType] = useState<"branch" | "tag">("branch");
-  const [githubRef, setGithubRef] = useState<string>("main");
-  const [localSourcePath, setLocalSourcePath] = useState<string>("");
   const [pypiVersions, setPypiVersions] = useState<string[]>([]);
   const [pypiVersionsLoading, setPypiVersionsLoading] = useState(false);
   const [selectedPypiVersion, setSelectedPypiVersion] = useState<string>(""); // "" = 推荐同版本
@@ -671,14 +665,14 @@ export function App() {
           try {
             const plat = await invoke<PlatformInfo>("get_platform_info");
             const vd = joinPath(plat.openakitaRootDir, "venv");
-            const v = await invoke<string>("openakita_version", { venvDir: vd });
+            const v = await invoke<string>("synapse_version", { venvDir: vd });
             if (!cancelled && v) {
               setOpenakitaInstalled(true);
               setOpenakitaVersion(v);
               setVenvStatus(`安装完成 (v${v})`);
               setVenvReady(true);
             }
-          } catch { /* venv not found or openakita not installed */ }
+          } catch { /* venv not found or synapse not installed */ }
 
           try {
             const raw = await readWorkspaceFile("data/llm_endpoints.json");
@@ -856,7 +850,7 @@ export function App() {
 
         if (IS_TAURI && dataMode !== "remote") {
           try {
-            const alive = await invoke<boolean>("openakita_check_pid_alive", { workspaceId: currentWorkspaceId });
+            const alive = await invoke<boolean>("synapse_check_pid_alive", { workspaceId: currentWorkspaceId });
             if (alive) {
               if (heartbeatStateRef.current !== "degraded") {
                 heartbeatStateRef.current = "degraded";
@@ -1079,29 +1073,6 @@ export function App() {
     return parsed;
   }
 
-  async function doCreateWorkspace() {
-    setBusy("创建工作区...");
-    setError(null);
-    try {
-      if (IS_WEB) {
-        setError("工作区管理暂不支持 Web 模式，请在桌面端操作");
-        return;
-      } else {
-        const ws = await invoke<WorkspaceSummary>("create_workspace", {
-          id: newWsId,
-          name: newWsName.trim(),
-          setCurrent: true,
-        });
-        await refreshAll();
-        setCurrentWorkspaceId(ws.id);
-      }
-      envLoadedForWs.current = null;
-      setNotice(`已创建工作区：${newWsName.trim()}（${newWsId}）`);
-    } finally {
-      setBusy(null);
-    }
-  }
-
   async function doSetCurrentWorkspace(id: string) {
     setBusy("切换工作区...");
     setError(null);
@@ -1125,66 +1096,6 @@ export function App() {
     }
   }
 
-  async function doDetectPython() {
-    setError(null);
-    setBusy("检测项目 Python 环境...");
-    try {
-      const cands = await invoke<PythonCandidate[]>("detect_python");
-      setPythonCandidates(cands);
-      const firstUsable = cands.findIndex((c) => c.isUsable);
-      setSelectedPythonIdx(firstUsable);
-      setNotice(firstUsable >= 0 ? "已找到可用 Python（3.11+）" : "未找到可用内置 Python（请检查安装包完整性）");
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function doInstallEmbeddedPython() {
-    setError(null);
-    setBusy("检查内置 Python...");
-    try {
-      setVenvStatus("检查内置 Python 中...");
-      const r = await invoke<BundledPythonInstallResult>("install_bundled_python", { pythonSeries: "3.11" });
-      const cand: PythonCandidate = {
-        command: r.pythonCommand,
-        versionText: `bundled (${r.tag}): ${r.assetName}`,
-        isUsable: true,
-      };
-      setPythonCandidates((prev) => [cand, ...prev.filter((p) => p.command.join(" ") !== cand.command.join(" "))]);
-      setSelectedPythonIdx(0);
-      setVenvStatus(`内置 Python 就绪：${r.pythonPath}`);
-      setNotice("内置 Python 可用，可以继续创建 venv");
-    } catch (e) {
-      setError(String(e));
-      setVenvStatus(`内置 Python 不可用：${String(e)}`);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function doCreateVenv() {
-    if (!canUsePython) return;
-    setError(null);
-    setBusy("创建 venv...");
-    try {
-      setVenvStatus("创建 venv 中...");
-      const py = pythonCandidates[selectedPythonIdx].command;
-      await invoke<string>("create_venv", { pythonCommand: py, venvDir });
-      setVenvStatus(`venv 就绪：${venvDir}`);
-      setVenvReady(true);
-      setOpenakitaInstalled(false);
-      setNotice("venv 已准备好，可以安装 Synapse");
-      await persistPythonEnvConfig(venvDir);
-    } catch (e) {
-      setError(String(e));
-      setVenvStatus(`创建 venv 失败：${String(e)}`);
-    } finally {
-      setBusy(null);
-    }
-  }
-
   async function persistPythonEnvConfig(venvPath: string) {
     if (!currentWorkspaceId || !IS_TAURI) return;
     try {
@@ -1199,40 +1110,6 @@ export function App() {
       });
     } catch {
       // best-effort
-    }
-  }
-
-  async function doCreateVenvFromPython() {
-    if (!canUsePython) return;
-    setError(null);
-    setBusy(t("config.pyCreatingVenv"));
-    try {
-      setVenvStatus(t("config.pyCreatingVenv"));
-      const py = pythonCandidates[selectedPythonIdx].command;
-      await invoke<string>("create_venv", { pythonCommand: py, venvDir });
-      setVenvStatus(t("config.pyVenvCreated", { path: venvDir }));
-      setVenvReady(true);
-      setOpenakitaInstalled(false);
-      await persistPythonEnvConfig(venvDir);
-      setNotice(t("config.pyVenvReady"));
-    } catch (e) {
-      setError(String(e));
-      setVenvStatus(t("config.pyVenvCreateFail") + `: ${String(e)}`);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function doDiagnosePython() {
-    setBusy(t("config.pyDiagnoseRunning"));
-    setPyDiag(null);
-    try {
-      const d = await invoke<NonNullable<typeof pyDiag>>("diagnose_python_env", { venvDir });
-      setPyDiag(d);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(null);
     }
   }
 
@@ -1279,124 +1156,6 @@ export function App() {
     }
   }
 
-  function doRepairPython() {
-    if (pyDiag?.summary === "healthy") {
-      askConfirm(t("adv.repairHealthyConfirm"), () => executeRepairPython(true));
-      return;
-    }
-    executeRepairPython(false);
-  }
-
-  async function doFetchPypiVersions() {
-    setPypiVersionsLoading(true);
-    setPypiVersions([]);
-    try {
-      const raw = await invoke<string>("fetch_pypi_versions", {
-        package: "openakita",
-        indexUrl: indexUrl.trim() ? indexUrl.trim() : null,
-      });
-      const list = JSON.parse(raw) as string[];
-      setPypiVersions(list);
-      // Auto-select: match Setup Center version if available
-      if (appVersion && list.includes(appVersion)) {
-        setSelectedPypiVersion(appVersion);
-      } else if (list.length > 0) {
-        setSelectedPypiVersion(list[0]); // latest
-      }
-    } catch (e: any) {
-      setError(`获取 PyPI 版本列表失败：${e}`);
-    } finally {
-      setPypiVersionsLoading(false);
-    }
-  }
-
-  async function doSetupVenvAndInstallOpenAkita() {
-    if (!canUsePython) {
-      setError("请先在 Python 步骤安装/检测并选择一个可用 Python（3.11+）。");
-      return;
-    }
-    setError(null);
-    setNotice(null);
-    setInstallLiveLog("");
-    setInstallProgress({ stage: "准备开始", percent: 1 });
-    setBusy("创建 venv 并安装 Synapse...");
-    try {
-      // 1) create venv (idempotent)
-      setInstallProgress({ stage: "创建 venv", percent: 10 });
-      setVenvStatus("创建 venv 中...");
-      const py = pythonCandidates[selectedPythonIdx].command;
-      await invoke<string>("create_venv", { pythonCommand: py, venvDir });
-      setVenvReady(true);
-      setOpenakitaInstalled(false);
-      setVenvStatus(`venv 就绪：${venvDir}`);
-      setInstallProgress({ stage: "venv 就绪", percent: 30 });
-      await persistPythonEnvConfig(venvDir);
-
-      // 2) pip install
-      setInstallProgress({ stage: "pip 安装", percent: 35 });
-      setVenvStatus("安装 Synapse 中（pip）...");
-      setInstallLog("");
-      const ex = extras.trim();
-      const extrasPart = ex ? `[${ex}]` : "";
-      const spec = (() => {
-        if (installSource === "github") {
-          const repo = githubRepo.trim() || "openakita/openakita";
-          const ref = githubRef.trim() || "main";
-          const kind = githubRefType;
-          const url =
-            kind === "tag"
-              ? `https://github.com/${repo}/archive/refs/tags/${ref}.zip`
-              : `https://github.com/${repo}/archive/refs/heads/${ref}.zip`;
-          return `openakita${extrasPart} @ ${url}`;
-        }
-        if (installSource === "local") {
-          const p = localSourcePath.trim();
-          if (!p) {
-            throw new Error("请选择/填写本地源码路径（例如本仓库根目录）");
-          }
-          const url = toFileUrl(p);
-          if (!url) {
-            throw new Error("本地路径无效");
-          }
-          return `openakita${extrasPart} @ ${url}`;
-        }
-        // PyPI mode: append ==version if a specific version is selected
-        const ver = selectedPypiVersion.trim();
-        if (ver) {
-          return `openakita${extrasPart}==${ver}`;
-        }
-        return `openakita${extrasPart}`;
-      })();
-      const log = await invoke<string>("pip_install", {
-        venvDir,
-        packageSpec: spec,
-        indexUrl: indexUrl.trim() ? indexUrl.trim() : null,
-      });
-      setInstallLog(String(log || ""));
-      setOpenakitaInstalled(true);
-      setVenvStatus(`安装完成：${spec}`);
-      setInstallProgress({ stage: "安装完成", percent: 100 });
-      setNotice("Synapse 已安装，可以读取服务商列表并配置端点");
-
-      // 3) verify by attempting to list providers (makes failures visible early)
-      try {
-        await doLoadProviders();
-      } catch {
-        // ignore; doLoadProviders already sets error
-      }
-    } catch (e) {
-      const msg = String(e);
-      setError(msg);
-      setVenvStatus(`安装失败：${msg}`);
-      setInstallLog("");
-      if (msg.includes("缺少 Setup Center 所需模块") || msg.includes("No module named 'openakita.setup_center'")) {
-        setNotice("当前安装的包不包含 Setup Center 模块。建议切换“安装来源”为 GitHub 或本地源码，然后重新安装。");
-      }
-    } finally {
-      setBusy(null);
-    }
-  }
-
   async function doLoadProviders() {
     setError(null);
     setBusy("读取服务商列表...");
@@ -1415,7 +1174,7 @@ export function App() {
       } else {
         // ── 后端未运行 → Tauri invoke，失败则用内置列表 ──
         try {
-          const raw = await invoke<string>("openakita_list_providers", { venvDir });
+          const raw = await invoke<string>("synapse_list_providers", { venvDir });
           parsed = JSON.parse(raw) as ProviderInfo[];
         } catch {
           parsed = BUILTIN_PROVIDERS;
@@ -1440,7 +1199,7 @@ export function App() {
       // 非关键：获取版本号（仅后端未运行时尝试 venv 方式）
       if (!shouldUseHttpApi()) {
         try {
-          const v = await invoke<string>("openakita_version", { venvDir });
+          const v = await invoke<string>("synapse_version", { venvDir });
           setOpenakitaVersion(v || "");
         } catch {
           setOpenakitaVersion("");
@@ -1668,7 +1427,7 @@ export function App() {
     // ── 后端未运行 / 后端不可达 → 本地回退 ──
     // 回退 1：Tauri invoke → Python bridge（开发模式 / 有 venv 时）
     try {
-      const raw = await invoke<string>("openakita_list_models", {
+      const raw = await invoke<string>("synapse_list_models", {
         venvDir,
         apiType: params.apiType,
         baseUrl: params.baseUrl,
@@ -1677,7 +1436,7 @@ export function App() {
       });
       return JSON.parse(raw) as ListedModel[];
     } catch (e) {
-      logger.warn("App", "openakita_list_models via Python bridge failed, using direct fetch", { error: String(e) });
+      logger.warn("App", "synapse_list_models via Python bridge failed, using direct fetch", { error: String(e) });
     }
     // 回退 2：前端直连服务商 API（打包模式，无 venv，onboarding 阶段）
     return fetchModelsDirectly(params);
@@ -1980,7 +1739,7 @@ export function App() {
       // Step 1.5: 自动安装已启用 IM 通道缺失的依赖（非阻塞，失败不影响重启）
       if (IS_TAURI && venvDir && currentWorkspaceId) {
         try {
-          await invoke("openakita_ensure_channel_deps", {
+          await invoke("synapse_ensure_channel_deps", {
             venvDir,
             workspaceId: currentWorkspaceId,
           });
@@ -2020,7 +1779,7 @@ export function App() {
 
         // 3b. PID 级别兜底确保进程退出
         try {
-          await invoke("openakita_service_stop", { workspaceId: wsId });
+          await invoke("synapse_service_stop", { workspaceId: wsId });
         } catch { /* PID 文件可能不存在 */ }
 
         // 3c. 等待旧服务完全关闭
@@ -2030,7 +1789,7 @@ export function App() {
         setRestartOverlay({ phase: "waiting" });
         try {
           const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>(
-            "openakita_service_start", { venvDir, workspaceId: wsId },
+            "synapse_service_start", { venvDir, workspaceId: wsId },
           );
           setServiceStatus(ss);
         } catch (e) {
@@ -3018,7 +2777,7 @@ export function App() {
         .then((data) => {
           const info: Record<string, string> = {};
           if (data.os) info["OS"] = data.os;
-          if (data.openakita_version) info["Backend"] = data.openakita_version;
+          if (data.synapse_version) info["Backend"] = data.synapse_version;
           setAdvSysInfo(info);
         })
         .catch(() => {})
@@ -3237,7 +2996,7 @@ export function App() {
           // Fall back to Tauri for skills (local mode only)
           if (effectiveDataMode !== "remote" && currentWorkspaceId) {
             try {
-              const skillsRaw = await invoke<string>("openakita_list_skills", { venvDir, workspaceId: currentWorkspaceId });
+              const skillsRaw = await invoke<string>("synapse_list_skills", { venvDir, workspaceId: currentWorkspaceId });
               const skillsParsed = JSON.parse(skillsRaw) as { count: number; skills: any[] };
               const skills = Array.isArray(skillsParsed.skills) ? skillsParsed.skills : [];
               const systemCount = skills.filter((s) => !!s.system).length;
@@ -3257,7 +3016,7 @@ export function App() {
         // was started externally (not via this app).
         if (effectiveDataMode !== "remote" && currentWorkspaceId) {
           try {
-            const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_status", { workspaceId: currentWorkspaceId });
+            const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("synapse_service_status", { workspaceId: currentWorkspaceId });
             setServiceStatus((prev) => ({
               running: prev?.running ?? serviceAlive,
               pid: ss.pid ?? prev?.pid ?? null,
@@ -3308,9 +3067,9 @@ export function App() {
         .filter((e: any) => e.name);
       setEndpointSummary(list);
 
-      // skills (requires openakita installed in venv)
+      // skills (requires synapse installed in venv)
       try {
-        const skillsRaw = await invoke<string>("openakita_list_skills", { venvDir, workspaceId: currentWorkspaceId });
+        const skillsRaw = await invoke<string>("synapse_list_skills", { venvDir, workspaceId: currentWorkspaceId });
         const skillsParsed = JSON.parse(skillsRaw) as { count: number; skills: any[] };
         const skills = Array.isArray(skillsParsed.skills) ? skillsParsed.skills : [];
         const systemCount = skills.filter((s) => !!s.system).length;
@@ -3336,7 +3095,7 @@ export function App() {
       // This is the fallback when the HTTP API is not alive.
       if (effectiveDataMode !== "remote") {
         try {
-          const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_status", {
+          const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("synapse_service_status", {
             workspaceId: currentWorkspaceId,
           });
           setServiceStatus(ss);
@@ -3360,7 +3119,7 @@ export function App() {
       // ── Multi-process detection (local mode only) ──
       if (effectiveDataMode !== "remote") {
         try {
-          const procs = await invoke<Array<{ pid: number; cmd: string }>>("openakita_list_processes");
+          const procs = await invoke<Array<{ pid: number; cmd: string }>>("synapse_list_processes");
           setDetectedProcesses(procs);
         } catch {
           setDetectedProcesses([]);
@@ -3447,7 +3206,7 @@ export function App() {
         return {
           pid: data.pid || 0,
           version: data.version || "unknown",
-          service: data.service || "openakita",
+          service: data.service || "synapse",
         };
       }
     } catch { /* service not running */ }
@@ -3484,13 +3243,13 @@ export function App() {
     try {
       setDataMode("local");
       setApiBaseUrl("http://127.0.0.1:18900");
-      const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_start", {
+      const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("synapse_service_start", {
         venvDir,
         workspaceId: effectiveWsId,
       });
       setServiceStatus(ss);
       const ready = await waitForServiceReady("http://127.0.0.1:18900");
-      const real = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_status", {
+      const real = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("synapse_service_status", {
         workspaceId: effectiveWsId,
       });
       setServiceStatus(real);
@@ -3604,7 +3363,7 @@ export function App() {
     }
     // 2. PID-based kill as fallback (handles locally started services)
     try {
-      const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_stop", { workspaceId: id });
+      const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("synapse_service_stop", { workspaceId: id });
       setServiceStatus(ss);
     } catch { /* PID file might not exist for externally started services */ }
     // 3. Quick verify — is the port freed?
@@ -3620,7 +3379,7 @@ export function App() {
     }
     // Final status
     try {
-      const final_ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_status", { workspaceId: id });
+      const final_ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("synapse_service_status", { workspaceId: id });
       setServiceStatus(final_ss);
     } catch { /* ignore */ }
   }
@@ -3634,7 +3393,7 @@ export function App() {
         chunk = await res.json();
       } else {
         // 本地模式且服务未运行：直接读本地日志文件
-        chunk = await invoke<{ path: string; content: string; truncated: boolean }>("openakita_service_log", {
+        chunk = await invoke<{ path: string; content: string; truncated: boolean }>("synapse_service_log", {
           workspaceId,
           tailBytes: 60000,
         });
@@ -3715,12 +3474,12 @@ export function App() {
       // ── 后端未运行 → Tauri invoke（需要 venv）──
       if (!shouldUseHttpApi() && skillsList.length === 0 && currentWorkspaceId) {
         try {
-          const skillsRaw = await invoke<string>("openakita_list_skills", { venvDir, workspaceId: currentWorkspaceId });
+          const skillsRaw = await invoke<string>("synapse_list_skills", { venvDir, workspaceId: currentWorkspaceId });
           const skillsParsed = JSON.parse(skillsRaw) as { count: number; skills: any[] };
           skillsList = Array.isArray(skillsParsed.skills) ? skillsParsed.skills : [];
         } catch (e) {
           // 打包模式下无 venv，Tauri invoke 会失败，降级为空列表（服务启动后可通过 HTTP API 获取）
-          logger.warn("App", "openakita_list_skills via Tauri failed", { error: String(e) });
+          logger.warn("App", "synapse_list_skills via Tauri failed", { error: String(e) });
         }
       }
       const systemCount = skillsList.filter((s: any) => !!s.system).length;
@@ -3898,7 +3657,7 @@ export function App() {
                 <button className="btnSmall btnSmallDanger" style={{ marginLeft: "auto", fontSize: 11 }} onClick={async () => {
                   setBusy("正在停止所有进程..."); setError(null);
                   try {
-                    const stopped = await invoke<number[]>("openakita_stop_all_processes");
+                    const stopped = await invoke<number[]>("synapse_stop_all_processes");
                     setDetectedProcesses([]);
                     setNotice(`已停止 ${stopped.length} 个进程`);
                     // Refresh status after stopping
@@ -5291,7 +5050,7 @@ export function App() {
         {IS_TAURI && (
         <div className="card" style={{ marginTop: 16 }}>
           <div className="cardTitle">CLI 命令行工具</div>
-          <div className="cardHint">管理终端命令注册，注册后可在 CMD / PowerShell / 终端中直接使用 oa 或 openakita 命令。</div>
+          <div className="cardHint">管理终端命令注册，注册后可在 CMD / PowerShell / 终端中直接使用 oa 或 synapse 命令。</div>
           <div className="divider" />
           <CliManager />
         </div>
@@ -5366,7 +5125,7 @@ export function App() {
         const data = await res.json();
         const info: Record<string, string> = {};
         if (data.os) info[t("adv.sysOs")] = data.os;
-        if (data.openakita_version) info[t("adv.sysVersion")] = data.openakita_version;
+        if (data.synapse_version) info[t("adv.sysVersion")] = data.synapse_version;
         setAdvSysInfo(info);
       } catch (e) { setError(String(e)); }
     }
@@ -5403,7 +5162,7 @@ export function App() {
       if (!currentWorkspaceId) return;
       try {
         const ts = Math.floor(Date.now() / 1000);
-        const filename = `openakita-diagnostic-${ts}.zip`;
+        const filename = `synapse-diagnostic-${ts}.zip`;
         const { save } = await import("@tauri-apps/plugin-dialog");
         const defaultDir = info?.homeDir ? joinPath(info.homeDir, "Downloads") : undefined;
         const chosen = await save({
@@ -5438,7 +5197,7 @@ export function App() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `openakita-${currentWorkspaceId}.env`;
+        a.download = `synapse-${currentWorkspaceId}.env`;
         a.click();
         URL.revokeObjectURL(url);
         setNotice(t("adv.exportDone"));
@@ -6209,7 +5968,7 @@ export function App() {
                 ),
               },
               {
-                title: "飞书（需要 openakita[feishu]）",
+                title: "飞书（需要 synapse[feishu]）",
                 enabledKey: "FEISHU_ENABLED",
                 apply: "https://open.feishu.cn/",
                 body: (
@@ -6220,7 +5979,7 @@ export function App() {
                 ),
               },
               {
-                title: "企业微信（需要 openakita[wework]）",
+                title: "企业微信（需要 synapse[wework]）",
                 enabledKey: "WEWORK_ENABLED",
                 apply: "https://work.weixin.qq.com/",
                 body: (
@@ -6236,7 +5995,7 @@ export function App() {
                 ),
               },
               {
-                title: "钉钉（需要 openakita[dingtalk]）",
+                title: "钉钉（需要 synapse[dingtalk]）",
                 enabledKey: "DINGTALK_ENABLED",
                 apply: "https://open.dingtalk.com/",
                 body: (
@@ -6247,7 +6006,7 @@ export function App() {
                 ),
               },
               {
-                title: "QQ 官方机器人（需要 openakita[qqbot]）",
+                title: "QQ 官方机器人（需要 synapse[qqbot]）",
                 enabledKey: "QQBOT_ENABLED",
                 apply: "https://bot.q.qq.com/wiki/develop/api-v2/",
                 body: (
@@ -6279,7 +6038,7 @@ export function App() {
                 ),
               },
               {
-                title: "OneBot（需要 openakita[onebot] + NapCat/Lagrange）",
+                title: "OneBot（需要 synapse[onebot] + NapCat/Lagrange）",
                 enabledKey: "ONEBOT_ENABLED",
                 apply: "https://github.com/botuniverse/onebot-11",
                 body: (
@@ -6436,7 +6195,7 @@ export function App() {
               <summary style={{ cursor: "pointer", fontWeight: 800, padding: "8px 0" }}>日志高级</summary>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
                 <FT k="LOG_DIR" label="日志目录" placeholder="logs" />
-                <FT k="LOG_FILE_PREFIX" label="日志文件前缀" placeholder="openakita" />
+                <FT k="LOG_FILE_PREFIX" label="日志文件前缀" placeholder="synapse" />
                 <FT k="LOG_MAX_SIZE_MB" label="单文件最大 MB" placeholder="10" />
                 <FT k="LOG_BACKUP_COUNT" label="备份文件数" placeholder="30" />
                 <FT k="LOG_RETENTION_DAYS" label="保留天数" placeholder="30" />
@@ -6660,7 +6419,7 @@ export function App() {
     taskDefs.push({ id: "backend-check", label: "检查后端环境", status: "pending" });
     // CLI 注册
     const cliCommands: string[] = [];
-    if (obCliOpenakita) cliCommands.push("openakita");
+    if (obCliSynapse) cliCommands.push("synapse");
     if (obCliOa) cliCommands.push("oa");
     if (cliCommands.length > 0) {
       taskDefs.push({ id: "cli", label: `注册 CLI 命令 (${cliCommands.join(", ")})`, status: "pending" });
@@ -6793,15 +6552,15 @@ export function App() {
           venvChecked: string;
         }>("check_backend_availability", { venvDir: effectiveVenv });
         if (!backendInfo.bundled && !backendInfo.venvReady) {
-          log("未找到可用后端，尝试自动创建 venv 并安装 openakita...");
+          log("未找到可用后端，尝试自动创建 venv 并安装 synapse...");
           logTask("检查后端环境", "running", "创建 venv...");
           updateTask("backend-check", { detail: "创建 venv..." });
           const detectedPy = await invoke<Array<{ command: string[]; version: string }>>("detect_python");
           if (detectedPy.length > 0) {
             await invoke<string>("create_venv", { pythonCommand: detectedPy[0].command, venvDir: effectiveVenv });
-            updateTask("backend-check", { detail: "安装 openakita..." });
-            logTask("检查后端环境", "running", "安装 openakita...");
-            await invoke<string>("pip_install", { venvDir: effectiveVenv, packageSpec: "openakita" });
+            updateTask("backend-check", { detail: "安装 synapse..." });
+            logTask("检查后端环境", "running", "安装 synapse...");
+            await invoke<string>("pip_install", { venvDir: effectiveVenv, packageSpec: "synapse" });
             log("✓ 已自动安装后端环境");
           } else {
             log("⚠ 未检测到 Python 3.11+，无法自动创建后端环境");
@@ -6913,7 +6672,7 @@ export function App() {
       log(t("onboarding.progress.startingService"));
       const effectiveVenv = venvDir || (info ? joinPath(info.openakitaRootDir, "venv") : "");
       try {
-        await invoke("openakita_service_start", { venvDir: effectiveVenv, workspaceId: activeWsId });
+        await invoke("synapse_service_start", { venvDir: effectiveVenv, workspaceId: activeWsId });
         log(t("onboarding.progress.serviceStarted"));
         updateTask("service-start", { status: "done" });
         logTask("启动后端服务", "done");
@@ -7318,15 +7077,15 @@ export function App() {
               </p>
 
               <div className="obModuleList">
-                {/* openakita 命令 */}
-                <label className={`obModuleItem`} style={obCliOpenakita ? { borderColor: "var(--brand)", background: "var(--panel2)" } : {}}>
+                {/* synapse 命令 */}
+                <label className={`obModuleItem`} style={obCliSynapse ? { borderColor: "var(--brand)", background: "var(--panel2)" } : {}}>
                   <input
                     type="checkbox"
-                    checked={obCliOpenakita}
-                    onChange={() => setObCliOpenakita(!obCliOpenakita)}
+                    checked={obCliSynapse}
+                    onChange={() => setObCliSynapse(!obCliSynapse)}
                   />
                   <div className="obModuleInfo">
-                    <strong style={{ fontFamily: "monospace", fontSize: 15 }}>openakita</strong>
+                    <strong style={{ fontFamily: "monospace", fontSize: 15 }}>synapse</strong>
                     <span className="obModuleDesc">完整命令名称</span>
                   </div>
                 </label>
@@ -7375,7 +7134,7 @@ export function App() {
               </div>
 
               {/* 命令预览 */}
-              {(obCliOpenakita || obCliOa) && (
+              {(obCliSynapse || obCliOa) && (
                 <div className="obFormArea" style={{ marginTop: 16, padding: "16px 20px" }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: "var(--muted)", marginBottom: 10 }}>
                     安装后可使用的命令示例
@@ -7390,10 +7149,10 @@ export function App() {
                       <div><span style={{ color: "#94a3b8" }}>$</span> <span style={{ color: "#7dd3fc" }}>oa</span> status <span style={{ color: "#94a3b8", marginLeft: 16 }}># 查看运行状态</span></div>
                       <div><span style={{ color: "#94a3b8" }}>$</span> <span style={{ color: "#7dd3fc" }}>oa</span> run <span style={{ color: "#94a3b8", marginLeft: 36 }}># 单次对话</span></div>
                     </>}
-                    {obCliOa && obCliOpenakita && <div style={{ height: 4 }} />}
-                    {obCliOpenakita && <>
-                      <div><span style={{ color: "#94a3b8" }}>$</span> <span style={{ color: "#a5b4fc" }}>openakita</span> init <span style={{ color: "#94a3b8", marginLeft: 8 }}># 初始化工作区</span></div>
-                      <div><span style={{ color: "#94a3b8" }}>$</span> <span style={{ color: "#a5b4fc" }}>openakita</span> serve <span style={{ color: "#94a3b8" }}># 启动后端服务</span></div>
+                    {obCliOa && obCliSynapse && <div style={{ height: 4 }} />}
+                    {obCliSynapse && <>
+                      <div><span style={{ color: "#94a3b8" }}>$</span> <span style={{ color: "#a5b4fc" }}>synapse</span> init <span style={{ color: "#94a3b8", marginLeft: 8 }}># 初始化工作区</span></div>
+                      <div><span style={{ color: "#94a3b8" }}>$</span> <span style={{ color: "#a5b4fc" }}>synapse</span> serve <span style={{ color: "#94a3b8" }}># 启动后端服务</span></div>
                     </>}
                   </div>
                 </div>
@@ -7753,7 +7512,7 @@ export function App() {
                   setError(null);
                   if (!IS_TAURI) { setError("模块管理仅限桌面端"); return; }
                   try {
-                    const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_stop", { workspaceId: currentWorkspaceId });
+                    const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("synapse_service_stop", { workspaceId: currentWorkspaceId });
                     setServiceStatus(ss);
                     await new Promise((r) => setTimeout(r, 1500));
                     await invoke("uninstall_module", { moduleId: id });
