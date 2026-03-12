@@ -1038,7 +1038,8 @@ export function SkillManager({
       setError("环境未就绪：请先完成 Python 环境和工作区配置");
       return;
     }
-    setInstalling(skill.name);
+    const uniqueKey = skill.url || skill.id || skill.name;
+    setInstalling(uniqueKey);
     setError(null);
     try {
       let installed = false;
@@ -1373,14 +1374,17 @@ export function SkillManager({
           </div>
           <div style={{ display: "grid", gap: 10 }}>
             {marketLoading && <div className="cardHint">{t("common.loading")}</div>}
-            {!marketLoading && marketplace.map((skill) => (
-              <MarketplaceSkillCard
-                key={skill.id || skill.name}
-                skill={skill}
-                onInstall={() => handleInstall(skill)}
-                installing={installing === skill.name}
-              />
-            ))}
+            {!marketLoading && marketplace.map((skill) => {
+              const uk = skill.url || skill.id || skill.name;
+              return (
+                <MarketplaceSkillCard
+                  key={uk}
+                  skill={skill}
+                  onInstall={() => handleInstall(skill)}
+                  installing={installing === uk}
+                />
+              );
+            })}
             {!marketLoading && marketplace.length === 0 && (
               <div className="cardHint" style={{ textAlign: "center", padding: 20 }}>
                 {marketSearch ? t("skills.noResults") : t("skills.noSkills")}
