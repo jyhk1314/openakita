@@ -1,4 +1,5 @@
 import path from "node:path";
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
@@ -9,15 +10,13 @@ const isRemoteBuild = isWebBuild || isCapBuild;
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   define: {
     __BUILD_TARGET__: JSON.stringify(buildTarget),
   },
   resolve: {
     alias: {
-      // 唯一数据源: Python 后端的 providers.json
-      // 前端通过此 alias 直接 import，与后端共享同一份文件
-      // 新增服务商只需修改 providers.json，前后端自动同步
+      "@": path.resolve(__dirname, "./src"),
       "@shared/providers.json": path.resolve(
         __dirname,
         "../../src/openakita/llm/registries/providers.json",
