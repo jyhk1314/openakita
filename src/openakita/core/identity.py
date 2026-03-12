@@ -202,9 +202,9 @@ class Identity:
         current_time = now.strftime("%Y-%m-%d %H:%M:%S")
         current_weekday = weekday_names[now.weekday()]
 
-        return f"""# OpenAkita System
+        return f"""# Synapse System
 
-你是 OpenAkita，一个全能自进化AI助手。
+你是 Synapse，一个全能自进化AI助手。
 
 **当前时间: {current_time} {current_weekday}**
 

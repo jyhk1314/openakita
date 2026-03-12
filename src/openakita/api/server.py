@@ -1,5 +1,5 @@
 """
-FastAPI HTTP API server for OpenAkita.
+FastAPI HTTP API server for Synapse.
 
 集成在 `synapse serve` 中，提供：
 - Chat (SSE streaming)
@@ -174,9 +174,9 @@ def create_app(
     ]
 
     app = FastAPI(
-        title="OpenAkita API",
+        title="Synapse API",
         description=(
-            "OpenAkita 智能体平台 HTTP API\n\n"
+            "Synapse 智能体平台 HTTP API\n\n"
             "提供对话、Agent 管理、技能配置、MCP 工具、定时任务等完整接口。\n\n"
             "- Swagger UI: `/docs`\n"
             "- ReDoc: `/redoc`"
@@ -303,7 +303,7 @@ def create_app(
 
     @app.post("/api/shutdown", tags=["系统"])
     async def shutdown(request: Request):
-        """Gracefully shut down the OpenAkita service process.
+        """Gracefully shut down the Synapse service process.
 
         Only allowed from localhost for security.
         Uses the shared shutdown_event to trigger the same graceful cleanup

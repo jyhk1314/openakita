@@ -228,7 +228,7 @@ async def diagnostics():
             "code": "CORE_IMPORT_ERROR",
             "evidence": [str(exc)[:300]],
             "autoFix": False,
-            "fixHint": "核心模块损坏，建议重装 OpenAkita",
+            "fixHint": "核心模块损坏，建议重装 Synapse",
         })
 
     failing = [c for c in checks if c["status"] not in ("pass", "warn")]

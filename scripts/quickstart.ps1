@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  OpenAkita 一键安装脚本（PyPI，Windows PowerShell）
+  Synapse 一键安装脚本（PyPI，Windows PowerShell）
 .DESCRIPTION
   - 创建独立的 venv（默认在 %USERPROFILE%\.synapse\venv）
   - 安装 synapse（可选 extras、可选镜像）
@@ -63,7 +63,7 @@ if ($null -eq $py) {
   exit 1
 }
 
-Write-Color "=== OpenAkita One-Click Install ===" Cyan
+Write-Color "=== Synapse One-Click Install ===" Cyan
 Write-Color "AppDir: $AppDir" Cyan
 Write-Color "VenvDir: $VenvDir" Cyan
 if (-not [string]::IsNullOrWhiteSpace($Extras)) { Write-Color "Extras: $Extras" Cyan }
@@ -106,7 +106,7 @@ if ([string]::IsNullOrWhiteSpace($IndexUrl)) {
 } else {
   python -m pip install -U $pkg -i $IndexUrl
 }
-Write-Color "OK OpenAkita installed" Green
+Write-Color "OK Synapse installed" Green
 Write-Host ""
 
 if (-not $NoPlaywright) {

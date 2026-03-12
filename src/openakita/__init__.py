@@ -1,5 +1,5 @@
 """
-OpenAkita - 全能自进化AI Agent
+Synapse - 全能自进化AI Agent
 
 基于 Ralph Wiggum 模式，永不放弃。
 """
@@ -69,4 +69,4 @@ def get_version_string() -> str:
     """返回完整版本标识，如 '1.22.7+823f46b'"""
     return f"{__version__}+{__git_hash__}"
 
-__author__ = "OpenAkita"
+__author__ = "Synapse"

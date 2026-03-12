@@ -58,7 +58,7 @@ async def client(app):
 @pytest.fixture
 def authed_app(web_dist):
     with (
-        patch.dict(os.environ, {"OPENAKITA_WEB_PASSWORD": TEST_PASSWORD}),
+        patch.dict(os.environ, {"SYNAPSE_WEB_PASSWORD": TEST_PASSWORD}),
         patch("synapse.api.server._find_web_dist", return_value=web_dist),
     ):
         return create_app()

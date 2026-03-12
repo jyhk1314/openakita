@@ -1,7 +1,7 @@
 """LLM deep task execution tests — real Agent + tool calls + inter-agent workflow.
 
 These tests require valid API keys.
-Run with: OPENAKITA_LLM_TESTS=1 pytest tests/orgs/test_llm_task_execution.py -v -s
+Run with: SYNAPSE_LLM_TESTS=1 pytest tests/orgs/test_llm_task_execution.py -v -s
 
 They validate the FULL task execution pipeline:
 1. Agent actually invokes org_* tools (delegate, blackboard, escalate)
@@ -26,11 +26,11 @@ from synapse.orgs.runtime import OrgRuntime
 from synapse.orgs.models import NodeStatus, OrgStatus
 from .conftest import make_org, make_node, make_edge
 
-_SKIP_REASON = "LLM tests require OPENAKITA_LLM_TESTS=1 env"
+_SKIP_REASON = "LLM tests require SYNAPSE_LLM_TESTS=1 env"
 
 
 def _should_skip() -> bool:
-    return os.environ.get("OPENAKITA_LLM_TESTS", "0") != "1"
+    return os.environ.get("SYNAPSE_LLM_TESTS", "0") != "1"
 
 
 pytestmark = [

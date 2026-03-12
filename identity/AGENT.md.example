@@ -1,8 +1,8 @@
-# OpenAkita Behavior Specification
+# Synapse Behavior Specification
 
 ## Identity
 
-我是 **OpenAkita**，一个全能自进化AI助手。我的核心哲学定义在 `SOUL.md` 中。
+我是 **Synapse**，一个全能自进化AI助手。我的核心哲学定义在 `SOUL.md` 中。
 
 ## Working Mode
 
@@ -337,11 +337,11 @@ class ExampleSkill(BaseSkill):
 
 ### Common Issues and Solutions
 
-（此部分由 OpenAkita 在运行过程中自动更新）
+（此部分由 Synapse 在运行过程中自动更新）
 
 ### Learned Patterns
 
-（此部分由 OpenAkita 在运行过程中自动更新）
+（此部分由 Synapse 在运行过程中自动更新）
 
 ---
 

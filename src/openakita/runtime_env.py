@@ -108,10 +108,10 @@ def get_configured_venv_path() -> str | None:
 def _get_synapse_root() -> Path:
     """获取 Synapse 根目录路径 (避免循环导入 config)。
 
-    优先使用 OPENAKITA_ROOT 环境变量，默认 ~/.synapse.
+    优先使用 SYNAPSE_ROOT 环境变量，默认 ~/.synapse.
     """
     import os
-    env_root = os.environ.get("OPENAKITA_ROOT", "").strip()
+    env_root = os.environ.get("SYNAPSE_ROOT", "").strip()
     if env_root:
         return Path(env_root)
     return Path.home() / ".synapse"
@@ -372,7 +372,7 @@ def inject_module_paths() -> None:
     """将可选模块的 site-packages 目录注入 sys.path。
 
     路径来源（按优先级）：
-    1. OPENAKITA_MODULE_PATHS 环境变量 — Tauri 端通过此变量传递已安装模块路径
+    1. SYNAPSE_MODULE_PATHS 环境变量 — Tauri 端通过此变量传递已安装模块路径
     2. 扫描 ~/.synapse/modules/*/site-packages — 兜底机制
 
     重要：必须使用 sys.path.append() 而非 insert(0)！
@@ -394,8 +394,8 @@ def inject_module_paths() -> None:
 
     injected = []
 
-    # 来源 1：从 OPENAKITA_MODULE_PATHS 环境变量读取（Tauri 端设置）
-    env_paths = os.environ.get("OPENAKITA_MODULE_PATHS", "")
+    # 来源 1：从 SYNAPSE_MODULE_PATHS 环境变量读取（Tauri 端设置）
+    env_paths = os.environ.get("SYNAPSE_MODULE_PATHS", "")
     if env_paths:
         sep = ";" if sys.platform == "win32" else ":"
         for p in env_paths.split(sep):

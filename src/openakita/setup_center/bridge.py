@@ -916,12 +916,12 @@ def _resolve_skills_dir(workspace_dir: str) -> Path:
     """计算技能安装目录。
 
     优先使用 Tauri 传入的 workspace_dir（支持多工作区），
-    若参数为空则使用 OPENAKITA_ROOT 环境变量确定根目录，最后回退到默认路径。
+    若参数为空则使用 SYNAPSE_ROOT 环境变量确定根目录，最后回退到默认路径。
     """
     if workspace_dir and workspace_dir.strip():
         return Path(workspace_dir).expanduser().resolve() / "skills"
     import os
-    root = os.environ.get("OPENAKITA_ROOT", "").strip()
+    root = os.environ.get("SYNAPSE_ROOT", "").strip()
     if root:
         return Path(root) / "workspaces" / "default" / "skills"
     return Path.home() / ".synapse" / "workspaces" / "default" / "skills"
@@ -943,7 +943,7 @@ _GITHUB_ZIP_MIRRORS: list[str] = [
 
 
 def _try_platform_skill_download(skill_id: str, dest_dir: Path) -> bool:
-    """Try downloading a cached skill ZIP from the OpenAkita platform.
+    """Try downloading a cached skill ZIP from the Synapse platform.
 
     Returns True if successful, False otherwise.
     """
@@ -958,7 +958,7 @@ def _try_platform_skill_download(skill_id: str, dest_dir: Path) -> bool:
         return False
 
     url = f"{hub_url}/skills/{skill_id}/download"
-    headers = {"User-Agent": "OpenAkita-SetupCenter"}
+    headers = {"User-Agent": "Synapse-SetupCenter"}
     api_key = getattr(settings, "hub_api_key", "") or ""
     if api_key:
         headers["X-Akita-Key"] = api_key
@@ -1007,7 +1007,7 @@ def _download_github_zip(repo_owner: str, repo_name: str, dest_dir: Path) -> Non
         for tpl in _GITHUB_ZIP_MIRRORS:
             url = tpl.format(owner=repo_owner, repo=repo_name, branch=branch)
             try:
-                req = urllib.request.Request(url, headers={"User-Agent": "OpenAkita"})
+                req = urllib.request.Request(url, headers={"User-Agent": "Synapse"})
                 with urllib.request.urlopen(req, timeout=30) as resp:
                     data = resp.read()
                 break
@@ -1090,7 +1090,7 @@ def _download_gitee_zip(repo_owner: str, repo_name: str, dest_dir: Path) -> None
             break
         url = f"https://gitee.com/{repo_owner}/{repo_name}/repository/archive/{branch}.zip"
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "OpenAkita"})
+            req = urllib.request.Request(url, headers={"User-Agent": "Synapse"})
             with urllib.request.urlopen(req, timeout=60) as resp:
                 data = resp.read()
         except Exception as e:

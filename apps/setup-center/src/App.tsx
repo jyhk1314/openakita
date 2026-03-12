@@ -2552,7 +2552,7 @@ export function App() {
           timeout: addEpTimeout,
           rpm_limit: addEpRpmLimit,
           capabilities: capList,
-          // DashScope 思考模式：OpenAkita 的 OpenAI provider 会识别 enable_thinking
+          // DashScope 思考模式：Synapse 的 OpenAI provider 会识别 enable_thinking
           extra_params:
             capList.includes("thinking") && (providerSlug || selectedProvider?.slug) === "dashscope"
               ? { enable_thinking: true }
@@ -6170,7 +6170,7 @@ export function App() {
             <details open>
               <summary style={{ cursor: "pointer", fontWeight: 800, padding: "8px 0" }}>基础</summary>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
-                <FT k="AGENT_NAME" label="Agent 名称" placeholder="OpenAkita" />
+                <FT k="AGENT_NAME" label="Agent 名称" placeholder="Synapse" />
                 <FT k="MAX_ITERATIONS" label="最大迭代次数" placeholder="300" />
                 <FB k="AUTO_CONFIRM" label="自动确认（慎用）" help="打开后会减少交互确认，建议只在可信环境中使用" />
                 <FS k="THINKING_MODE" label="Thinking 模式" options={[
@@ -6756,7 +6756,7 @@ export function App() {
         return (
           <div className="obPage">
             <div className="obCenter">
-              <img src={logoUrl} alt="OpenAkita" className="obLogo" />
+              <img src={logoUrl} alt="Synapse" className="obLogo" />
               <h1 className="obTitle">{t("onboarding.welcome.title")}</h1>
               <p className="obDesc">{t("onboarding.welcome.desc")}</p>
               {obEnvCheck && (

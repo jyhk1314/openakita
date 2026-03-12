@@ -48,7 +48,7 @@ $template = @"
 $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
 $xml.LoadXml($template)
 $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
-[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("OpenAkita").Show($toast)
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Synapse").Show($toast)
 """
     try:
         result = subprocess.run(
@@ -114,7 +114,7 @@ def _notify_linux(title: str, body: str, sound: bool = True) -> bool:
     try:
         cmd = [
             "notify-send",
-            "--app-name=OpenAkita",
+            "--app-name=Synapse",
             "--urgency=normal",
             title,
             body,
@@ -228,10 +228,10 @@ def notify_task_completed(
         sound: 是否播放提示音
     """
     if success:
-        title = "✅ OpenAkita 任务完成"
+        title = "✅ Synapse 任务完成"
         body = task_name
     else:
-        title = "❌ OpenAkita 任务失败"
+        title = "❌ Synapse 任务失败"
         body = task_name
 
     if duration_seconds > 0:

@@ -1,6 +1,6 @@
 ---
 name: synapse/skills@mcp-installer
-description: Install, configure, and add MCP servers to the OpenAkita system. Use when the user needs to install MCP packages (npm/pip/uvx), connect remote HTTP/SSE MCP services, set up custom local MCP servers, or manage MCP server configuration and lifecycle.
+description: Install, configure, and add MCP servers to the Synapse system. Use when the user needs to install MCP packages (npm/pip/uvx), connect remote HTTP/SSE MCP services, set up custom local MCP servers, or manage MCP server configuration and lifecycle.
 license: MIT
 metadata:
   author: synapse
@@ -11,7 +11,7 @@ metadata:
 
 ## 系统 MCP 架构概述
 
-OpenAkita 使用目录结构管理 MCP 服务器。每个 MCP 服务器是一个独立目录，包含配置和工具定义：
+Synapse 使用目录结构管理 MCP 服务器。每个 MCP 服务器是一个独立目录，包含配置和工具定义：
 
 ```
 <server-name>/

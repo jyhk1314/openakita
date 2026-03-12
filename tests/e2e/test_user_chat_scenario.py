@@ -29,7 +29,7 @@ def _create_test_workspace(tmp_path: Path) -> Path:
 
     identity = ws / "identity"
     identity.mkdir()
-    (identity / "SOUL.md").write_text("# Soul\nYou are OpenAkita, a loyal AI assistant.", encoding="utf-8")
+    (identity / "SOUL.md").write_text("# Soul\nYou are Synapse, a loyal AI assistant.", encoding="utf-8")
     (identity / "AGENT.md").write_text("# Agent\n## Core\nBe helpful.\n## Tooling\nUse tools.", encoding="utf-8")
     (identity / "USER.md").write_text("# User\nTest user.", encoding="utf-8")
     (identity / "personas").mkdir()
@@ -89,7 +89,7 @@ def mock_client():
 @pytest.fixture
 async def user_agent(test_workspace, mock_client, monkeypatch):
     """Create a real Agent with mocked LLM, ready for user scenario testing."""
-    monkeypatch.setenv("OPENAKITA_PROJECT_ROOT", str(test_workspace))
+    monkeypatch.setenv("SYNAPSE_PROJECT_ROOT", str(test_workspace))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-placeholder")
 
     import synapse.config as config_mod
@@ -121,7 +121,7 @@ class TestUserSendsFirstMessage:
     """Simulate: user opens app → types first message → gets response."""
 
     async def test_simple_greeting(self, user_agent, mock_client):
-        mock_client.preset_response("你好！我是 OpenAkita，有什么可以帮你的？")
+        mock_client.preset_response("你好！我是 Synapse，有什么可以帮你的？")
 
         response = await user_agent.chat("你好")
 
@@ -150,12 +150,12 @@ class TestMultiTurnConversation:
     async def test_two_turn_context_flows_through(self, user_agent, mock_client):
         """User asks Q1, then Q2 → Agent should see both in history."""
         mock_client.preset_sequence([
-            MockResponse(content="我是 OpenAkita！"),
+            MockResponse(content="我是 Synapse！"),
             MockResponse(content="你之前问了我是谁。"),
         ])
 
         r1 = await user_agent.chat("你是谁？")
-        assert "OpenAkita" in r1
+        assert "Synapse" in r1
 
         r2 = await user_agent.chat("我刚才问了什么？")
         assert isinstance(r2, str)

@@ -1,6 +1,6 @@
-# OpenAkita Core Backend
+# Synapse Core Backend
 
-Python backend for the OpenAkita multi-agent AI assistant.
+Python backend for the Synapse multi-agent AI assistant.
 
 ## Module Overview
 

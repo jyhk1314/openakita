@@ -11,7 +11,7 @@ class TestPromptCompileFunctions:
 
     def test_compile_soul(self):
         from synapse.prompt.compiler import compile_soul
-        result = compile_soul("You are OpenAkita, a loyal AI assistant.")
+        result = compile_soul("You are Synapse, a loyal AI assistant.")
         assert isinstance(result, str)
         assert len(result) > 0
 
@@ -64,7 +64,7 @@ class TestBuildSystemPrompt:
 
         identity_dir = tmp_path / "identity"
         identity_dir.mkdir()
-        (identity_dir / "SOUL.md").write_text("# Soul\nI am OpenAkita.", encoding="utf-8")
+        (identity_dir / "SOUL.md").write_text("# Soul\nI am Synapse.", encoding="utf-8")
 
         prompt = build_system_prompt(identity_dir=identity_dir, tools_enabled=False)
         assert isinstance(prompt, str)
@@ -75,10 +75,10 @@ class TestBuildSystemPrompt:
 
         identity_dir = tmp_path / "identity"
         identity_dir.mkdir()
-        (identity_dir / "SOUL.md").write_text("# Soul\nI am OpenAkita, the loyal dog.", encoding="utf-8")
+        (identity_dir / "SOUL.md").write_text("# Soul\nI am Synapse, the loyal dog.", encoding="utf-8")
 
         prompt = build_system_prompt(identity_dir=identity_dir, tools_enabled=False)
-        assert "OpenAkita" in prompt or "loyal" in prompt or len(prompt) > 50
+        assert "Synapse" in prompt or "loyal" in prompt or len(prompt) > 50
 
     def test_build_with_budget_config(self, tmp_path):
         from synapse.prompt.builder import build_system_prompt

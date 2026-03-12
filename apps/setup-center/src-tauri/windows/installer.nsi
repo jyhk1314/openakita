@@ -384,7 +384,7 @@ Var EnvCleanUserDataConfirmed
 Page custom PageEnvCheck PageLeaveEnvCheck
 
 ; 6.6 CLI 命令行工具配置页面
-Var CliCheckOpenakita
+Var CliCheckSynapse
 Var CliCheckOa
 Var CliCheckPath
 Page custom PageCliSetup PageLeaveCliSetup
@@ -429,7 +429,7 @@ Function PageRiskAck
  ${IfThen} $(^RTL) = 1 ${|} nsDialogs::SetRTL $(^RTL) ${|}
 
  ; 风险说明（紧凑排版，适配 ~130u 内部高度）
- ${NSD_CreateLabel} 0 0 100% 8u "OpenAkita 是基于大语言模型驱动的 AI Agent，使用前请了解："
+ ${NSD_CreateLabel} 0 0 100% 8u "Synapse 是基于大语言模型驱动的 AI Agent，使用前请了解："
  Pop $0
 
  ${NSD_CreateLabel} 8u 12u -8u 80u \
@@ -480,7 +480,7 @@ Function PageEnvCheck
  ${IfThen} $0 == "error" ${|} Abort ${|}
  ${IfThen} $(^RTL) = 1 ${|} nsDialogs::SetRTL $(^RTL) ${|}
 
- ${NSD_CreateLabel} 0 0 100% 20u "检测到已有的 OpenAkita 数据，旧版环境组件将在安装过程中自动清理。"
+ ${NSD_CreateLabel} 0 0 100% 20u "检测到已有的 Synapse 数据，旧版环境组件将在安装过程中自动清理。"
  Pop $0
 
  ${NSD_CreateHLine} 0 24u 100% 1u
@@ -546,8 +546,8 @@ Function PageCliSetup
  Pop $0
 
  ${NSD_CreateCheckbox} 14u 34u -14u 12u "注册 synapse 命令"
- Pop $CliCheckOpenakita
- ${NSD_SetState} $CliCheckOpenakita ${BST_CHECKED}
+ Pop $CliCheckSynapse
+ ${NSD_SetState} $CliCheckSynapse ${BST_CHECKED}
 
  ${NSD_CreateCheckbox} 14u 50u -14u 12u "注册 oa 命令（简短别名）"
  Pop $CliCheckOa
@@ -572,12 +572,12 @@ Function PageLeaveCliSetup
  ; 选择状态在 Section Install 中通过注册表读取 checkbox 控件状态
 
  ; 将选择写入注册表，供 Install Section 和后续更新使用
- ${NSD_GetState} $CliCheckOpenakita $0
- WriteRegDWORD HKCU "Software\OpenAkita\CLI" "synapse" $0
+ ${NSD_GetState} $CliCheckSynapse $0
+ WriteRegDWORD HKCU "Software\Synapse\CLI" "synapse" $0
  ${NSD_GetState} $CliCheckOa $0
- WriteRegDWORD HKCU "Software\OpenAkita\CLI" "oa" $0
+ WriteRegDWORD HKCU "Software\Synapse\CLI" "oa" $0
  ${NSD_GetState} $CliCheckPath $0
- WriteRegDWORD HKCU "Software\OpenAkita\CLI" "addToPath" $0
+ WriteRegDWORD HKCU "Software\Synapse\CLI" "addToPath" $0
 FunctionEnd
 
 ; Uninstaller Pages
@@ -893,9 +893,9 @@ Section Install
  ; ── CLI 命令行工具注册 ──
  ; 读取用户在 PageCliSetup 中的选择（存储在注册表中）
  ; 对于 Update/Passive/Silent 模式，尝试读取上次的选择
- ReadRegDWORD $R1 HKCU "Software\OpenAkita\CLI" "synapse"
- ReadRegDWORD $R2 HKCU "Software\OpenAkita\CLI" "oa"
- ReadRegDWORD $R3 HKCU "Software\OpenAkita\CLI" "addToPath"
+ ReadRegDWORD $R1 HKCU "Software\Synapse\CLI" "synapse"
+ ReadRegDWORD $R2 HKCU "Software\Synapse\CLI" "oa"
+ ReadRegDWORD $R3 HKCU "Software\Synapse\CLI" "addToPath"
 
  ; 如果注册表中没有值（首次安装且跳过了页面，如 silent 模式），默认全部启用
  ${If} $R1 == ""
@@ -929,7 +929,7 @@ Section Install
 
   ; 添加到 PATH（通过 PowerShell 安全操作，避免 NSIS 字符串截断和类型变更问题）
   ${If} $R3 = ${BST_CHECKED}
-   !insertmacro _OpenAkita_WritePathHelper
+   !insertmacro _Synapse_WritePathHelper
    !if "${INSTALLMODE}" == "perMachine"
     nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\_oa_pathhelper.ps1" -Action add -BinDir "$INSTDIR\bin" -RegPath "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment"'
     Pop $R9
@@ -941,7 +941,7 @@ Section Install
   ${EndIf}
 
   ; 保存 INSTDIR 到注册表（卸载时需要知道 bin 目录位置）
-  WriteRegStr HKCU "Software\OpenAkita\CLI" "binDir" "$INSTDIR\bin"
+  WriteRegStr HKCU "Software\Synapse\CLI" "binDir" "$INSTDIR\bin"
  ${EndIf}
 
  !ifmacrodef NSIS_HOOK_POSTINSTALL
@@ -1027,9 +1027,9 @@ Section Uninstall
 
  ; ── CLI 命令行工具清理 ──
  ; 从 PATH 中移除 bin 目录（通过 PowerShell 安全操作，逐条精确匹配避免误删）
- ReadRegStr $R8 HKCU "Software\OpenAkita\CLI" "binDir"
+ ReadRegStr $R8 HKCU "Software\Synapse\CLI" "binDir"
  ${If} $R8 != ""
-  !insertmacro _OpenAkita_WritePathHelper
+  !insertmacro _Synapse_WritePathHelper
   ; 从系统 PATH 移除
   nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\_oa_pathhelper.ps1" -Action remove -BinDir "$R8" -RegPath "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment"'
   Pop $R9
@@ -1046,7 +1046,7 @@ Section Uninstall
  RMDir "$INSTDIR\bin"
 
  ; 清理 CLI 注册表键
- DeleteRegKey HKCU "Software\OpenAkita\CLI"
+ DeleteRegKey HKCU "Software\Synapse\CLI"
 
  ; Delete uninstaller
  Delete "$INSTDIR\uninstall.exe"

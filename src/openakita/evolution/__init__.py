@@ -1,5 +1,5 @@
 """
-OpenAkita 自我进化模块
+Synapse 自我进化模块
 """
 
 from .analyzer import NeedAnalyzer

@@ -1,5 +1,5 @@
 """
-SkillStoreClient — 与 OpenAkita Platform Skill Store 交互的客户端
+SkillStoreClient — 与 Synapse Platform Skill Store 交互的客户端
 
 功能：
 - search: 搜索平台上的 Skill
@@ -38,7 +38,7 @@ class SkillStoreClient:
         self._client: httpx.AsyncClient | None = None
 
     def _auth_headers(self) -> dict[str, str]:
-        headers: dict[str, str] = {"User-Agent": f"OpenAkita/{self._get_version()}"}
+        headers: dict[str, str] = {"User-Agent": f"Synapse/{self._get_version()}"}
         if settings.hub_api_key:
             headers["X-Akita-Key"] = settings.hub_api_key
         if settings.hub_device_id:

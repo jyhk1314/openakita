@@ -179,7 +179,7 @@ def main():
     args = parser.parse_args()
     
     print("=" * 60)
-    print("OpenAkita 记忆系统迁移脚本")
+    print("Synapse 记忆系统迁移脚本")
     print("=" * 60)
     
     # 路径配置
@@ -227,7 +227,7 @@ def main():
     print(f"✅ 向量化记忆: {migrated} 条")
     print(f"✅ MEMORY.md 已重置")
     print("\n下一步:")
-    print("1. 启动 OpenAkita 验证功能正常")
+    print("1. 启动 Synapse 验证功能正常")
     print("2. 测试向量搜索: 在对话中提问相关问题")
     print("3. 等待凌晨自动归纳，或手动执行 consolidate_memories")
 

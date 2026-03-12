@@ -56,7 +56,7 @@ class Memory:
 
     def _create_default_memory(self) -> None:
         """创建默认 MEMORY.md"""
-        content = f"""# OpenAkita Memory
+        content = f"""# Synapse Memory
 
 ## Current Task Progress
 

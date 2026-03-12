@@ -186,7 +186,7 @@ generate_vision_tasks.py
 
 # Temporary documents
 Microsoft_BitNet_*.docx
-OPENAKITA_PROJECT_STATUS.txt
+SYNAPSE_PROJECT_STATUS.txt
 synapse_project_summary.md
 CLASSIFICATION_SYSTEM.md
 classification_report.json
@@ -226,6 +226,6 @@ apps/setup-center/android/app/src/main/assets/public/
 apps/setup-center/android/app/src/main/assets/capacitor.config.json
 $null
 botpy.log*
-OPENAKITA_RESEARCH_REPORT.md
+SYNAPSE_RESEARCH_REPORT.md
 synapse-release.keystore
 ppt_build/

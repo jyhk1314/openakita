@@ -29,12 +29,12 @@ def is_proxy_disabled() -> bool:
 
     支持的开关（任一为真即禁用）：
     - LLM_DISABLE_PROXY=1
-    - OPENAKITA_DISABLE_PROXY=1
+    - SYNAPSE_DISABLE_PROXY=1
     - DISABLE_PROXY=1
     """
     return (
         _is_truthy_env("LLM_DISABLE_PROXY")
-        or _is_truthy_env("OPENAKITA_DISABLE_PROXY")
+        or _is_truthy_env("SYNAPSE_DISABLE_PROXY")
         or _is_truthy_env("DISABLE_PROXY")
     )
 

@@ -6,7 +6,7 @@ Two modes:
     pipeline: agent creation → tool filtering → prompt injection → tool
     execution → inter-node messaging → tool request/grant hot-reload.
   • RealLLM (opt-in) — requires API keys.
-    Run with:  OPENAKITA_LLM_TESTS=1 pytest tests/orgs/test_external_tools_e2e.py -k real
+    Run with:  SYNAPSE_LLM_TESTS=1 pytest tests/orgs/test_external_tools_e2e.py -k real
 
 Every test exercises the real OrgRuntime (not mocked) so the entire chain
 _create_node_agent → _patched_execute → OrgToolHandler is live.
@@ -536,11 +536,11 @@ class TestHeartbeatWithExternalTools:
 # Part 2: Real-LLM tests (opt-in)
 # ===================================================================
 
-_REAL_SKIP = "Real LLM tests require OPENAKITA_LLM_TESTS=1"
+_REAL_SKIP = "Real LLM tests require SYNAPSE_LLM_TESTS=1"
 
 
 def _should_skip_real() -> bool:
-    return os.environ.get("OPENAKITA_LLM_TESTS", "0") != "1"
+    return os.environ.get("SYNAPSE_LLM_TESTS", "0") != "1"
 
 
 @pytest.mark.skipif(_should_skip_real(), reason=_REAL_SKIP)

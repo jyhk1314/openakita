@@ -9,7 +9,7 @@ export function CliManager() {
   } | null>(null);
   const [cliLoading, setCliLoading] = useState(false);
   const [cliMsg, setCliMsg] = useState("");
-  const [cliRegOpenakita, setCliRegOpenakita] = useState(true);
+  const [cliRegSynapse, setCliRegSynapse] = useState(true);
   const [cliRegOa, setCliRegOa] = useState(true);
   const [cliRegPath, setCliRegPath] = useState(true);
 
@@ -21,7 +21,7 @@ export function CliManager() {
     try {
       const status = await invoke<{ registeredCommands: string[]; inPath: boolean; binDir: string }>("get_cli_status");
       setCliStatus(status);
-      setCliRegOpenakita(status.registeredCommands.includes("synapse"));
+      setCliRegSynapse(status.registeredCommands.includes("synapse"));
       setCliRegOa(status.registeredCommands.includes("oa"));
       setCliRegPath(status.inPath);
     } catch (e) {
@@ -31,7 +31,7 @@ export function CliManager() {
 
   async function doRegister() {
     const cmds: string[] = [];
-    if (cliRegOpenakita) cmds.push("synapse");
+    if (cliRegSynapse) cmds.push("synapse");
     if (cliRegOa) cmds.push("oa");
     if (cmds.length === 0) {
       setCliMsg("请至少选择一个命令名称");
@@ -87,7 +87,7 @@ export function CliManager() {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
         <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13 }}>
-          <input type="checkbox" checked={cliRegOpenakita} onChange={() => setCliRegOpenakita(!cliRegOpenakita)} style={{ width: 16, height: 16, flexShrink: 0 }} />
+          <input type="checkbox" checked={cliRegSynapse} onChange={() => setCliRegSynapse(!cliRegSynapse)} style={{ width: 16, height: 16, flexShrink: 0 }} />
           <span><strong>synapse</strong> — 完整命令</span>
         </label>
         <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13 }}>

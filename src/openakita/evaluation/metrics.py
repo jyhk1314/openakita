@@ -210,7 +210,7 @@ class EvalMetrics:
         """格式化为可读报告"""
         lines = [
             "=" * 50,
-            "OpenAkita Agent 评估报告",
+            "Synapse Agent 评估报告",
             "=" * 50,
             f"评估 Trace 数: {self.total_traces}",
             "",

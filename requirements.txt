@@ -1,5 +1,5 @@
 # =====================================================
-# OpenAkita - Dependencies
+# Synapse - Dependencies
 # Python: >= 3.11
 # Source of truth: pyproject.toml
 # Use: pip install -r requirements.txt

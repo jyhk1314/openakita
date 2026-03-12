@@ -1,5 +1,5 @@
 """
-OpenAkita 配置模块
+Synapse 配置模块
 """
 
 import json
@@ -7,7 +7,7 @@ import logging
 import os
 from pathlib import Path
 
-os.environ.setdefault("OPENAKITA", "1")
+os.environ.setdefault("SYNAPSE", "1")
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     )
 
     # Agent 配置
-    agent_name: str = Field(default="OpenAkita", description="Agent 名称")
+    agent_name: str = Field(default="Synapse", description="Agent 名称")
     max_iterations: int = Field(default=300, description="Ralph 循环最大迭代次数")
     auto_confirm: bool = Field(default=False, description="是否自动确认危险操作")
 
@@ -364,14 +364,14 @@ class Settings(BaseSettings):
     sticker_enabled: bool = Field(default=True, description="是否启用表情包功能")
     sticker_data_dir: str = Field(default="data/sticker", description="表情包数据目录")
 
-    # === OpenAkita Platform (Agent Hub / Skill Store) ===
+    # === Synapse Platform (Agent Hub / Skill Store) ===
     hub_api_url: str = Field(
         default="https://openakita.ai/api",
-        description="OpenAkita Platform API base URL for Agent Hub and Skill Store",
+        description="Synapse Platform API base URL for Agent Hub and Skill Store",
     )
     hub_api_key: str = Field(
         default="",
-        description="OpenAkita Platform API Key (ak_live_...)",
+        description="Synapse Platform API Key (ak_live_...)",
     )
     hub_device_id: str = Field(
         default="",
@@ -487,9 +487,9 @@ class Settings(BaseSettings):
 
     @property
     def synapse_home(self) -> Path:
-        """用户数据根目录，优先使用 OPENAKITA_ROOT 环境变量，默认 ~/.synapse"""
+        """用户数据根目录，优先使用 SYNAPSE_ROOT 环境变量，默认 ~/.synapse"""
         import os
-        env_root = os.environ.get("OPENAKITA_ROOT", "").strip()
+        env_root = os.environ.get("SYNAPSE_ROOT", "").strip()
         if env_root:
             return Path(env_root)
         return Path.home() / ".synapse"

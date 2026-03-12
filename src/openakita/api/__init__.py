@@ -1,5 +1,5 @@
 """
-OpenAkita HTTP API Module
+Synapse HTTP API Module
 
 提供 FastAPI HTTP API，支持：
 - Chat (SSE streaming)

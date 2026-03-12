@@ -45,7 +45,7 @@ class WebTool:
     def __init__(
         self,
         timeout: int = 30,
-        user_agent: str = "OpenAkita/1.0",
+        user_agent: str = "Synapse/1.0",
     ):
         self.timeout = timeout
         self.user_agent = user_agent

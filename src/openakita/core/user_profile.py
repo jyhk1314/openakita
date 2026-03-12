@@ -475,7 +475,7 @@ class UserProfileManager:
 - GitHub Copilot Memory: https://docs.github.com/en/copilot/concepts/agents/copilot-memory
 - ai-agent-memory-system: https://github.com/trose/ai-agent-memory-system
 
-此文件由 OpenAkita 自动学习和更新，记录用户的偏好和习惯。
+此文件由 Synapse 自动学习和更新，记录用户的偏好和习惯。
 -->
 
 ## Basic Information
@@ -564,7 +564,7 @@ class UserProfileManager:
 
 ---
 
-*此文件由 OpenAkita 自动维护。用户也可以手动编辑以提供更准确的信息。*
+*此文件由 Synapse 自动维护。用户也可以手动编辑以提供更准确的信息。*
 *最后更新: {datetime.now().strftime("%Y-%m-%d %H:%M")}*
 """
 

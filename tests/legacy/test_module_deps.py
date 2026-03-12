@@ -595,12 +595,12 @@ class TestPostInstallHooks:
             "PLAYWRIGHT_BROWSERS_PATH 应至少出现 1 次（启动后端时兜底设置）"
         )
 
-        # 确认在后端启动函数中（cmd.env OPENAKITA_MODULE_PATHS 附近）有设置
+        # 确认在后端启动函数中（cmd.env SYNAPSE_MODULE_PATHS 附近）有设置
         lines = content.split("\n")
         found_launch_pw_path = False
         in_launch_region = False
         for line in lines:
-            if "OPENAKITA_MODULE_PATHS" in line and "cmd.env" in line:
+            if "SYNAPSE_MODULE_PATHS" in line and "cmd.env" in line:
                 in_launch_region = True
             if in_launch_region and "PLAYWRIGHT_BROWSERS_PATH" in line:
                 found_launch_pw_path = True
@@ -609,7 +609,7 @@ class TestPostInstallHooks:
                 break
 
         assert found_launch_pw_path, (
-            "启动后端进程时（cmd.env OPENAKITA_MODULE_PATHS 之后）应设置 PLAYWRIGHT_BROWSERS_PATH"
+            "启动后端进程时（cmd.env SYNAPSE_MODULE_PATHS 之后）应设置 PLAYWRIGHT_BROWSERS_PATH"
         )
 
 

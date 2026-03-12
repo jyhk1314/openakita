@@ -1,7 +1,7 @@
 """
 L4 E2E Tests: Real user CLI interaction scenarios.
 
-Simulates what happens when a user runs OpenAkita from the command line:
+Simulates what happens when a user runs Synapse from the command line:
 - `synapse` starts interactive mode
 - User types messages and sees responses
 - Special commands like /status, /help, /clear work

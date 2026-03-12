@@ -911,7 +911,7 @@ class TestIntegration:
 async def run_all_tests():
     """运行所有测试"""
     print("\n" + "=" * 60)
-    print("OpenAkita v0.5.0 新功能测试")
+    print("Synapse v0.5.0 新功能测试")
     print("=" * 60 + "\n")
     
     results = {"passed": 0, "failed": 0, "skipped": 0}
@@ -1090,7 +1090,7 @@ async def run_telegram_interactive_test():
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description="OpenAkita 新功能测试")
+    parser = argparse.ArgumentParser(description="Synapse 新功能测试")
     parser.add_argument("--telegram-interactive", action="store_true", help="运行 Telegram 交互测试")
     parser.add_argument("--all", action="store_true", help="运行所有测试")
     

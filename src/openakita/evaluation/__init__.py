@@ -1,5 +1,5 @@
 """
-OpenAkita Agent 评估框架
+Synapse Agent 评估框架
 
 提供全面的 Agent 性能评估能力:
 - EvalMetrics: 评估指标定义和聚合

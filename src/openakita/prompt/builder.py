@@ -311,7 +311,7 @@ def _build_identity_section(
     parts = []
 
     # 标题
-    parts.append("# OpenAkita System")
+    parts.append("# Synapse System")
     parts.append("")
 
     # SOUL — 全文注入（~60% 预算），保留叙事和价值共鸣
@@ -369,11 +369,11 @@ def _merge_policies(system: str, user: str) -> str:
 
     # 按 ## 标题切分用户策略，保留不与系统策略重复的段落
     user_clean = user.strip()
-    # 去掉用户文件可能的顶级标题 (# OpenAkita Policies 等)
+    # 去掉用户文件可能的顶级标题 (# Synapse Policies 等)
     user_clean = re.sub(r"^#\s+[^\n]+\n*", "", user_clean).strip()
 
     if not system_titles:
-        return f"# OpenAkita Policies\n\n{system}\n\n{user_clean}"
+        return f"# Synapse Policies\n\n{system}\n\n{user_clean}"
 
     kept_sections: list[str] = []
     sections = re.split(r"(?=^## )", user_clean, flags=re.MULTILINE)
@@ -386,7 +386,7 @@ def _merge_policies(system: str, user: str) -> str:
             continue
         kept_sections.append(section_stripped)
 
-    parts = ["# OpenAkita Policies", "", system.strip()]
+    parts = ["# Synapse Policies", "", system.strip()]
     if kept_sections:
         parts.append("")
         parts.append("\n\n".join(kept_sections))
@@ -495,12 +495,12 @@ def _build_runtime_section() -> str:
 
     return f"""## 运行环境
 
-- **OpenAkita 版本**: {version_str}
+- **Synapse 版本**: {version_str}
 - **部署模式**: {deploy_mode}
 - **当前时间**: {current_time}
 - **操作系统**: {platform.system()} {platform.release()} ({platform.machine()})
 - **当前工作目录**: {os.getcwd()}
-- **OpenAkita 数据根目录**: {settings.synapse_home}
+- **Synapse 数据根目录**: {settings.synapse_home}
 - **工作区信息**: 需要操作系统文件（日志/配置/数据/截图等）时，先调用 `get_workspace_map` 获取目录布局
 - **临时目录**: data/temp/{shell_hint}
 

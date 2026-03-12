@@ -11,7 +11,7 @@ import type { EnvMap } from "./types";
 export async function askConfirm(message: string): Promise<boolean> {
   if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
     const { confirm } = await import("@tauri-apps/plugin-dialog");
-    return confirm(message, { title: "OpenAkita", kind: "info" });
+    return confirm(message, { title: "Synapse", kind: "info" });
   }
   return window.confirm(message);
 }

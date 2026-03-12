@@ -98,7 +98,7 @@ class QQBotAdapter(ChannelAdapter):
             channel_name: 通道名称（多Bot时用于区分实例）
             bot_id: Bot 实例唯一标识
             agent_profile_id: 绑定的 agent profile ID
-            public_api_url: OpenAkita API 的公网 URL（如 https://example.com），
+            public_api_url: Synapse API 的公网 URL（如 https://example.com），
                 用于将本地图片转为 QQ 可访问的公网 URL。不配置则群/C2C 无法发送本地图片。
         """
         super().__init__(channel_name=channel_name, bot_id=bot_id, agent_profile_id=agent_profile_id)

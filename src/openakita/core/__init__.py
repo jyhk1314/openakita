@@ -1,5 +1,5 @@
 """
-OpenAkita 核心模块
+Synapse 核心模块
 """
 
 from .agent import Agent

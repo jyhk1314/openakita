@@ -213,7 +213,7 @@ async def list_exportable():
 
 
 # ---------------------------------------------------------------------------
-# Hub proxy routes — forward requests to the OpenAkita Platform
+# Hub proxy routes — forward requests to the Synapse Platform
 # ---------------------------------------------------------------------------
 
 def _get_hub_client():

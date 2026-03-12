@@ -73,7 +73,7 @@ def _print_env_snapshot() -> None:
         "NO_PROXY",
         "FORCE_IPV4",
         "LLM_DISABLE_PROXY",
-        "OPENAKITA_DISABLE_PROXY",
+        "SYNAPSE_DISABLE_PROXY",
         "DISABLE_PROXY",
     ]
     snapshot = {k: os.environ.get(k) for k in keys if os.environ.get(k) is not None}

@@ -1,5 +1,5 @@
 """
-OpenAkita Prompt 管线模块
+Synapse Prompt 管线模块
 
 从全文注入改为"编译摘要 + 语义检索 + 预算组装 + 运行时守门"的管线模式。
 

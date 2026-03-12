@@ -1,5 +1,5 @@
 """
-OpenAkita 包入口点 - 支持 `python -m synapse` 调用
+Synapse 包入口点 - 支持 `python -m synapse` 调用
 同时作为 PyInstaller 打包入口
 """
 

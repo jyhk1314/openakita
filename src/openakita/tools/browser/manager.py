@@ -419,7 +419,7 @@ class BrowserManager:
                     logger.info(f"[Browser] Using bundled playwright-browsers: {bundled}")
                     return
 
-        _root = os.environ.get("OPENAKITA_ROOT", "").strip()
+        _root = os.environ.get("SYNAPSE_ROOT", "").strip()
         _base = Path(_root) if _root else Path.home() / ".synapse"
         browsers_dir = _base / "modules" / "browser" / "browsers"
         if browsers_dir.is_dir():
@@ -511,7 +511,7 @@ class BrowserManager:
             user_data = get_synapse_chrome_profile()
             if self._chrome_user_data:
                 sync_chrome_cookies(self._chrome_user_data, user_data)
-            label = "OpenAkita profile"
+            label = "Synapse profile"
         else:
             if not self._chrome_user_data:
                 raise RuntimeError("Chrome user data dir not found")

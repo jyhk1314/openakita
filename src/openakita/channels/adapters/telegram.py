@@ -506,7 +506,7 @@ class TelegramAdapter(ChannelAdapter):
             self.pairing_manager.start_pairing(chat_id)
             code_file = self.pairing_manager.code_file.absolute()
             await message.reply_text(
-                "🔐 欢迎使用 OpenAkita！\n\n"
+                "🔐 欢迎使用 Synapse！\n\n"
                 "为了安全，首次使用需要配对验证。\n"
                 "请输入 **配对码** 完成验证：\n\n"
                 f"📁 配对码文件：\n`{code_file}`"
@@ -515,7 +515,7 @@ class TelegramAdapter(ChannelAdapter):
 
         # 已配对或不需要配对
         await message.reply_text(
-            "👋 你好！我是 OpenAkita，一个全能AI助手。\n\n"
+            "👋 你好！我是 Synapse，一个全能AI助手。\n\n"
             "发送消息开始对话，我可以帮你：\n"
             "- 回答问题\n"
             "- 执行任务\n"
@@ -586,7 +586,7 @@ class TelegramAdapter(ChannelAdapter):
                             # 配对成功
                             await message.reply_text(
                                 "✅ 配对成功！\n\n"
-                                "现在你可以开始使用 OpenAkita 了。\n"
+                                "现在你可以开始使用 Synapse 了。\n"
                                 "发送消息开始对话，我可以帮你：\n"
                                 "- 回答问题\n"
                                 "- 执行任务\n"

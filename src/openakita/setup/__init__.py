@@ -1,5 +1,5 @@
 """
-OpenAkita 安装向导模块
+Synapse 安装向导模块
 """
 
 from .wizard import SetupWizard

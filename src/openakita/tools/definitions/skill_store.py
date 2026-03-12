@@ -1,7 +1,7 @@
 """
 Skill Store 工具定义
 
-提供与 OpenAkita Platform Skill Store 交互的工具：
+提供与 Synapse Platform Skill Store 交互的工具：
 - search_store_skills: 搜索平台上的 Skill
 - install_store_skill: 从平台安装 Skill 到本地
 - get_store_skill_detail: 查看 Skill 详情
@@ -12,7 +12,7 @@ SKILL_STORE_TOOLS = [
     {
         "name": "search_store_skills",
         "category": "Skill Store",
-        "description": "Search for Skills on the OpenAkita Platform Skill Store. Returns a list of available Skills with trust level, install count, and rating.",
+        "description": "Search for Skills on the Synapse Platform Skill Store. Returns a list of available Skills with trust level, install count, and rating.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -44,7 +44,7 @@ SKILL_STORE_TOOLS = [
     {
         "name": "install_store_skill",
         "category": "Skill Store",
-        "description": "Install a Skill from the OpenAkita Platform Skill Store to the local system. Uses git clone or direct download based on the skill source.",
+        "description": "Install a Skill from the Synapse Platform Skill Store to the local system. Uses git clone or direct download based on the skill source.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -59,7 +59,7 @@ SKILL_STORE_TOOLS = [
     {
         "name": "get_store_skill_detail",
         "category": "Skill Store",
-        "description": "Get detailed information about a specific Skill on the OpenAkita Platform, including readme, trust level, and installation instructions.",
+        "description": "Get detailed information about a specific Skill on the Synapse Platform, including readme, trust level, and installation instructions.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -74,7 +74,7 @@ SKILL_STORE_TOOLS = [
     {
         "name": "submit_skill_repo",
         "category": "Skill Store",
-        "description": "Submit a GitHub repository to be indexed by the OpenAkita Skill Store. The platform will scan for SKILL.md files and create skill entries.",
+        "description": "Submit a GitHub repository to be indexed by the Synapse Skill Store. The platform will scan for SKILL.md files and create skill entries.",
         "input_schema": {
             "type": "object",
             "properties": {

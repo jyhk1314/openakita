@@ -23,7 +23,7 @@ def _create_test_workspace(tmp_path: Path) -> Path:
         (ws / d).mkdir(parents=True, exist_ok=True)
     identity = ws / "identity"
     identity.mkdir()
-    (identity / "SOUL.md").write_text("# Soul\nI am OpenAkita.", encoding="utf-8")
+    (identity / "SOUL.md").write_text("# Soul\nI am Synapse.", encoding="utf-8")
     (identity / "AGENT.md").write_text("# Agent\n## Core\nHelp.\n## Tooling\nTools.", encoding="utf-8")
     (identity / "USER.md").write_text("# User\nTest.", encoding="utf-8")
     (identity / "personas").mkdir()
@@ -74,7 +74,7 @@ def _parse_sse_events(raw: str) -> list[dict]:
 async def api_client(tmp_path, monkeypatch):
     """Create a real FastAPI app with a real Agent (mocked brain), return httpx client."""
     ws = _create_test_workspace(tmp_path)
-    monkeypatch.setenv("OPENAKITA_PROJECT_ROOT", str(ws))
+    monkeypatch.setenv("SYNAPSE_PROJECT_ROOT", str(ws))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
 
     import synapse.config as config_mod
@@ -114,7 +114,7 @@ class TestDesktopUserChatFlow:
 
     async def test_simple_message_returns_sse_stream(self, api_client):
         client, mock_llm = api_client
-        mock_llm.preset_response("你好！欢迎使用 OpenAkita。")
+        mock_llm.preset_response("你好！欢迎使用 Synapse。")
 
         resp = await client.post("/api/chat", json={"message": "你好"})
 

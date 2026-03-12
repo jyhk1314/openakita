@@ -1,6 +1,6 @@
 ---
 name: publish-agent
-description: Publish a local Agent to the OpenAkita Platform Agent Store. Use when user wants to share, distribute, or publish an Agent to the community hub.
+description: Publish a local Agent to the Synapse Platform Agent Store. Use when user wants to share, distribute, or publish an Agent to the community hub.
 system: true
 handler: agent_hub
 tool-name: publish_agent
@@ -9,7 +9,7 @@ category: Platform
 
 # Publish Agent
 
-将本地 Agent 发布到 OpenAkita 平台 Agent 商店。
+将本地 Agent 发布到 Synapse 平台 Agent 商店。
 
 ## Tools
 
@@ -19,7 +19,7 @@ category: Platform
 
 Use this skill when the user wants to:
 - Share a local Agent to the community
-- Publish an Agent to the OpenAkita hub
+- Publish an Agent to the Synapse hub
 - Package an Agent for distribution
 
 ## Parameters

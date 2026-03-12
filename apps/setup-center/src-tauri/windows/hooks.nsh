@@ -1,6 +1,6 @@
-; OpenAkita Setup Center - NSIS Hooks
+; Synapse Setup Center - NSIS Hooks
 ; 目标：
-; - 卸载时强制杀掉残留进程（Setup Center 本体 + OpenAkita 后台服务）
+; - 卸载时强制杀掉残留进程（Setup Center 本体 + Synapse 后台服务）
 ; - 勾选"清理用户数据"时，删除用户目录下的 ~/.synapse
 
 ; ── PATH 辅助脚本 ──
@@ -8,7 +8,7 @@
 ; 1. NSIS ReadRegStr 字符串长度上限导致长 PATH 被截断/清空
 ; 2. 保持 REG_EXPAND_SZ 类型（保留 %USERPROFILE% 等环境变量引用）
 ; 3. 使用分号分割后逐条精确比较，避免子字符串误匹配
-!macro _OpenAkita_WritePathHelper
+!macro _Synapse_WritePathHelper
   InitPluginsDir
   FileOpen $R9 "$PLUGINSDIR\_oa_pathhelper.ps1" w
   FileWrite $R9 "param([string]$$Action, [string]$$BinDir, [string]$$RegPath)$\r$\n"
@@ -51,7 +51,7 @@
   FileClose $R9
 !macroend
 
-!macro _OpenAkita_KillPid pid
+!macro _Synapse_KillPid pid
   StrCpy $0 "${pid}"
   ; 仅在 pid 非空时执行 kill；nsExec 在隐藏控制台中运行，无弹窗
   ; 先 Stop-Process 杀主进程，再 taskkill /T 杀子进程树
@@ -66,7 +66,7 @@
 ; 读取 custom_root.txt 获取实际数据根目录，结果写入 $R9
 ; 该文件由 Tauri 端在设置自定义路径时同步写入（纯文本，仅包含路径）
 ; 如果文件不存在或内容为空，$R9 = 默认路径
-!macro _OpenAkita_ResolveRoot
+!macro _Synapse_ResolveRoot
   ExpandEnvStrings $R9 "%USERPROFILE%\.synapse"
   IfFileExists "$R9\custom_root.txt" +1 +8
   ClearErrors
@@ -78,7 +78,7 @@
   StrCpy $R9 $R7
 !macroend
 
-!macro _OpenAkita_KillServicePidsIn dir
+!macro _Synapse_KillServicePidsIn dir
   FindFirst $R1 $R2 "${dir}\synapse-*.pid"
   ${DoWhile} $R2 != ""
     FileOpen $R4 "${dir}\$R2" "r"
@@ -86,24 +86,24 @@
       FileRead $R4 $R5
       FileClose $R4
       StrCpy $R6 $R5 32
-      !insertmacro _OpenAkita_KillPid $R6
+      !insertmacro _Synapse_KillPid $R6
     ${EndIf}
     FindNext $R1 $R2
   ${Loop}
   FindClose $R1
 !macroend
 
-!macro _OpenAkita_KillAllServicePids
+!macro _Synapse_KillAllServicePids
   ; 解析实际数据根目录并清理 PID 文件
-  !insertmacro _OpenAkita_ResolveRoot
-  !insertmacro _OpenAkita_KillServicePidsIn "$R9\run"
+  !insertmacro _Synapse_ResolveRoot
+  !insertmacro _Synapse_KillServicePidsIn "$R9\run"
   ; 始终也检查默认路径（兼容残留，重复检查是无害的）
   ExpandEnvStrings $R0 "%USERPROFILE%\.synapse\run"
-  !insertmacro _OpenAkita_KillServicePidsIn $R0
+  !insertmacro _Synapse_KillServicePidsIn $R0
 !macroend
 
 ; 生成合并清理 PowerShell 脚本（环境组件 + 可选用户数据），单次调用替代逐目录多次调用
-!macro _OpenAkita_WriteCleanupScript
+!macro _Synapse_WriteCleanupScript
   InitPluginsDir
   FileOpen $R8 "$PLUGINSDIR\_oa_cleanup.ps1" w
   FileWrite $R8 "param([string]$$Root, [switch]$$CleanUserData)$\r$\n"
@@ -141,7 +141,7 @@
   ; 策略：Stop-Process 杀主进程 + taskkill /T 杀子进程树（Stop-Process 不杀子进程）。
 
   ; 1) 杀掉 Setup Center + synapse-server（合并为单次 PowerShell 调用）
-  DetailPrint "Stopping OpenAkita processes..."
+  DetailPrint "Stopping Synapse processes..."
   nsExec::ExecToLog 'powershell -NoProfile -Command "Get-Process -Name synapse-setup-center,synapse-server -EA SilentlyContinue | Stop-Process -Force"'
   Pop $0
   nsExec::ExecToLog 'taskkill /IM synapse-setup-center.exe /T /F'
@@ -150,7 +150,7 @@
   Pop $0
 
   ; 2) 杀掉 PID 文件追踪的服务进程（python 方式启动的后端）
-  !insertmacro _OpenAkita_KillAllServicePids
+  !insertmacro _Synapse_KillAllServicePids
 
   ; 3) 等待进程完全退出释放文件锁
   Sleep 2000
@@ -159,7 +159,7 @@
   ExpandEnvStrings $R0 "%USERPROFILE%\.synapse"
   ${If} ${FileExists} "$R0\*"
     DetailPrint "Cleaning previous installation components..."
-    !insertmacro _OpenAkita_WriteCleanupScript
+    !insertmacro _Synapse_WriteCleanupScript
     ${If} $EnvCleanUserDataConfirmed = 1
       DetailPrint "Cleaning user data (as requested)..."
       nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\_oa_cleanup.ps1" -Root "$R0" -CleanUserData'
@@ -183,7 +183,7 @@
   Pop $0
   nsExec::ExecToLog 'taskkill /IM synapse-server.exe /T /F'
   Pop $0
-  !insertmacro _OpenAkita_KillAllServicePids
+  !insertmacro _Synapse_KillAllServicePids
   Sleep 2000
 !macroend
 
@@ -191,14 +191,14 @@
   ; 安装完成后：写入版本信息到 state.json（供 App 环境检测用）
   ; 注意：state.json 可能已存在（升级安装），仅更新版本字段
   ; 解析实际数据根目录（可能被用户自定义到其他磁盘）
-  !insertmacro _OpenAkita_ResolveRoot
+  !insertmacro _Synapse_ResolveRoot
   StrCpy $R0 $R9
   CreateDirectory "$R0"
 
   ; 写入 cli.json（供 Rust get_cli_status 读取）
-  ReadRegDWORD $R1 HKCU "Software\OpenAkita\CLI" "synapse"
-  ReadRegDWORD $R2 HKCU "Software\OpenAkita\CLI" "oa"
-  ReadRegDWORD $R3 HKCU "Software\OpenAkita\CLI" "addToPath"
+  ReadRegDWORD $R1 HKCU "Software\Synapse\CLI" "synapse"
+  ReadRegDWORD $R2 HKCU "Software\Synapse\CLI" "oa"
+  ReadRegDWORD $R3 HKCU "Software\Synapse\CLI" "addToPath"
   ; 构造 JSON 中的 commands 数组
   StrCpy $R4 ""
   ${If} $R1 = ${BST_CHECKED}
@@ -228,7 +228,7 @@
   ; 无需再以用户身份单独启动应用执行 --clean-env。
 !macroend
 
-!macro _OpenAkita_ForceRemoveDir dir
+!macro _Synapse_ForceRemoveDir dir
   System::Call 'kernel32::SetEnvironmentVariable(t "NSIS_DEL_PATH", t "${dir}")'
   nsExec::ExecToLog 'powershell -NoProfile -Command "Remove-Item -LiteralPath $env:NSIS_DEL_PATH -Recurse -Force -ErrorAction SilentlyContinue"'
   Pop $0
@@ -245,11 +245,11 @@
   ${If} $DeleteAppDataCheckboxState = 1
   ${AndIf} $UpdateMode <> 1
     ; 先读取自定义路径（在删除默认目录之前，因为 custom_root.txt 在默认目录里）
-    !insertmacro _OpenAkita_ResolveRoot
+    !insertmacro _Synapse_ResolveRoot
     ; 清理自定义路径（如果有）
-    !insertmacro _OpenAkita_ForceRemoveDir $R9
+    !insertmacro _Synapse_ForceRemoveDir $R9
     ; 始终清理默认路径（包含 root_config.json 和 custom_root.txt）
     ExpandEnvStrings $R0 "%USERPROFILE%\.synapse"
-    !insertmacro _OpenAkita_ForceRemoveDir $R0
+    !insertmacro _Synapse_ForceRemoveDir $R0
   ${EndIf}
 !macroend

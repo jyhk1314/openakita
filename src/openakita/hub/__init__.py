@@ -1,7 +1,7 @@
 """
-OpenAkita Platform Hub Clients
+Synapse Platform Hub Clients
 
-提供与远程 OpenAkita Platform 交互的客户端：
+提供与远程 Synapse Platform 交互的客户端：
 - AgentHubClient: Agent Store 操作（搜索、下载、发布、评分）
 - SkillStoreClient: Skill Store 操作（搜索、安装、评分）
 """

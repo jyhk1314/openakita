@@ -153,7 +153,7 @@ fn write_root_config(config: &RootConfig) -> Result<(), String> {
 }
 
 fn synapse_root_dir() -> PathBuf {
-    if let Ok(val) = std::env::var("OPENAKITA_ROOT") {
+    if let Ok(val) = std::env::var("SYNAPSE_ROOT") {
         if !val.is_empty() {
             return PathBuf::from(val);
         }
@@ -205,7 +205,7 @@ fn start_onboarding_log(date_label: String) -> Result<String, String> {
         .write(true)
         .open(&path)
         .map_err(|e| format!("open onboarding log failed: {e}"))?;
-    let header = format!("OpenAkita 安装配置日志 开始于 {}\n", date_label);
+    let header = format!("Synapse 安装配置日志 开始于 {}\n", date_label);
     f.write_all(header.as_bytes())
         .map_err(|e| format!("write onboarding log header failed: {e}"))?;
     f.flush().map_err(|e| format!("flush failed: {e}"))?;
@@ -364,7 +364,7 @@ fn bundled_backend_dir() -> PathBuf {
         let mut candidates: Vec<PathBuf> = vec![];
 
         // deb 常见布局: /usr/lib/<app-name>/resources/synapse-server/
-        // productName = "OpenAkita Desktop" → Tauri deb 使用 kebab-case
+        // productName = "Synapse Desktop" → Tauri deb 使用 kebab-case
         for app_name in &["synapse-desktop", "synapse-desktop"] {
             candidates.push(PathBuf::from(format!(
                 "/usr/lib/{}/resources/synapse-server",
@@ -476,7 +476,7 @@ fn get_backend_executable(venv_dir: &str) -> (PathBuf, Vec<String>) {
 }
 
 /// 构建可选模块路径字符串（自动从 module_definitions 获取模块列表）
-/// 返回 path-separated 的 site-packages 目录列表，用于 OPENAKITA_MODULE_PATHS 环境变量
+/// 返回 path-separated 的 site-packages 目录列表，用于 SYNAPSE_MODULE_PATHS 环境变量
 fn build_modules_pythonpath() -> Option<String> {
     let base = modules_dir();
     if !base.exists() {
@@ -736,7 +736,7 @@ fn check_environment() -> EnvironmentCheck {
 
     let mut conflicts = Vec::new();
     if !running.is_empty() {
-        conflicts.push(format!("检测到 {} 个正在运行的 OpenAkita 进程", running.len()));
+        conflicts.push(format!("检测到 {} 个正在运行的 Synapse 进程", running.len()));
     }
 
     EnvironmentCheck {
@@ -1380,7 +1380,7 @@ fn kill_pid(pid: u32) -> Result<(), String> {
     }
 }
 
-/// 检查指定 PID 是否属于 OpenAkita 后端进程（python/synapse-server）。
+/// 检查指定 PID 是否属于 Synapse 后端进程（python/synapse-server）。
 /// 用于判断 PID 文件是否有效——避免 Windows PID 复用导致的误判。
 fn is_synapse_process(pid: u32) -> bool {
     if pid == 0 || !is_pid_running(pid) {
@@ -1599,16 +1599,16 @@ fn kill_synapse_orphans() -> Vec<u32> {
 }
 
 /// 扫描所有进程名含 python 且命令行包含 "synapse" 和 "serve" 的进程。
-/// 返回 OpenAkitaProcess 列表，供前端多进程检测使用。
+/// 返回 SynapseProcess 列表，供前端多进程检测使用。
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-struct OpenAkitaProcess {
+struct SynapseProcess {
     pid: u32,
     cmd: String,
 }
 
 #[tauri::command]
-fn synapse_list_processes() -> Vec<OpenAkitaProcess> {
+fn synapse_list_processes() -> Vec<SynapseProcess> {
     let mut out = Vec::new();
     #[cfg(windows)]
     {
@@ -1663,7 +1663,7 @@ fn synapse_list_processes() -> Vec<OpenAkitaProcess> {
                 // 精确匹配模块调用签名，避免 venv 路径中 .synapse 误报
                 if s_lower.contains("synapse.main") && (s_lower.contains(" serve") || s_lower.ends_with("serve")) {
                     if is_pid_running(ppid) {
-                        out.push(OpenAkitaProcess {
+                        out.push(SynapseProcess {
                             pid: ppid,
                             cmd: s.trim().to_string(),
                         });
@@ -1685,7 +1685,7 @@ fn synapse_list_processes() -> Vec<OpenAkitaProcess> {
                 if parts.len() >= 2 {
                     if let Ok(pid) = parts[1].parse::<u32>() {
                         if is_pid_running(pid) {
-                            out.push(OpenAkitaProcess {
+                            out.push(SynapseProcess {
                                 pid,
                                 cmd: parts[10..].join(" "),
                             });
@@ -1698,7 +1698,7 @@ fn synapse_list_processes() -> Vec<OpenAkitaProcess> {
     out
 }
 
-/// 停止所有检测到的 OpenAkita serve 进程。
+/// 停止所有检测到的 Synapse serve 进程。
 /// 返回被停止的 PID 列表。
 #[tauri::command]
 fn synapse_stop_all_processes() -> Vec<u32> {
@@ -1751,7 +1751,7 @@ fn ensure_workspace_scaffold(dir: &Path) -> Result<(), String> {
     let env_path = dir.join(".env");
     if !env_path.exists() {
         let content = [
-            "# OpenAkita workspace environment (managed by Setup Center)",
+            "# Synapse workspace environment (managed by Setup Center)",
             "#",
             "# - Only keys you explicitly set in Setup Center are written here.",
             "# - Clearing a value removes the key from this file.",
@@ -2511,7 +2511,7 @@ fn synapse_check_pid_alive(workspace_id: String) -> Result<bool, String> {
             remove_heartbeat_file(&workspace_id);
             return Ok(false);
         }
-        // PID 存活，但需验证是否真的是 OpenAkita 进程
+        // PID 存活，但需验证是否真的是 Synapse 进程
         if !is_synapse_process(data.pid) {
             // PID 被其他进程复用了，清理 stale PID 文件和心跳文件
             let _ = fs::remove_file(service_pid_file(&workspace_id));
@@ -2875,16 +2875,16 @@ fn synapse_service_start(venv_dir: String, workspace_id: String) -> Result<Servi
         cmd.env(k, v);
     }
     cmd.env("LLM_ENDPOINTS_CONFIG", ws_dir.join("data").join("llm_endpoints.json"));
-    cmd.env("OPENAKITA_ROOT", synapse_root_dir().to_string_lossy().to_string());
+    cmd.env("SYNAPSE_ROOT", synapse_root_dir().to_string_lossy().to_string());
 
     // 设置可选模块路径（已安装的可选模块 site-packages）
     // 重要：不能使用 PYTHONPATH！Python 启动时 PYTHONPATH 会被插入到 sys.path
     // 最前面，覆盖 PyInstaller 内置的包（如 pydantic），导致外部 pydantic 的
     // C 扩展 pydantic_core._pydantic_core 加载失败，进程在 import 阶段崩溃。
-    // 改用自定义环境变量 OPENAKITA_MODULE_PATHS，由 Python 端的
+    // 改用自定义环境变量 SYNAPSE_MODULE_PATHS，由 Python 端的
     // inject_module_paths() 读取并 append 到 sys.path 末尾。
     if let Some(extra_path) = build_modules_pythonpath() {
-        cmd.env("OPENAKITA_MODULE_PATHS", extra_path);
+        cmd.env("SYNAPSE_MODULE_PATHS", extra_path);
     }
 
     // Playwright 浏览器二进制路径
@@ -3963,7 +3963,7 @@ fn diagnose_python_env(venv_dir: String) -> PythonDiagnostic {
             code: "RUNTIME_MISSING".into(),
             evidence: missing,
             auto_fix: false,
-            fix_hint: Some("请重装 OpenAkita 以恢复内置运行时".into()),
+            fix_hint: Some("请重装 Synapse 以恢复内置运行时".into()),
         });
     }
 
@@ -4165,7 +4165,7 @@ fn install_bundled_python_sync(
     _log_path: Option<PathBuf>,
 ) -> Result<BundledPythonInstallResult, String> {
     let py = bundled_internal_python_path().ok_or_else(|| {
-        "安装包内置 Python 不可用。请重新安装 OpenAkita 以恢复 resources/synapse-server/_internal".to_string()
+        "安装包内置 Python 不可用。请重新安装 Synapse 以恢复 resources/synapse-server/_internal".to_string()
     })?;
     let bundled_dir = bundled_backend_dir();
     Ok(BundledPythonInstallResult {
@@ -4195,7 +4195,7 @@ async fn create_venv(python_command: Vec<String>, venv_dir: String) -> Result<St
         }
         let _ = python_command; // API 兼容保留，实际统一使用安装包内置 Python
         let bundled_py = bundled_internal_python_path()
-            .ok_or_else(|| "安装包内置 Python 不可用，请重新安装 OpenAkita".to_string())?;
+            .ok_or_else(|| "安装包内置 Python 不可用，请重新安装 Synapse".to_string())?;
         let mut c = Command::new(&bundled_py);
         apply_no_window(&mut c);
         apply_bundled_python_env(&mut c, &bundled_backend_dir().join("_internal"));
@@ -4228,7 +4228,7 @@ fn resolve_python(venv_dir: &str) -> Result<(PathBuf, Option<String>), String> {
         return Ok((venv_py, None));
     }
     let py = find_pip_python().ok_or_else(|| {
-        "未找到可用 Python 解释器（venv/bundled）。请重新安装 OpenAkita 以恢复内置 Python。".to_string()
+        "未找到可用 Python 解释器（venv/bundled）。请重新安装 Synapse 以恢复内置 Python。".to_string()
     })?;
     let bundled = bundled_backend_dir();
     let internal_dir = bundled.join("_internal");
@@ -5371,7 +5371,7 @@ fn generate_wrapper_content(backend_exe: &Path) -> String {
     {
         let exe_path = backend_exe.to_string_lossy();
         format!(
-            "#!/bin/sh\n# OpenAkita CLI wrapper - managed by OpenAkita Desktop\nexec \"{}\" \"$@\"\n",
+            "#!/bin/sh\n# Synapse CLI wrapper - managed by Synapse Desktop\nexec \"{}\" \"$@\"\n",
             exe_path
         )
     }
@@ -5981,11 +5981,11 @@ mod tests {
     fn test_synapse_root_dir_is_valid() {
         let root = synapse_root_dir();
         assert!(!root.to_string_lossy().is_empty());
-        // Should contain .synapse unless overridden by OPENAKITA_ROOT
+        // Should contain .synapse unless overridden by SYNAPSE_ROOT
         let root_str = root.to_string_lossy();
         assert!(
-            root_str.contains(".synapse") || std::env::var("OPENAKITA_ROOT").is_ok(),
-            "root dir should contain '.synapse' or OPENAKITA_ROOT should be set: {}",
+            root_str.contains(".synapse") || std::env::var("SYNAPSE_ROOT").is_ok(),
+            "root dir should contain '.synapse' or SYNAPSE_ROOT should be set: {}",
             root_str
         );
     }

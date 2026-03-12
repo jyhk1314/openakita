@@ -13,7 +13,7 @@ DOC_SEARCH_TESTS = [
         description="搜索 README",
         input={
             "action": "search_doc",
-            "query": "OpenAkita",
+            "query": "Synapse",
             "file": "README.md",
         },
         expected="contains:自进化",

@@ -1169,7 +1169,7 @@ class FeishuAdapter(ChannelAdapter):
     async def create_card_entity(
         self,
         content: str,
-        title: str = "OpenAkita",
+        title: str = "Synapse",
         *,
         streaming: bool = True,
     ) -> str | None:

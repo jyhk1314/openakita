@@ -1,6 +1,6 @@
-# OpenAkita Setup Center
+# Synapse Setup Center
 
-Desktop GUI and web configuration center for OpenAkita, built with Tauri 2.x + React 18.
+Desktop GUI and web configuration center for Synapse, built with Tauri 2.x + React 18.
 
 ## Tech Stack
 

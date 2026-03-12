@@ -1,5 +1,5 @@
 """
-OpenAkita CLI 入口
+Synapse CLI 入口
 
 使用 Typer 和 Rich 提供交互式命令行界面
 支持同时运行 CLI 和 IM 通道（Telegram、飞书等）
@@ -996,7 +996,7 @@ async def stop_im_channels(*, graceful: bool = True, drain_timeout: float = 30.0
 def print_welcome():
     """打印欢迎信息"""
     welcome_text = """
-# OpenAkita - 全能自进化AI助手
+# Synapse - 全能自进化AI助手
 
 基于 **Ralph Wiggum 模式**，永不放弃。
 
@@ -1300,14 +1300,14 @@ def main(
     version: bool = typer.Option(False, "--version", "-v", help="显示版本信息"),
 ):
     """
-    OpenAkita - 全能自进化AI助手
+    Synapse - 全能自进化AI助手
 
     直接运行进入交互模式
     """
     if version:
         from . import __version__
 
-        console.print(f"OpenAkita v{__version__}")
+        console.print(f"Synapse v{__version__}")
         raise typer.Exit(0)
 
     # 如果没有子命令，进入交互模式
@@ -1683,11 +1683,11 @@ def serve(
 
         from synapse import get_version_string
         _version_str = get_version_string()
-        logger.info(f"OpenAkita {_version_str} starting...")
+        logger.info(f"Synapse {_version_str} starting...")
 
         console.print(
             Panel(
-                f"[bold]OpenAkita 服务模式[/bold]\n\n"
+                f"[bold]Synapse 服务模式[/bold]\n\n"
                 f"版本: {_version_str}\n"
                 "只运行 IM 通道，不启动 CLI 交互。\n"
                 "按 Ctrl+C 停止服务。",

@@ -1,5 +1,5 @@
 """
-OpenAkita MCP 服务器模块
+Synapse MCP 服务器模块
 
 包含内置的 MCP 服务器实现：
 - web_search: 基于 DuckDuckGo 的网络搜索

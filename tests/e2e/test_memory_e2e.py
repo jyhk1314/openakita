@@ -165,7 +165,7 @@ class TestConversationToMemoryExtraction:
 
     def test_add_memory_then_retrieve(self, manager):
         manager.add_memory(Memory(
-            content="用户的项目叫 OpenAkita",
+            content="用户的项目叫 Synapse",
             type=MemoryType.FACT,
         ))
         manager.add_memory(Memory(

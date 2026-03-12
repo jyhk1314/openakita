@@ -22,14 +22,14 @@ def _resolve_user_workspace_skills() -> Path:
     """动态解析当前用户工作区的技能目录。
 
     生产模式下使用 config.settings.skills_path（自动适配当前工作区和自定义根目录），
-    导入失败时回退到基于 OPENAKITA_ROOT / 默认路径。
+    导入失败时回退到基于 SYNAPSE_ROOT / 默认路径。
     """
     try:
         from ..config import settings
         return settings.skills_path
     except Exception:
         import os
-        root = os.environ.get("OPENAKITA_ROOT", "").strip()
+        root = os.environ.get("SYNAPSE_ROOT", "").strip()
         if root:
             return Path(root) / "workspaces" / "default" / "skills"
         return Path.home() / ".synapse" / "workspaces" / "default" / "skills"

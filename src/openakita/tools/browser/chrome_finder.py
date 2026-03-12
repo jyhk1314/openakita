@@ -1,7 +1,7 @@
 """
 Chrome 检测与 Profile 管理
 
-提供 Chrome 安装检测、OpenAkita 专用 profile 管理、Cookie 同步等工具函数。
+提供 Chrome 安装检测、Synapse 专用 profile 管理、Cookie 同步等工具函数。
 从原 browser_mcp.py 提取，供 BrowserManager 启动流程使用。
 """
 
@@ -71,7 +71,7 @@ def detect_chrome_installation() -> tuple[str | None, str | None]:
 
 def get_synapse_chrome_profile() -> str:
     """
-    获取 OpenAkita 专用的 Chrome profile 目录。
+    获取 Synapse 专用的 Chrome profile 目录。
     独立于用户的 Chrome，可以在用户 Chrome 运行时使用。
     """
     import tempfile
@@ -84,7 +84,7 @@ def get_synapse_chrome_profile() -> str:
     else:
         base_dir = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share")))
 
-    profile_dir = base_dir / "OpenAkita" / "ChromeProfile"
+    profile_dir = base_dir / "Synapse" / "ChromeProfile"
     profile_dir.mkdir(parents=True, exist_ok=True)
 
     return str(profile_dir)
@@ -92,7 +92,7 @@ def get_synapse_chrome_profile() -> str:
 
 def sync_chrome_cookies(src_user_data: str, dst_profile: str) -> bool:
     """
-    同步用户 Chrome 的 cookies 到 OpenAkita profile。
+    同步用户 Chrome 的 cookies 到 Synapse profile。
     只复制关键文件以保持登录状态。
     """
     src_default = Path(src_user_data) / "Default"

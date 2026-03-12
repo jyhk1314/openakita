@@ -1,7 +1,7 @@
 """
 Windows 桌面自动化 - Agent 工具定义
 
-定义供 OpenAkita Agent 使用的工具
+定义供 Synapse Agent 使用的工具
 """
 
 import logging
@@ -608,7 +608,7 @@ def register_desktop_tools(agent: Any) -> None:
     注册桌面工具到 Agent
 
     Args:
-        agent: OpenAkita Agent 实例
+        agent: Synapse Agent 实例
     """
     handler = get_tool_handler()
 

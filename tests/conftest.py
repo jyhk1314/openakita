@@ -1,5 +1,5 @@
 """
-Global pytest fixtures for OpenAkita test suite.
+Global pytest fixtures for Synapse test suite.
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ def tmp_workspace(tmp_path: Path) -> Path:
 @pytest.fixture
 def test_settings(tmp_workspace: Path):
     """Test-specific Settings pointing to temp dirs, no external dependencies."""
-    os.environ["OPENAKITA_PROJECT_ROOT"] = str(tmp_workspace)
+    os.environ["SYNAPSE_PROJECT_ROOT"] = str(tmp_workspace)
     os.environ.setdefault("ANTHROPIC_API_KEY", "sk-test-placeholder")
 
     from synapse.config import Settings
@@ -76,7 +76,7 @@ def test_settings(tmp_workspace: Path):
     )
     yield settings
 
-    os.environ.pop("OPENAKITA_PROJECT_ROOT", None)
+    os.environ.pop("SYNAPSE_PROJECT_ROOT", None)
 
 
 @pytest.fixture

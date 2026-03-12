@@ -1,7 +1,7 @@
 """
 Agent 主类 - 协调所有模块
 
-这是 OpenAkita 的核心，负责:
+这是 Synapse 的核心，负责:
 - 接收用户输入
 - 协调各个模块
 - 执行工具调用
@@ -104,12 +104,12 @@ def _ensure_desktop():
     """延迟加载桌面自动化模块。
 
     pyautogui 在部分 Windows 环境下初始化极慢甚至卡死，
-    通过环境变量 OPENAKITA_SKIP_DESKTOP=1 可完全跳过。
+    通过环境变量 SYNAPSE_SKIP_DESKTOP=1 可完全跳过。
     """
     global _DESKTOP_AVAILABLE, _desktop_tool_handler
     if _DESKTOP_AVAILABLE is not None:
         return _DESKTOP_AVAILABLE
-    if sys.platform != "win32" or os.environ.get("OPENAKITA_SKIP_DESKTOP", ""):
+    if sys.platform != "win32" or os.environ.get("SYNAPSE_SKIP_DESKTOP", ""):
         _DESKTOP_AVAILABLE = False
         return False
     try:
@@ -204,7 +204,7 @@ def _collect_preset_referenced_skills() -> set[str]:
 
 class Agent:
     """
-    OpenAkita 主类
+    Synapse 主类
 
     一个全能自进化AI助手，基于 Ralph Wiggum 模式永不放弃。
     """

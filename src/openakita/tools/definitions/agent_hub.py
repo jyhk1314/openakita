@@ -1,7 +1,7 @@
 """
 Agent Hub 工具定义
 
-提供与 OpenAkita Platform Agent Store 交互的工具：
+提供与 Synapse Platform Agent Store 交互的工具：
 - search_hub_agents: 搜索平台上的 Agent
 - install_hub_agent: 从平台下载并安装 Agent
 - publish_agent: 发布 Agent 到平台
@@ -12,7 +12,7 @@ AGENT_HUB_TOOLS = [
     {
         "name": "search_hub_agents",
         "category": "Agent Hub",
-        "description": "Search for Agents on the OpenAkita Platform Agent Store. Returns a list of available Agents with name, description, rating, and download count.",
+        "description": "Search for Agents on the Synapse Platform Agent Store. Returns a list of available Agents with name, description, rating, and download count.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -39,7 +39,7 @@ AGENT_HUB_TOOLS = [
     {
         "name": "install_hub_agent",
         "category": "Agent Hub",
-        "description": "Download and install an Agent from the OpenAkita Platform Agent Store. Downloads the .akita-agent package and runs the local installer.",
+        "description": "Download and install an Agent from the Synapse Platform Agent Store. Downloads the .akita-agent package and runs the local installer.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -58,7 +58,7 @@ AGENT_HUB_TOOLS = [
     {
         "name": "publish_agent",
         "category": "Agent Hub",
-        "description": "Publish a local Agent to the OpenAkita Platform Agent Store. The Agent is first exported as a .akita-agent package, then uploaded.",
+        "description": "Publish a local Agent to the Synapse Platform Agent Store. The Agent is first exported as a .akita-agent package, then uploaded.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -86,7 +86,7 @@ AGENT_HUB_TOOLS = [
     {
         "name": "get_hub_agent_detail",
         "category": "Agent Hub",
-        "description": "Get detailed information about a specific Agent on the OpenAkita Platform, including versions, ratings, and readme.",
+        "description": "Get detailed information about a specific Agent on the Synapse Platform, including versions, ratings, and readme.",
         "input_schema": {
             "type": "object",
             "properties": {

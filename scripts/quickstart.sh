@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# OpenAkita One-Click Install Script (PyPI)
+# Synapse One-Click Install Script (PyPI)
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/synapse/synapse/main/scripts/quickstart.sh | bash
@@ -19,22 +19,22 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-OPENAKITA_ROOT_DEFAULT="${OPENAKITA_ROOT:-$HOME/.synapse}"
-OPENAKITA_APP_DIR_DEFAULT="${OPENAKITA_APP_DIR:-$OPENAKITA_ROOT_DEFAULT/app}"
-OPENAKITA_VENV_DIR_DEFAULT="${OPENAKITA_VENV_DIR:-$OPENAKITA_ROOT_DEFAULT/venv}"
+SYNAPSE_ROOT_DEFAULT="${SYNAPSE_ROOT:-$HOME/.synapse}"
+SYNAPSE_APP_DIR_DEFAULT="${SYNAPSE_APP_DIR:-$SYNAPSE_ROOT_DEFAULT/app}"
+SYNAPSE_VENV_DIR_DEFAULT="${SYNAPSE_VENV_DIR:-$SYNAPSE_ROOT_DEFAULT/venv}"
 
-EXTRAS="${OPENAKITA_EXTRAS:-}"
-INDEX_URL="${OPENAKITA_INDEX_URL:-}"
-TORCH_MODE="${OPENAKITA_TORCH_MODE:-cpu}" # cpu|skip
-INSTALL_PLAYWRIGHT="${OPENAKITA_INSTALL_PLAYWRIGHT:-1}" # 1|0
-RUN_INIT="${OPENAKITA_RUN_INIT:-1}" # 1|0
-INSTALL_WRAPPER="${OPENAKITA_INSTALL_WRAPPER:-1}" # 1|0
-YES="${OPENAKITA_YES:-0}" # 1|0
-FORCE_WRAPPER="${OPENAKITA_FORCE_WRAPPER:-0}" # 1|0
+EXTRAS="${SYNAPSE_EXTRAS:-}"
+INDEX_URL="${SYNAPSE_INDEX_URL:-}"
+TORCH_MODE="${SYNAPSE_TORCH_MODE:-cpu}" # cpu|skip
+INSTALL_PLAYWRIGHT="${SYNAPSE_INSTALL_PLAYWRIGHT:-1}" # 1|0
+RUN_INIT="${SYNAPSE_RUN_INIT:-1}" # 1|0
+INSTALL_WRAPPER="${SYNAPSE_INSTALL_WRAPPER:-1}" # 1|0
+YES="${SYNAPSE_YES:-0}" # 1|0
+FORCE_WRAPPER="${SYNAPSE_FORCE_WRAPPER:-0}" # 1|0
 
 usage() {
   cat <<'EOF'
-OpenAkita one-click install (PyPI).
+Synapse one-click install (PyPI).
 
 Options:
   --dir <path>            App working directory (default: ~/.synapse/app)
@@ -50,14 +50,14 @@ Options:
   -h, --help              Show this help
 
 Environment variables (optional):
-  OPENAKITA_ROOT, OPENAKITA_APP_DIR, OPENAKITA_VENV_DIR, OPENAKITA_EXTRAS,
-  OPENAKITA_INDEX_URL, OPENAKITA_TORCH_MODE, OPENAKITA_INSTALL_PLAYWRIGHT,
-  OPENAKITA_RUN_INIT, OPENAKITA_INSTALL_WRAPPER, OPENAKITA_YES, OPENAKITA_FORCE_WRAPPER
+  SYNAPSE_ROOT, SYNAPSE_APP_DIR, SYNAPSE_VENV_DIR, SYNAPSE_EXTRAS,
+  SYNAPSE_INDEX_URL, SYNAPSE_TORCH_MODE, SYNAPSE_INSTALL_PLAYWRIGHT,
+  SYNAPSE_RUN_INIT, SYNAPSE_INSTALL_WRAPPER, SYNAPSE_YES, SYNAPSE_FORCE_WRAPPER
 EOF
 }
 
-APP_DIR="$OPENAKITA_APP_DIR_DEFAULT"
-VENV_DIR="$OPENAKITA_VENV_DIR_DEFAULT"
+APP_DIR="$SYNAPSE_APP_DIR_DEFAULT"
+VENV_DIR="$SYNAPSE_VENV_DIR_DEFAULT"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -76,7 +76,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-echo -e "${CYAN}=== OpenAkita One-Click Install ===${NC}"
+echo -e "${CYAN}=== Synapse One-Click Install ===${NC}"
 echo -e "${CYAN}App dir:${NC} $APP_DIR"
 echo -e "${CYAN}Venv dir:${NC} $VENV_DIR"
 if [[ -n "$EXTRAS" ]]; then
@@ -152,7 +152,7 @@ fi
 
 echo -e "${YELLOW}Installing $PKG ...${NC}"
 python -m pip install -U "$PKG" "${PIP_INSTALL_ARGS[@]}"
-echo -e "${GREEN}✓ OpenAkita installed${NC}"
+echo -e "${GREEN}✓ Synapse installed${NC}"
 
 if [[ "$INSTALL_PLAYWRIGHT" == "1" ]]; then
   echo -e "${YELLOW}Installing Playwright browsers (optional)...${NC}"

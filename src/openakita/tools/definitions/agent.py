@@ -189,7 +189,7 @@ AGENT_TOOLS = [
                 "scenario": "✅ 正确：同时调研多个项目（同类任务 → 同一 Agent 多副本）",
                 "params": {
                     "tasks": [
-                        {"agent_id": "browser-agent", "message": "深入调研 OpenAkita 项目的架构、功能和社区活跃度", "reason": "调研项目A"},
+                        {"agent_id": "browser-agent", "message": "深入调研 Synapse 项目的架构、功能和社区活跃度", "reason": "调研项目A"},
                         {"agent_id": "browser-agent", "message": "深入调研 OpenClaw 项目的架构、功能和社区活跃度", "reason": "调研项目B"},
                     ],
                 },

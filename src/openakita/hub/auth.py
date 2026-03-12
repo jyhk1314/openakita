@@ -39,7 +39,7 @@ class AuthResult:
 
 
 class HubAuthClient:
-    """Client for authenticating with OpenAkita Platform via Device Auth Flow."""
+    """Client for authenticating with Synapse Platform via Device Auth Flow."""
 
     def __init__(self, hub_url: str | None = None):
         raw = (hub_url or settings.hub_api_url).rstrip("/")

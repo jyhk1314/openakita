@@ -1,6 +1,6 @@
-## OpenAkita Setup Center
+## Synapse Setup Center
 
-这是 OpenAkita 的可视化安装与配置中心（跨平台：Windows / macOS / Linux）。
+这是 Synapse 的可视化安装与配置中心（跨平台：Windows / macOS / Linux）。
 
 ### 目标（分阶段）
 

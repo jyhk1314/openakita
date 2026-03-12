@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-OpenAkita 测试运行脚本
+Synapse 测试运行脚本
 """
 
 import asyncio
@@ -66,14 +66,14 @@ async def test_file():
     
     # 写入测试
     print("\n  测试: 写入文件")
-    await file.write("/tmp/synapse_test.txt", "Hello OpenAkita!")
+    await file.write("/tmp/synapse_test.txt", "Hello Synapse!")
     print("  结果: ✓ PASS")
     passed += 1
     
     # 读取测试
     print("\n  测试: 读取文件")
     content = await file.read("/tmp/synapse_test.txt")
-    if content == "Hello OpenAkita!":
+    if content == "Hello Synapse!":
         print("  结果: ✓ PASS")
         passed += 1
     else:
@@ -176,7 +176,7 @@ async def test_prompt_and_memory():
 
 async def main():
     print("=" * 60)
-    print("OpenAkita 功能测试")
+    print("Synapse 功能测试")
     print("=" * 60)
     
     total_passed = 0

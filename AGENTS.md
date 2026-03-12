@@ -1,4 +1,4 @@
-# OpenAkita
+# Synapse
 
 Open-source multi-agent AI assistant — not just chat, an AI team that gets things done.
 
@@ -102,7 +102,7 @@ tests/                  # Test suite
 ## Known Gotchas
 
 - Windows shell: use `write_file` + `run_shell python script.py` for complex text processing; avoid PowerShell escaping issues.
-- `identity/AGENT.md` is OpenAkita's own behavior spec, NOT the industry-standard `AGENTS.md` file — don't confuse them.
+- `identity/AGENT.md` is Synapse's own behavior spec, NOT the industry-standard `AGENTS.md` file — don't confuse them.
 - The `prompt/compiler.py` must be re-run when identity files change; `builder.py` auto-detects staleness via `check_compiled_outdated()`.
 - Skill loading order: `__builtin__` → workspace → `.cursor/skills` → `.claude/skills` → `skills/` → global home dirs.
 - `multi_agent_enabled` is a runtime toggle stored in `data/runtime_state.json`, not a static config.

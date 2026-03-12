@@ -365,7 +365,7 @@ class OpenAIProvider(LLMProvider):
         # OpenRouter 需要额外的头
         if "openrouter" in self.base_url.lower():
             headers["HTTP-Referer"] = "https://github.com/synapse"
-            headers["X-Title"] = "OpenAkita"
+            headers["X-Title"] = "Synapse"
 
         return headers
 

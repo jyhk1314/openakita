@@ -38,7 +38,7 @@ fn ensure_placeholder_windows_icon() {
     // Only needed for Windows targets, but keep it harmless on others.
     let icons_dir = std::path::Path::new("icons");
     let icon_path = icons_dir.join("icon.ico");
-    if std::env::var("OPENAKITA_SETUP_CENTER_SKIP_ICON").ok().as_deref() == Some("1") {
+    if std::env::var("SYNAPSE_SETUP_CENTER_SKIP_ICON").ok().as_deref() == Some("1") {
         return;
     }
     // 如果仓库/项目已经提供了 icon.ico（例如通过 `tauri icon` 生成），不要覆盖它。

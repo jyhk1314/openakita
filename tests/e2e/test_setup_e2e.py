@@ -154,7 +154,7 @@ class TestSetupAPIIntegration:
         values = dotenv_values(env_path)
         assert values.get("ANTHROPIC_API_KEY") == "sk-test-env"
         assert values.get("DEFAULT_MODEL") == "claude-sonnet-4-20250514"
-        assert values.get("AGENT_NAME") == "OpenAkita"
+        assert values.get("AGENT_NAME") == "Synapse"
 
 
 class TestCLISelfcheck:

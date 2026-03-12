@@ -1,5 +1,5 @@
 """
-OpenAkita 记忆系统 (v2)
+Synapse 记忆系统 (v2)
 
 架构:
 - UnifiedStore: SQLite (主存储+FTS5) + SearchBackend (可插拔搜索)

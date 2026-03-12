@@ -14,9 +14,9 @@ FILE_TESTS = [
         input={
             "action": "write_read",
             "path": "/tmp/synapse_test_001.txt",
-            "content": "Hello, OpenAkita!",
+            "content": "Hello, Synapse!",
         },
-        expected="Hello, OpenAkita!",
+        expected="Hello, Synapse!",
         tags=["file", "read", "write"],
     ),
     TestCase(

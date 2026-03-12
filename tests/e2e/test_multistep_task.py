@@ -191,20 +191,20 @@ class TestToolChainWithMemory:
 
         client.preset_sequence([
             MockResponse(content="", tool_calls=[
-                {"name": "web_search", "input": {"query": "OpenAkita features"}},
+                {"name": "web_search", "input": {"query": "Synapse features"}},
             ]),
             MockResponse(content="", tool_calls=[
-                {"name": "remember", "input": {"content": "OpenAkita 是一个 AI Agent 框架", "importance": 4}},
+                {"name": "remember", "input": {"content": "Synapse 是一个 AI Agent 框架", "importance": 4}},
             ]),
-            MockResponse(content="我已经搜索并记住了 OpenAkita 的特性。"),
+            MockResponse(content="我已经搜索并记住了 Synapse 的特性。"),
         ])
 
-        r1 = client.chat_sync([{"role": "user", "content": "了解一下 OpenAkita"}])
+        r1 = client.chat_sync([{"role": "user", "content": "了解一下 Synapse"}])
         assert r1.tool_calls[0].name == "web_search"
 
-        r2 = client.chat_sync([{"role": "tool", "content": "OpenAkita is an AI agent framework"}])
+        r2 = client.chat_sync([{"role": "tool", "content": "Synapse is an AI agent framework"}])
         assert r2.tool_calls[0].name == "remember"
 
         r3 = client.chat_sync([{"role": "tool", "content": "Memory saved"}])
         text = r3.content[0].text if hasattr(r3.content, '__iter__') and r3.content else str(r3.content)
-        assert "记住" in text or "OpenAkita" in text
+        assert "记住" in text or "Synapse" in text

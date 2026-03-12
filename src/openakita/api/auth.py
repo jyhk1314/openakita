@@ -1,5 +1,5 @@
 """
-Web access authentication for OpenAkita.
+Web access authentication for Synapse.
 
 Single-password mode with JWT tokens. Local requests (127.0.0.1) are exempt
 from authentication to preserve the desktop experience.
@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 ACCESS_TOKEN_TTL = 24 * 3600          # 24 hours
 REFRESH_TOKEN_TTL = 90 * 24 * 3600    # 90 days
 REFRESH_COOKIE_NAME = "synapse_refresh"
-PASSWORD_ENV_VAR = "OPENAKITA_WEB_PASSWORD"
+PASSWORD_ENV_VAR = "SYNAPSE_WEB_PASSWORD"
 
 AUTH_EXEMPT_PATHS = frozenset({
     "/",

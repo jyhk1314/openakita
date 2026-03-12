@@ -1,5 +1,5 @@
 """
-OpenAkita - Windows 桌面自动化模块
+Synapse - Windows 桌面自动化模块
 
 提供 Windows 桌面的自动化控制能力：
 - UIAutomation (pywinauto) - 标准 Windows 应用的快速元素操作

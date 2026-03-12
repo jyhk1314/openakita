@@ -9,7 +9,7 @@
 - DINGTALK_CLIENT_ID = dingo7jnkd1c3hquoacu
 - DINGTALK_CLIENT_SECRET = (已配置)
 
-⚠️ 说明：OpenAkita 当前钉钉适配器将 `robotCode` 直接使用 `app_key`（即 DINGTALK_CLIENT_ID）。若你的机器人 `robotCode` 并非该值，则会导致 “robot 不存在”。
+⚠️ 说明：Synapse 当前钉钉适配器将 `robotCode` 直接使用 `app_key`（即 DINGTALK_CLIENT_ID）。若你的机器人 `robotCode` 并非该值，则会导致 “robot 不存在”。
 
 ## 健康检查
 由于缺少可用的 webhook / openConversationId / userId 等目标参数（本仓库配置中未发现），无法对“发送消息/图片”接口做真实探测。

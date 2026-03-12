@@ -89,7 +89,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     },
     "mcp-installer": {
         "name": "MCP 安装器",
-        "description": "安装、配置和添加 MCP 服务器到 OpenAkita 系统，支持 npm/pip 包和远程服务。",
+        "description": "安装、配置和添加 MCP 服务器到 Synapse 系统，支持 npm/pip 包和远程服务。",
     },
     "moltbook": {
         "name": "Moltbook 社交",
@@ -105,7 +105,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     },
     "skill-creator": {
         "name": "技能创建器",
-        "description": "创建和改进 OpenAkita 技能。为重复性任务创建新技能、改进现有技能、或将临时脚本封装为可复用技能。",
+        "description": "创建和改进 Synapse 技能。为重复性任务创建新技能、改进现有技能、或将临时脚本封装为可复用技能。",
     },
     "slack-gif-creator": {
         "name": "Slack GIF 制作",

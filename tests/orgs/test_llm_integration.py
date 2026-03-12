@@ -24,11 +24,11 @@ from synapse.orgs.runtime import OrgRuntime
 from synapse.orgs.models import OrgStatus, NodeStatus
 from .conftest import make_org, make_node, make_edge
 
-_SKIP_REASON = "LLM tests require --api-keys flag or OPENAKITA_LLM_TESTS=1 env"
+_SKIP_REASON = "LLM tests require --api-keys flag or SYNAPSE_LLM_TESTS=1 env"
 
 
 def _should_skip() -> bool:
-    if os.environ.get("OPENAKITA_LLM_TESTS", "0") == "1":
+    if os.environ.get("SYNAPSE_LLM_TESTS", "0") == "1":
         return False
     return True
 

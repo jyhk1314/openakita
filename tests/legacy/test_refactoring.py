@@ -1,5 +1,5 @@
 """
-OpenAkita 架构重构功能自检测试
+Synapse 架构重构功能自检测试
 
 验证所有新模块和修改模块的基本功能：
 1. Phase 1: 基础设施 (AgentState, Tracing, ToolError)

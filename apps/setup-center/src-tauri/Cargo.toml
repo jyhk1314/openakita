@@ -1,8 +1,8 @@
 [package]
 name = "synapse-setup-center"
 version = "1.26.0"
-description = "OpenAkita Setup Center"
-authors = ["OpenAkita"]
+description = "Synapse Setup Center"
+authors = ["Synapse"]
 edition = "2021"
 
 [build-dependencies]

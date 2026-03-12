@@ -1,5 +1,5 @@
 """
-OpenAkita 存储模块
+Synapse 存储模块
 """
 
 from .database import Database

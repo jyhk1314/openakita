@@ -1,5 +1,5 @@
 """
-OpenAkita 工具模块
+Synapse 工具模块
 """
 
 import sys

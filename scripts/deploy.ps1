@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    OpenAkita 一键部署脚本 (Windows PowerShell)
+    Synapse 一键部署脚本 (Windows PowerShell)
 .DESCRIPTION
     自动完成 Python 安装、环境配置、依赖安装等全部部署流程
 .NOTES
@@ -430,7 +430,7 @@ function Initialize-IdentityTemplates {
         $soulContent = @"
 # Agent Soul
 
-你是 OpenAkita，一个忠诚可靠的 AI 助手。
+你是 Synapse，一个忠诚可靠的 AI 助手。
 
 ## 核心特质
 - 永不放弃，持续尝试直到成功
@@ -459,7 +459,7 @@ function New-EnvFile {
     } else {
         $config = @"
 # =====================================================
-# OpenAkita 基础配置
+# Synapse 基础配置
 # =====================================================
 
 # LLM API（推荐使用 data/llm_endpoints.json 管理多端点）
@@ -469,7 +469,7 @@ DEFAULT_MODEL=claude-opus-4-5-20251101-thinking
 MAX_TOKENS=8192
 
 # Agent 配置
-AGENT_NAME=OpenAkita
+AGENT_NAME=Synapse
 MAX_ITERATIONS=100
 AUTO_CONFIRM=false
 
@@ -696,7 +696,7 @@ function Show-Completion {
 function Main {
     Write-Host ""
     Write-Host "╔════════════════════════════════════════╗" -ForegroundColor Magenta
-    Write-Host "║     OpenAkita 一键部署脚本 (Windows)     ║" -ForegroundColor Magenta
+    Write-Host "║     Synapse 一键部署脚本 (Windows)     ║" -ForegroundColor Magenta
     Write-Host "╚════════════════════════════════════════╝" -ForegroundColor Magenta
     Write-Host ""
     

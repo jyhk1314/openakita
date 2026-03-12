@@ -31,7 +31,7 @@ async def real_agent(tmp_path, monkeypatch):
     if not endpoint:
         pytest.skip("No LLM endpoint available")
 
-    monkeypatch.setenv("OPENAKITA_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("SYNAPSE_DATA_DIR", str(tmp_path / "data"))
     (tmp_path / "data").mkdir(exist_ok=True)
     (tmp_path / "data" / "memory").mkdir(parents=True, exist_ok=True)
 

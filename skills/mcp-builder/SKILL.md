@@ -196,9 +196,9 @@ Create an XML file with this structure:
 
 ---
 
-### Phase 5: Register in OpenAkita (CRITICAL)
+### Phase 5: Register in Synapse (CRITICAL)
 
-**This step is mandatory.** After building and testing the MCP server, you MUST register it into the OpenAkita system so the user can actually use it. Do NOT just show config snippets — call `add_mcp_server` to complete the registration.
+**This step is mandatory.** After building and testing the MCP server, you MUST register it into the Synapse system so the user can actually use it. Do NOT just show config snippets — call `add_mcp_server` to complete the registration.
 
 #### 5.1 Install Dependencies
 

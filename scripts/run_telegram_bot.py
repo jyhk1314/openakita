@@ -149,7 +149,7 @@ async def handle_start(update: Update, context):
     
     welcome_text = f"""👋 你好 {user.first_name}！
 
-我是 **OpenAkita**，一个全能 AI 助手。
+我是 **Synapse**，一个全能 AI 助手。
 
 🔧 **功能：**
 - 智能对话
@@ -259,7 +259,7 @@ async def post_init(application):
     await init_components()
     
     print("=" * 50)
-    print("🚀 OpenAkita Telegram Bot 已启动!")
+    print("🚀 Synapse Telegram Bot 已启动!")
     print(f"   Bot: @Jarvisuen_bot")
     print(f"   Agent 技能: {agent.skill_registry.count}")
     print("   按 Ctrl+C 停止")
@@ -269,7 +269,7 @@ async def post_init(application):
 def main():
     """主函数"""
     print("=" * 50)
-    print("OpenAkita Telegram Bot")
+    print("Synapse Telegram Bot")
     print("=" * 50)
     
     # 创建 Application

@@ -1,6 +1,6 @@
 ---
 name: submit-skill-repo
-description: Submit a GitHub repository to be indexed by the OpenAkita Skill Store. Use when user wants to share their skill repository with the community or register a new skill source.
+description: Submit a GitHub repository to be indexed by the Synapse Skill Store. Use when user wants to share their skill repository with the community or register a new skill source.
 system: true
 handler: skill_store
 tool-name: submit_skill_repo
@@ -9,7 +9,7 @@ category: Platform
 
 # Submit Skill Repo
 
-将 GitHub 仓库提交到 OpenAkita Skill Store 索引。
+将 GitHub 仓库提交到 Synapse Skill Store 索引。
 
 ## Tools
 
