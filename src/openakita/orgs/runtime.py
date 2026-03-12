@@ -1124,7 +1124,6 @@ class OrgRuntime:
     def _save_org(self, org: Organization) -> None:
         org.updated_at = _now_iso()
         self._manager.update(org.id, org.to_dict())
-        self._manager.invalidate_cache(org.id)
 
     def _save_state(self, org_id: str) -> None:
         org = self._active_orgs.get(org_id)

@@ -223,6 +223,9 @@ async def update_org(request: Request, org_id: str):
         org = mgr.update(org_id, body)
     except (ValueError, TypeError, KeyError) as e:
         raise HTTPException(400, f"Invalid org data: {e}")
+    rt = getattr(request.app.state, "org_runtime", None)
+    if rt and hasattr(rt, "_active_orgs") and org_id in rt._active_orgs:
+        rt._active_orgs[org_id] = org
     return org.to_dict()
 
 
