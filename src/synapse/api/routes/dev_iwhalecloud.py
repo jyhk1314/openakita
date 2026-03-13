@@ -11,3 +11,7 @@ from synapse.config import settings
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+@router.post("/api/dev/iwhalecloud/validation")
+async def validation(request: Request, channel: str = "desktop"):
+    return {"message": "Hello, World!"}
