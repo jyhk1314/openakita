@@ -31,6 +31,7 @@ from .routes import (
     agents,
     chat,
     chat_models,
+    gitnexus,
     config,
     files,
     health,
@@ -265,6 +266,7 @@ def create_app(
     app.include_router(im.router, tags=["即时通讯"])
     app.include_router(logs.router, tags=["日志"])
     app.include_router(mcp.router, tags=["MCP"])
+    app.include_router(gitnexus.router, tags=["GitNexus"])
     app.include_router(memory.router, tags=["记忆"])
     app.include_router(scheduler.router, tags=["定时任务"])
     app.include_router(sessions.router, tags=["会话"])

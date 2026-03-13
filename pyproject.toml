@@ -139,7 +139,6 @@ dev = [
 
 [project.scripts]
 synapse = "synapse.main:app"
-synapse = "synapse.main:app"
 
 [build-system]
 requires = ["hatchling"]
