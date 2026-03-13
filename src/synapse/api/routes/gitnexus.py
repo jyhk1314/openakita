@@ -22,7 +22,6 @@ and returns it directly to the frontend.
 from __future__ import annotations
 
 import logging
-s
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
