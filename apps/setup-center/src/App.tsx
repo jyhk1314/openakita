@@ -2988,8 +2988,6 @@ export function App() {
           "TOOL_MAX_PARALLEL", "FORCE_TOOL_CALL_MAX_RETRIES",
           "ALLOW_PARALLEL_TOOLS_WITH_INTERRUPT_CHECKS",
           "MCP_ENABLED", "MCP_TIMEOUT", "MCP_BROWSER_ENABLED",
-          "MCP_MYSQL_ENABLED", "MCP_MYSQL_HOST", "MCP_MYSQL_USER", "MCP_MYSQL_PASSWORD", "MCP_MYSQL_DATABASE",
-          "MCP_POSTGRES_ENABLED", "MCP_POSTGRES_URL",
           "DESKTOP_ENABLED", "DESKTOP_DEFAULT_MONITOR", "DESKTOP_COMPRESSION_QUALITY",
           "DESKTOP_MAX_WIDTH", "DESKTOP_MAX_HEIGHT", "DESKTOP_CACHE_TTL",
           "DESKTOP_UIA_TIMEOUT", "DESKTOP_UIA_RETRY_INTERVAL", "DESKTOP_UIA_MAX_RETRIES",
@@ -5116,8 +5114,6 @@ export function App() {
       "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "FORCE_IPV4",
       "TOOL_MAX_PARALLEL", "FORCE_TOOL_CALL_MAX_RETRIES", "ALLOW_PARALLEL_TOOLS_WITH_INTERRUPT_CHECKS",
       "MCP_ENABLED", "MCP_TIMEOUT", "MCP_BROWSER_ENABLED",
-      "MCP_MYSQL_ENABLED", "MCP_MYSQL_HOST", "MCP_MYSQL_USER", "MCP_MYSQL_PASSWORD", "MCP_MYSQL_DATABASE",
-      "MCP_POSTGRES_ENABLED", "MCP_POSTGRES_URL",
       "DESKTOP_ENABLED", "DESKTOP_DEFAULT_MONITOR", "DESKTOP_COMPRESSION_QUALITY",
       "DESKTOP_MAX_WIDTH", "DESKTOP_MAX_HEIGHT", "DESKTOP_CACHE_TTL",
       "DESKTOP_UIA_TIMEOUT", "DESKTOP_UIA_RETRY_INTERVAL", "DESKTOP_UIA_MAX_RETRIES",
@@ -5150,17 +5146,6 @@ export function App() {
                 {FB({ k: "MCP_BROWSER_ENABLED", label: "Browser MCP", help: t("config.toolsMCPBrowserHelp") })}
                 {FT({ k: "MCP_TIMEOUT", label: "Timeout (s)", placeholder: "60" })}
               </div>
-              <div className="divider" />
-              {FB({ k: "MCP_MYSQL_ENABLED", label: "MySQL" })}
-              <div className="grid2">
-                {FT({ k: "MCP_MYSQL_HOST", label: "Host", placeholder: "localhost" })}
-                {FT({ k: "MCP_MYSQL_USER", label: "User", placeholder: "root" })}
-                {FT({ k: "MCP_MYSQL_PASSWORD", label: "Password", type: "password" })}
-                {FT({ k: "MCP_MYSQL_DATABASE", label: "Database", placeholder: "mydb" })}
-              </div>
-              <div className="divider" />
-              {FB({ k: "MCP_POSTGRES_ENABLED", label: "PostgreSQL" })}
-              {FT({ k: "MCP_POSTGRES_URL", label: "URL", placeholder: "postgresql://user:pass@localhost/db" })}
             </div>
           </details>
 
@@ -6173,13 +6158,6 @@ export function App() {
       "MCP_ENABLED",
       "MCP_TIMEOUT",
       "MCP_BROWSER_ENABLED",
-      "MCP_MYSQL_ENABLED",
-      "MCP_MYSQL_HOST",
-      "MCP_MYSQL_USER",
-      "MCP_MYSQL_PASSWORD",
-      "MCP_MYSQL_DATABASE",
-      "MCP_POSTGRES_ENABLED",
-      "MCP_POSTGRES_URL",
       // Desktop automation
       "DESKTOP_ENABLED",
       "DESKTOP_DEFAULT_MONITOR",
@@ -6468,17 +6446,6 @@ export function App() {
                   {FB({ k: "MCP_BROWSER_ENABLED", label: "Browser MCP", help: "Playwright 浏览器自动化" })}
                   {FT({ k: "MCP_TIMEOUT", label: "MCP_TIMEOUT", placeholder: "60" })}
                 </div>
-                <div className="divider" />
-                {FB({ k: "MCP_MYSQL_ENABLED", label: "MySQL MCP" })}
-                <div className="grid2" style={{ marginTop: 10 }}>
-                  {FT({ k: "MCP_MYSQL_HOST", label: "MCP_MYSQL_HOST", placeholder: "localhost" })}
-                  {FT({ k: "MCP_MYSQL_USER", label: "MCP_MYSQL_USER", placeholder: "root" })}
-                  {FT({ k: "MCP_MYSQL_PASSWORD", label: "MCP_MYSQL_PASSWORD", type: "password" })}
-                  {FT({ k: "MCP_MYSQL_DATABASE", label: "MCP_MYSQL_DATABASE", placeholder: "mydb" })}
-                </div>
-                <div className="divider" />
-                {FB({ k: "MCP_POSTGRES_ENABLED", label: "Postgres MCP" })}
-                {FT({ k: "MCP_POSTGRES_URL", label: "MCP_POSTGRES_URL", placeholder: "postgresql://user:pass@localhost/db" })}
               </div>
 
               <div className="card" style={{ marginTop: 0 }}>

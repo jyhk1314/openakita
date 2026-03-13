@@ -39,20 +39,6 @@ playwright install chromium
 MCP_BROWSER_ENABLED=true
 ```
 
-### Database MCP
-
-```bash
-# MySQL
-MCP_MYSQL_ENABLED=true
-MCP_MYSQL_HOST=localhost
-MCP_MYSQL_USER=root
-MCP_MYSQL_PASSWORD=password
-MCP_MYSQL_DATABASE=mydb
-
-# PostgreSQL
-MCP_POSTGRES_ENABLED=true
-MCP_POSTGRES_URL=postgresql://user:pass@localhost/db
-```
 
 ## Using MCP Tools
 
@@ -63,15 +49,6 @@ You> Go to github.com and search for "python web scraper"
 Agent> Using browser MCP...
 [Opens browser, navigates, performs search]
 Found 1,234 repositories...
-```
-
-### Database Queries
-
-```
-You> Show me the top 10 users by registration date
-Agent> Using database MCP...
-[Executes SQL query]
-Here are the results...
 ```
 
 ## MCP Tool Reference
