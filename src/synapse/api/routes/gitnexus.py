@@ -22,13 +22,13 @@ and returns it directly to the frontend.
 from __future__ import annotations
 
 import logging
-
+s
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from openakita.config import settings
+from synapse.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +160,7 @@ def _get_backend_url(request: Request) -> str:
     """获取后端 MCP 服务的 URL。
 
     行为：
-    1. 优先从 OpenAkita 配置 settings.gitnexus_mcp_base_url 读取，例如：
+    1. 优先从 Synapse 配置 settings.gitnexus_mcp_base_url 读取，例如：
        - http://127.0.0.1:18080
        - https://your-backend-host
     2. 若未设置（为空），则固定回退到 http://127.0.0.1:18900/api/mcp，
@@ -168,7 +168,7 @@ def _get_backend_url(request: Request) -> str:
     """
     base = (getattr(settings, "gitnexus_mcp_base_url", "") or "").strip().rstrip("/")
     if not base:
-        # 使用默认 OpenAkita API 地址，并输出告警日志方便排查
+        # 使用默认 Synapse API 地址，并输出告警日志方便排查
         base = "http://127.0.0.1:18900"
         logger.warning(
             "GitNexus backend URL not configured (settings.gitnexus_mcp_base_url is empty), "

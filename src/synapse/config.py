@@ -242,6 +242,12 @@ class Settings(BaseSettings):
         default=False, description="启动时是否自动连接所有 MCP 服务器"
     )
 
+    # === GitNexus 配置 ===
+    gitnexus_mcp_base_url: str = Field(
+        default="",
+        description="GitNexus 查询转发所使用的 MCP 后端基地址（如 http://127.0.0.1:6660）",
+    )
+
     # === 调度器配置 ===
     scheduler_enabled: bool = Field(default=True, description="是否启用定时任务调度器")
     scheduler_timezone: str = Field(default="Asia/Shanghai", description="调度器时区")
