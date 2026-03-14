@@ -4216,7 +4216,22 @@ export function App() {
               <span className="statusCardLabel">{t("status.log")}</span>
               <Button size="sm" variant="outline" onClick={() => { const wsId = effectiveWsId || (dataMode === "remote" ? "__remote__" : null); if (wsId) refreshServiceLog(wsId); }}><RefreshCw size={14} className="mr-1" />{t("topbar.refresh")}</Button>
             </div>
-            <pre ref={serviceLogRef} className="logPre">{(serviceLog?.content || "").trim() || t("status.noLog")}</pre>
+            <div ref={serviceLogRef as any} className="logPre">{(() => {
+              const raw = (serviceLog?.content || "").trim();
+              if (!raw) return <span className="logMuted">{t("status.noLog")}</span>;
+              return raw.split("\n").map((line, i) => {
+                const isError = /\b(ERROR|CRITICAL|FATAL)\b/.test(line);
+                const isWarn = /\bWARN(ING)?\b/.test(line);
+                const isDebug = /\bDEBUG\b/.test(line);
+                const cls = isError ? "logLineError" : isWarn ? "logLineWarn" : isDebug ? "logLineDebug" : "logLineInfo";
+                const highlighted = line
+                  .replace(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}[,.]\d+)/, '<span class="logTimestamp">$1</span>')
+                  .replace(/\b(INFO|ERROR|WARN(?:ING)?|DEBUG|CRITICAL|FATAL)\b/, '<span class="logLevel logLevel--$1">$1</span>')
+                  .replace(/([\w.]+(?:\.[\w]+)+)\s+-\s+/, '<span class="logModule">$1</span> - ')
+                  .replace(/\[([^\]]+)\]/, '[<span class="logTag">$1</span>]');
+                return <div key={i} className={`logLine ${cls}`} dangerouslySetInnerHTML={{ __html: highlighted }} />;
+              });
+            })()}</div>
           </div>
         )}
       </>

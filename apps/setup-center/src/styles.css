@@ -1242,16 +1242,107 @@ button:not([data-slot]):disabled {
 
 /* Log display */
 .logPre {
-  white-space: pre-wrap;
-  word-break: break-word;
+  font-family: "Cascadia Code", "Fira Code", "JetBrains Mono", "Consolas", monospace;
   font-size: 11px;
-  padding: 10px;
+  line-height: 1.6;
+  padding: 10px 0;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--bg-app);
-  max-height: 200px;
+  background: #0d1117;
+  color: #c9d1d9;
+  max-height: 240px;
   overflow: auto;
   margin: 0;
+}
+[data-theme="light"] .logPre,
+:root:not([data-theme="dark"]) .logPre {
+  background: #f6f8fa;
+  color: #24292f;
+}
+.logLine {
+  padding: 1px 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-left: 3px solid transparent;
+  transition: background 0.1s;
+}
+.logLine:hover {
+  background: rgba(255,255,255,0.03);
+}
+[data-theme="light"] .logLine:hover,
+:root:not([data-theme="dark"]) .logLine:hover {
+  background: rgba(0,0,0,0.03);
+}
+.logLineError {
+  border-left-color: #f85149;
+  background: rgba(248, 81, 73, 0.08);
+}
+[data-theme="light"] .logLineError,
+:root:not([data-theme="dark"]) .logLineError {
+  background: rgba(248, 81, 73, 0.06);
+}
+.logLineWarn {
+  border-left-color: #d29922;
+  background: rgba(210, 153, 34, 0.06);
+}
+[data-theme="light"] .logLineWarn,
+:root:not([data-theme="dark"]) .logLineWarn {
+  background: rgba(210, 153, 34, 0.04);
+}
+.logLineDebug {
+  opacity: 0.55;
+}
+.logLineInfo {
+  border-left-color: transparent;
+}
+.logTimestamp {
+  color: #6e7681;
+}
+[data-theme="light"] .logTimestamp,
+:root:not([data-theme="dark"]) .logTimestamp {
+  color: #8b949e;
+}
+.logLevel {
+  font-weight: 700;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 10px;
+  letter-spacing: 0.3px;
+}
+.logLevel--INFO {
+  color: #58a6ff;
+  background: rgba(88, 166, 255, 0.12);
+}
+.logLevel--ERROR, .logLevel--CRITICAL, .logLevel--FATAL {
+  color: #f85149;
+  background: rgba(248, 81, 73, 0.15);
+}
+.logLevel--WARNING, .logLevel--WARN {
+  color: #d29922;
+  background: rgba(210, 153, 34, 0.12);
+}
+.logLevel--DEBUG {
+  color: #8b949e;
+  background: rgba(139, 148, 158, 0.1);
+}
+.logModule {
+  color: #d2a8ff;
+}
+[data-theme="light"] .logModule,
+:root:not([data-theme="dark"]) .logModule {
+  color: #8250df;
+}
+.logTag {
+  color: #7ee787;
+}
+[data-theme="light"] .logTag,
+:root:not([data-theme="dark"]) .logTag {
+  color: #1a7f37;
+}
+.logMuted {
+  padding: 12px;
+  opacity: 0.4;
+  display: block;
 }
 
 /* ─── Modal & Dialog ─── */
