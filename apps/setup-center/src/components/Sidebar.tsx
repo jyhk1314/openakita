@@ -88,12 +88,16 @@ export function Sidebar({
         <div className={`navItem ${view === "im" ? "navItemActive" : ""}`} onClick={() => onViewChange("im")} role="button" tabIndex={0} title={t("sidebar.im")} style={disabledViews.includes("im") ? { opacity: 0.4 } : undefined}>
           <IconIM size={16} /> {!collapsed && <span>{t("sidebar.im")}</span>}
         </div>
-        <div className={`navItem ${view === "skills" ? "navItemActive" : ""}`} onClick={() => onViewChange("skills")} role="button" tabIndex={0} title={t("sidebar.skills")} style={disabledViews.includes("skills") ? { opacity: 0.4 } : undefined}>
-          <IconSkills size={16} /> {!collapsed && <span>{t("sidebar.skills")}</span>}
-        </div>
-        <div className={`navItem ${view === "mcp" ? "navItemActive" : ""}`} onClick={() => onViewChange("mcp")} role="button" tabIndex={0} title="MCP" style={disabledViews.includes("mcp") ? { opacity: 0.4 } : undefined}>
-          <IconPlug size={16} /> {!collapsed && <span>MCP <sup style={{ fontSize: 9, color: "var(--primary, #3b82f6)", fontWeight: 600 }}>Beta</sup></span>}
-        </div>
+        {!disabledViews.includes("skills") && (
+          <div className={`navItem ${view === "skills" ? "navItemActive" : ""}`} onClick={() => onViewChange("skills")} role="button" tabIndex={0} title={t("sidebar.skills")}>
+            <IconSkills size={16} /> {!collapsed && <span>{t("sidebar.skills")}</span>}
+          </div>
+        )}
+        {!disabledViews.includes("mcp") && (
+          <div className={`navItem ${view === "mcp" ? "navItemActive" : ""}`} onClick={() => onViewChange("mcp")} role="button" tabIndex={0} title="MCP">
+            <IconPlug size={16} /> {!collapsed && <span>MCP <sup style={{ fontSize: 9, color: "var(--primary, #3b82f6)", fontWeight: 600 }}>Beta</sup></span>}
+          </div>
+        )}
         <div className={`navItem ${view === "scheduler" ? "navItemActive" : ""}`} onClick={() => onViewChange("scheduler")} role="button" tabIndex={0} title={t("sidebar.scheduler")} style={disabledViews.includes("scheduler") ? { opacity: 0.4 } : undefined}>
           <IconCalendar size={16} /> {!collapsed && <span>{t("sidebar.scheduler")} <sup style={{ fontSize: 9, color: "var(--primary, #3b82f6)", fontWeight: 600 }}>Beta</sup></span>}
         </div>

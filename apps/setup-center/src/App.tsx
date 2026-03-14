@@ -5278,8 +5278,8 @@ export function App() {
           <h3 className="text-base font-bold tracking-tight">{t("config.toolsTitle")}</h3>
           <p className="text-sm text-muted-foreground mt-1 mb-3">{t("config.toolsHint")}</p>
 
-          {/* ── MCP (open by default, browser enabled) ── */}
-          <details className="group rounded-lg border border-border" open>
+          {/* ── MCP ── */}
+          <details className="group rounded-lg border border-border">
             <summary className="cursor-pointer flex items-center justify-between px-4 py-2.5 text-sm font-medium select-none list-none [&::-webkit-details-marker]:hidden hover:bg-accent/50 transition-colors">
               <span className="flex items-center gap-1.5">
                 <ChevronDownIcon className="size-4 shrink-0 transition-transform group-open:rotate-180 text-muted-foreground" />
@@ -5364,8 +5364,8 @@ export function App() {
             </div>
           </details>
 
-          {/* ── Desktop Automation (open by default, enabled) ── */}
-          <details className="group/desktop rounded-lg border border-border mt-2" open>
+          {/* ── Desktop Automation ── */}
+          <details className="group/desktop rounded-lg border border-border mt-2">
             <summary className="cursor-pointer flex items-center justify-between px-4 py-2.5 text-sm font-medium select-none list-none [&::-webkit-details-marker]:hidden hover:bg-accent/50 transition-colors">
               <span className="flex items-center gap-1.5">
                 <ChevronDownIcon className="size-4 shrink-0 transition-transform group-open/desktop:rotate-180 text-muted-foreground" />
