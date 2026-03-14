@@ -33,7 +33,7 @@ import {
   DotGreen, DotGray, DotYellow, DotRed,
   LogoTelegram, LogoFeishu, LogoWework, LogoDingtalk, LogoQQ,
 } from "./icons";
-import { ChevronDownIcon, XIcon, Loader2, RefreshCw, Play, Square, RotateCcw, Power, PowerOff, FolderOpen, Activity, ArrowRight, Server, Download, Zap } from "lucide-react";
+import { ChevronDownIcon, XIcon, Loader2, RefreshCw, Play, Square, RotateCcw, Power, PowerOff, FolderOpen, Activity, ArrowRight, Server, Download, Zap, Inbox } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -4285,7 +4285,10 @@ export function App() {
           </div>
 
           {savedEndpoints.length === 0 ? (
-            <div className="text-sm text-muted-foreground text-center py-6">{t("llm.noEndpoints")}</div>
+            <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+              <Inbox size={32} strokeWidth={1.5} className="mb-2 opacity-40" />
+              <p className="text-sm">{t("llm.noEndpoints")}</p>
+            </div>
           ) : (
             <Table>
               <TableHeader>
@@ -4330,12 +4333,15 @@ export function App() {
               <div className="cardTitle" style={{ marginBottom: 2 }}>{t("llm.compiler")}</div>
               <div className="cardHint">{t("llm.compilerHint")}</div>
             </div>
-            <Button variant="outline" size="sm" className="border-primary/50 text-primary hover:bg-primary/10 hover:text-primary" onClick={() => { if (providers.length === 0) doLoadProviders(); setCompilerProviderSlug(""); setCompilerApiType("openai"); setCompilerBaseUrl(""); setCompilerApiKeyEnv(""); setCompilerApiKeyValue(""); setCompilerModel(""); setCompilerEndpointName(""); setCompilerCodingPlan(false); setCompilerModels([]); setAddCompDialogOpen(true); }} disabled={!!busy}>
+            <Button variant="outline" size="sm" className="bg-primary/5 border-primary/30 text-primary hover:bg-primary/10 hover:text-primary" onClick={() => { if (providers.length === 0) doLoadProviders(); setCompilerProviderSlug(""); setCompilerApiType("openai"); setCompilerBaseUrl(""); setCompilerApiKeyEnv(""); setCompilerApiKeyValue(""); setCompilerModel(""); setCompilerEndpointName(""); setCompilerCodingPlan(false); setCompilerModels([]); setAddCompDialogOpen(true); }} disabled={!!busy}>
               + {t("llm.addEndpoint")}
             </Button>
           </div>
           {savedCompilerEndpoints.length === 0 ? (
-            <div className="text-sm text-muted-foreground text-center py-6">{t("llm.noEndpoints")}</div>
+            <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+              <Inbox size={32} strokeWidth={1.5} className="mb-2 opacity-40" />
+              <p className="text-sm">{t("llm.noEndpoints")}</p>
+            </div>
           ) : (
             <Table>
               <TableHeader>
@@ -4373,12 +4379,15 @@ export function App() {
               <div className="cardTitle" style={{ marginBottom: 2 }}>{t("llm.stt")}</div>
               <div className="cardHint">{t("llm.sttHint")}</div>
             </div>
-            <Button variant="outline" size="sm" className="border-primary/50 text-primary hover:bg-primary/10 hover:text-primary" onClick={() => { if (providers.length === 0) doLoadProviders(); setSttProviderSlug(""); setSttApiType("openai"); setSttBaseUrl(""); setSttApiKeyEnv(""); setSttApiKeyValue(""); setSttModel(""); setSttEndpointName(""); setSttModels([]); setAddSttDialogOpen(true); }} disabled={!!busy}>
+            <Button variant="outline" size="sm" className="bg-primary/5 border-primary/30 text-primary hover:bg-primary/10 hover:text-primary" onClick={() => { if (providers.length === 0) doLoadProviders(); setSttProviderSlug(""); setSttApiType("openai"); setSttBaseUrl(""); setSttApiKeyEnv(""); setSttApiKeyValue(""); setSttModel(""); setSttEndpointName(""); setSttModels([]); setAddSttDialogOpen(true); }} disabled={!!busy}>
               + {t("llm.addEndpoint")}
             </Button>
           </div>
           {savedSttEndpoints.length === 0 ? (
-            <div className="text-sm text-muted-foreground text-center py-6">{t("llm.noEndpoints")}</div>
+            <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+              <Inbox size={32} strokeWidth={1.5} className="mb-2 opacity-40" />
+              <p className="text-sm">{t("llm.noEndpoints")}</p>
+            </div>
           ) : (
             <Table>
               <TableHeader>
