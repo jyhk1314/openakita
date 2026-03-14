@@ -241,7 +241,7 @@ setTimeout(() => hideBoot(true), 8000);
         },
         { label: "全选", action: () => document.execCommand("selectAll") },
       );
-    } else {
+    } else if (hasSelection) {
       items.push(
         {
           label: "复制",
@@ -249,10 +249,10 @@ setTimeout(() => hideBoot(true), 8000);
             const text = window.getSelection()?.toString() ?? "";
             if (text) await copyToClipboard(text);
           },
-          disabled: !hasSelection,
         },
-        { label: "全选", action: () => document.execCommand("selectAll") },
       );
+    } else {
+      return;
     }
 
     const menu = document.createElement("div");
