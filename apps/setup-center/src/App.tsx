@@ -2479,7 +2479,7 @@ export function App() {
       apiType: (ep.api_type as any) || "openai",
       baseUrl: ep.base_url || "",
       apiKeyEnv: ep.api_key_env || "",
-      apiKeyValue: "",
+      apiKeyValue: envDraft[ep.api_key_env || ""] || "",
       modelId: ep.model || "",
       caps: Array.isArray(ep.capabilities) && ep.capabilities.length ? ep.capabilities : ["text"],
       maxTokens: typeof ep.max_tokens === "number" ? ep.max_tokens : 0,
@@ -2844,7 +2844,10 @@ export function App() {
     const entries: Record<string, string> = {};
     for (const k of keys) {
       if (Object.prototype.hasOwnProperty.call(envDraft, k)) {
-        entries[k] = envDraft[k] ?? "";
+        const v = envDraft[k];
+        if (typeof v === "string" && v.length > 0) {
+          entries[k] = v;
+        }
       }
     }
     if (!Object.keys(entries).length) return;
@@ -2969,14 +2972,11 @@ export function App() {
   /** 返回当前步骤对应的 footer 保存按钮配置，无需按钮时返回 null */
   function getFooterSaveConfig(): { keys: string[]; savedMsg: string } | null {
     switch (stepId) {
-      case "llm": {
-        const keysLLM = [
-          ...savedEndpoints.map((e) => e.api_key_env),
-          ...savedCompilerEndpoints.map((e) => e.api_key_env),
-          ...savedSttEndpoints.map((e) => e.api_key_env),
-        ].filter(Boolean);
-        return { keys: keysLLM, savedMsg: t("config.llmSaved") };
-      }
+      case "llm":
+        // API keys are already written individually by each endpoint save;
+        // bulk-writing them here risks overwriting valid keys with stale envDraft values.
+        return { keys: [], savedMsg: t("config.llmSaved") };
+
       case "im":
         return { keys: getAutoSaveKeysForStep("im"), savedMsg: t("config.imSaved") };
       case "tools":
@@ -4673,7 +4673,7 @@ export function App() {
                   {(() => { const url = getProviderApplyUrl(editDraft.providerSlug); const ep = providers.find((p) => p.slug === editDraft.providerSlug); return url && !isLocalProvider(ep) ? <Button type="button" variant="link" size="xs" className="h-auto p-0 text-[11px]" onClick={() => openApplyUrl(url)}>获取 API Key</Button> : null; })()}
                 </Label>
                 <div className="relative">
-                  <Input value={envDraft[editDraft.apiKeyEnv || ""] || ""} onChange={(e) => { const k = editDraft.apiKeyEnv || ""; const v = e.target.value; setEnvDraft((m) => ({ ...m, [k]: v })); setEditDraft((d) => d ? { ...d, apiKeyValue: v } : d); }} type={(secretShown.__EDIT_EP_KEY && !IS_WEB) ? "text" : "password"} className="pr-11" placeholder={isLocalProvider(providers.find((p) => p.slug === editDraft.providerSlug)) ? t("llm.localKeyPlaceholder") : "输入调用大模型的 API Key"} />
+                  <Input value={editDraft.apiKeyValue} onChange={(e) => { setEditDraft((d) => d ? { ...d, apiKeyValue: e.target.value } : d); }} type={(secretShown.__EDIT_EP_KEY && !IS_WEB) ? "text" : "password"} className="pr-11" placeholder={isLocalProvider(providers.find((p) => p.slug === editDraft.providerSlug)) ? t("llm.localKeyPlaceholder") : "输入调用大模型的 API Key"} />
                   {!IS_WEB && <Button type="button" variant="ghost" size="icon-xs" className="absolute right-1.5 top-1/2 -translate-y-1/2" onClick={() => setSecretShown((m) => ({ ...m, __EDIT_EP_KEY: !m.__EDIT_EP_KEY }))} title={secretShown.__EDIT_EP_KEY ? "隐藏" : "显示"}>
                     {secretShown.__EDIT_EP_KEY ? <IconEyeOff size={14} /> : <IconEye size={14} />}
                   </Button>}
@@ -4683,7 +4683,7 @@ export function App() {
 
               {/* Model */}
               <div className="space-y-1.5">
-                <Label>{t("status.model")} <span className="text-[11px] font-normal text-muted-foreground/70">自行输入或<Button type="button" variant="link" size="xs" className="h-auto p-0 text-[11px] disabled:opacity-100 disabled:pointer-events-auto disabled:cursor-default" onClick={doFetchEditModels} disabled={(!isLocalProvider(providers.find((p) => p.slug === editDraft.providerSlug)) && !(envDraft[editDraft.apiKeyEnv || ""] || "").trim()) || !(editDraft.baseUrl || "").trim() || !!busy}>拉取模型列表</Button>并选择{editModels.length > 0 && <span className="text-muted-foreground/50">（已拉取 {editModels.length} 个）</span>}</span></Label>
+                <Label>{t("status.model")} <span className="text-[11px] font-normal text-muted-foreground/70">自行输入或<Button type="button" variant="link" size="xs" className="h-auto p-0 text-[11px] disabled:opacity-100 disabled:pointer-events-auto disabled:cursor-default" onClick={doFetchEditModels} disabled={(!isLocalProvider(providers.find((p) => p.slug === editDraft.providerSlug)) && !(editDraft.apiKeyValue || "").trim()) || !(editDraft.baseUrl || "").trim() || !!busy}>拉取模型列表</Button>并选择{editModels.length > 0 && <span className="text-muted-foreground/50">（已拉取 {editModels.length} 个）</span>}</span></Label>
                 <SearchSelect
                   value={editDraft.modelId || ""}
                   onChange={(v) => setEditDraft({ ...editDraft, modelId: v })}
@@ -4834,11 +4834,11 @@ export function App() {
               <Button variant="ghost" onClick={() => setEditModalOpen(false)}>{t("common.cancel")}</Button>
               <div className="flex gap-2 items-center">
                 <Button variant="secondary"
-                  disabled={(!isLocalProvider(providers.find((p) => p.slug === editDraft?.providerSlug)) && !(envDraft[editDraft?.apiKeyEnv || ""] || "").trim()) || !(editDraft?.baseUrl || "").trim() || connTesting}
+                  disabled={(!isLocalProvider(providers.find((p) => p.slug === editDraft?.providerSlug)) && !(editDraft?.apiKeyValue || "").trim()) || !(editDraft?.baseUrl || "").trim() || connTesting}
                   onClick={() => { const _ep = providers.find((p) => p.slug === editDraft?.providerSlug); doTestConnection({
                     testApiType: editDraft?.apiType || "openai",
                     testBaseUrl: editDraft?.baseUrl || "",
-                    testApiKey: (envDraft[editDraft?.apiKeyEnv || ""] || "").trim() || (isLocalProvider(_ep) ? localProviderPlaceholderKey(_ep) : ""),
+                    testApiKey: (editDraft?.apiKeyValue || "").trim() || (isLocalProvider(_ep) ? localProviderPlaceholderKey(_ep) : ""),
                     testProviderSlug: editDraft?.providerSlug,
                   }); }}
                 >
@@ -6770,7 +6770,10 @@ export function App() {
     const entries: Record<string, string> = {};
     for (const k of keys) {
       if (Object.prototype.hasOwnProperty.call(envDraft, k)) {
-        entries[k] = (envDraft[k] ?? "").trim();
+        const v = (envDraft[k] ?? "").trim();
+        if (v.length > 0) {
+          entries[k] = v;
+        }
       }
     }
     if (!Object.keys(entries).length) return;
