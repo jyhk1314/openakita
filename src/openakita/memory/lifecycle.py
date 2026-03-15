@@ -16,6 +16,7 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+from .storage import _is_db_locked
 from .extractor import MemoryExtractor
 from .types import (
     MEMORY_MD_MAX_CHARS,
@@ -373,6 +374,8 @@ class LifecycleManager:
                     logger.info(f"[Lifecycle] Cleaned {count} stale attachments (>{max_age_days} days, no content)")
                 return count
             except Exception as e:
+                if _is_db_locked(e):
+                    raise
                 logger.error(f"[Lifecycle] Attachment cleanup failed: {e}")
                 return 0
 
