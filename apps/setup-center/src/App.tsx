@@ -477,6 +477,17 @@ export function App() {
   const [factoryResetOpen, setFactoryResetOpen] = useState(false);
   const [factoryResetConfirmText, setFactoryResetConfirmText] = useState("");
 
+  // workspace migration state
+  const [migrateTargetPath, setMigrateTargetPath] = useState("");
+  const [migratePreflight, setMigratePreflight] = useState<{
+    sourcePath: string; sourceSizeMb: number; targetPath: string; targetFreeMb: number;
+    entries: Array<{ name: string; sizeMb: number; existsAtTarget: boolean; isDir: boolean }>;
+    canMigrate: boolean; reason: string;
+  } | null>(null);
+  const [migrateBusy, setMigrateBusy] = useState(false);
+  const [migrateCurrentRoot, setMigrateCurrentRoot] = useState("");
+  const [migrateCustomRoot, setMigrateCustomRoot] = useState<string | null>(null);
+
   // providers & models
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [providerSlug, setProviderSlug] = useState<string>("");
@@ -3007,6 +3018,16 @@ export function App() {
         .then((r) => r.json())
         .then((data) => {
           if (data.env?.HUB_API_URL) setHubApiUrl(data.env.HUB_API_URL);
+        })
+        .catch(() => {});
+    }
+
+    // Load migration info (Tauri only)
+    if (IS_TAURI) {
+      invoke<{ defaultRoot: string; currentRoot: string; customRoot: string | null }>("get_root_dir_info")
+        .then((info) => {
+          setMigrateCurrentRoot(info.currentRoot);
+          setMigrateCustomRoot(info.customRoot);
         })
         .catch(() => {});
     }
@@ -5604,6 +5625,91 @@ export function App() {
       } catch (e) { notifyError(String(e)); }
     }
 
+    // ── Workspace migration ──
+
+    async function runMigratePreflight() {
+      if (!migrateTargetPath.trim()) { notifyError(t("adv.migrateTargetPlaceholder")); return; }
+      setMigrateBusy(true);
+      try {
+        const info = await invoke<NonNullable<typeof migratePreflight>>("preflight_migrate_root", { targetPath: migrateTargetPath.trim() });
+        setMigratePreflight(info);
+      } catch (e: any) {
+        notifyError(String(e));
+        setMigratePreflight(null);
+      } finally {
+        setMigrateBusy(false);
+      }
+    }
+
+    async function browseMigratePath() {
+      try {
+        const { openFileDialog } = await import("./platform");
+        const selected = await openFileDialog({ directory: true, title: t("adv.migrateTargetPath") });
+        if (selected) {
+          setMigrateTargetPath(selected);
+          setMigratePreflight(null);
+        }
+      } catch (e) { notifyError(String(e)); }
+    }
+
+    async function executeMigrate() {
+      if (!migratePreflight?.canMigrate) return;
+      setMigrateBusy(true);
+      const _busyId = notifyLoading(t("adv.migrateBusy"));
+      try {
+        const info = await invoke<{ defaultRoot: string; currentRoot: string; customRoot: string | null }>(
+          "set_custom_root_dir", { path: migrateTargetPath.trim(), migrate: true }
+        );
+        setMigrateCurrentRoot(info.currentRoot);
+        setMigrateCustomRoot(info.customRoot);
+        setMigratePreflight(null);
+        dismissLoading(_busyId);
+        setMigrateBusy(false);
+        notifySuccess(t("adv.migrateSuccess"));
+        await refreshAll();
+        await restartService();
+      } catch (e: any) {
+        notifyError(t("adv.migrateFailed", { error: String(e) }));
+        setMigrateBusy(false);
+        dismissLoading(_busyId);
+      }
+    }
+
+    function runMigrate() {
+      if (!migratePreflight?.canMigrate) return;
+      askConfirm(
+        t("adv.migrateConfirm", { from: migratePreflight.sourcePath, to: migratePreflight.targetPath }),
+        () => executeMigrate()
+      );
+    }
+
+    async function executeMigrateReset() {
+      setMigrateBusy(true);
+      const _busyId = notifyLoading(t("adv.migrateBusy"));
+      try {
+        const info = await invoke<{ defaultRoot: string; currentRoot: string; customRoot: string | null }>(
+          "set_custom_root_dir", { path: null, migrate: true }
+        );
+        setMigrateCurrentRoot(info.currentRoot);
+        setMigrateCustomRoot(info.customRoot);
+        setMigratePreflight(null);
+        setMigrateTargetPath("");
+        dismissLoading(_busyId);
+        setMigrateBusy(false);
+        notifySuccess(t("adv.migrateResetDone", { path: info.currentRoot }));
+        await refreshAll();
+        await restartService();
+      } catch (e: any) {
+        notifyError(String(e));
+        setMigrateBusy(false);
+        dismissLoading(_busyId);
+      }
+    }
+
+    function runMigrateResetDefault() {
+      askConfirm(t("adv.migrateResetConfirm"), () => executeMigrateReset());
+    }
+
     return (
       <>
         {/* ── 系统配置（桌面通知 / 会话 / 日志） ── */}
@@ -5885,6 +5991,81 @@ export function App() {
                     )}
                   </div>
                 )}
+              </div>
+            </Section>
+          )}
+
+          {IS_TAURI && (
+            <Section title={t("adv.migrateTitle")} subtitle={t("adv.migrateHint")} className="mt-2">
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">{t("adv.migrateCurrentPath")}</Label>
+                  <p className="text-xs font-mono text-muted-foreground break-all">{migrateCurrentRoot || "—"}</p>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">{t("adv.migrateTargetPath")}</Label>
+                  <div className="flex gap-1.5 items-center">
+                    <Input
+                      value={migrateTargetPath}
+                      onChange={(e) => { setMigrateTargetPath(e.target.value); setMigratePreflight(null); }}
+                      placeholder={t("adv.migrateTargetPlaceholder")}
+                      className="flex-1"
+                      disabled={migrateBusy}
+                    />
+                    <Button variant="outline" size="sm" onClick={browseMigratePath} disabled={migrateBusy}>
+                      {t("adv.migrateBrowse")}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={runMigratePreflight} disabled={migrateBusy || !migrateTargetPath.trim()}>
+                      {migrateBusy ? t("adv.migrateChecking") : t("adv.migrateCheck")}
+                    </Button>
+                  </div>
+                </div>
+
+                {migratePreflight && (
+                  <div className="rounded-md border p-3 space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">{t("adv.migrateSourceSize")}</span>
+                      <span className="font-mono">{migratePreflight.sourceSizeMb.toFixed(1)} MB</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">{t("adv.migrateTargetFree")}</span>
+                      <span className="font-mono">{migratePreflight.targetFreeMb >= 1024 ? (migratePreflight.targetFreeMb / 1024).toFixed(1) + " GB" : migratePreflight.targetFreeMb.toFixed(0) + " MB"}</span>
+                    </div>
+                    {migratePreflight.entries.length > 0 && (
+                      <div>
+                        <span className="text-muted-foreground text-xs">{t("adv.migrateEntries")}</span>
+                        <div className="flex flex-col gap-0.5 mt-1">
+                          {migratePreflight.entries.map((e) => (
+                            <div key={e.name} className="flex justify-between text-xs py-0.5 px-2 rounded bg-muted/30">
+                              <span className="font-mono">{e.isDir ? "📁" : "📄"} {e.name}{e.existsAtTarget ? ` (${t("adv.migrateConflictHint")})` : ""}</span>
+                              <span className="text-muted-foreground">{e.sizeMb.toFixed(1)} MB</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <p className={`text-xs ${migratePreflight.canMigrate ? "text-muted-foreground" : "text-destructive"}`}>
+                      {migratePreflight.reason}
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex gap-2 flex-wrap">
+                  <Button
+                    size="sm"
+                    onClick={runMigrate}
+                    disabled={migrateBusy || !migratePreflight?.canMigrate}
+                  >
+                    {migrateBusy ? t("adv.migrateBusy") : t("adv.migrateStart")}
+                  </Button>
+                  {migrateCustomRoot && (
+                    <Button variant="outline" size="sm" onClick={runMigrateResetDefault} disabled={migrateBusy}>
+                      {t("adv.migrateResetDefault")}
+                    </Button>
+                  )}
+                </div>
+
               </div>
             </Section>
           )}
