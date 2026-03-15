@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { Eye, EyeOff } from "lucide-react";
 import { safeFetch } from "../providers";
 import { copyToClipboard } from "../utils/clipboard";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 export function WebPasswordManager({ apiBase }: { apiBase: string }) {
   const { t } = useTranslation();
@@ -62,43 +65,43 @@ export function WebPasswordManager({ apiBase }: { apiBase: string }) {
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+    <div className="flex flex-col gap-2.5">
       {hint !== null && (
-        <div style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ color: "var(--muted)", minWidth: 80 }}>{t("adv.webPasswordCurrent")}:</span>
-          <code style={{ padding: "2px 8px", background: "var(--bg)", borderRadius: 4, fontSize: 13, letterSpacing: 1 }}>{hint}</code>
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground min-w-[80px]">{t("adv.webPasswordCurrent")}:</span>
+          <code className="px-2 py-0.5 bg-muted/40 rounded text-sm tracking-wide">{hint}</code>
         </div>
       )}
       {generatedPw && (
-        <div style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "var(--success-bg, #f0fdf4)", borderRadius: 6, border: "1px solid var(--success-line, #bbf7d0)" }}>
-          <span style={{ color: "var(--success, #16a34a)", fontWeight: 500, whiteSpace: "nowrap" }}>{t("adv.webPasswordGenerated", { defaultValue: "新密码" })}:</span>
-          <code style={{ flex: 1, padding: "2px 6px", background: "var(--bg)", borderRadius: 4, fontSize: 13, letterSpacing: 0.5, userSelect: "all", wordBreak: "break-all" }}>{generatedPw}</code>
-          <button className="btnSmall" onClick={copyGenerated} style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+        <div className="flex items-center gap-2 text-sm px-2.5 py-1.5 rounded-md border border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950/30">
+          <span className="text-green-600 dark:text-green-400 font-medium whitespace-nowrap">{t("adv.webPasswordGenerated", { defaultValue: "新密码" })}:</span>
+          <code className="flex-1 px-1.5 py-0.5 bg-muted/40 rounded text-sm tracking-wide select-all break-all">{generatedPw}</code>
+          <Button variant="outline" size="xs" onClick={copyGenerated}>
             {t("common.copy", { defaultValue: "复制" })}
-          </button>
+          </Button>
         </div>
       )}
-      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-        <input
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <Input
           type={showNew ? "text" : "password"}
           value={newPw}
           onChange={(e) => setNewPw(e.target.value)}
           placeholder={t("adv.webPasswordNewPlaceholder")}
-          style={{ flex: 1, minWidth: 160, fontSize: 13, padding: "6px 10px", borderRadius: 6, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--fg)" }}
+          className="flex-1 min-w-[160px]"
         />
-        <button className="btnSmall" onClick={() => setShowNew((v) => !v)} style={{ fontSize: 12 }}>
-          {showNew ? "🙈" : "👁"}
-        </button>
-        <button
-          className="btnSmall btnSmallPrimary"
+        <Button variant="ghost" size="icon-sm" onClick={() => setShowNew((v) => !v)}>
+          {showNew ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+        </Button>
+        <Button
+          size="sm"
           onClick={() => { if (newPw.trim()) doChangePassword(newPw.trim()); }}
           disabled={!newPw.trim() || isBusy}
         >
           {t("adv.webPasswordSet")}
-        </button>
-        <button className="btnSmall" onClick={doRandomize} disabled={isBusy}>
+        </Button>
+        <Button variant="outline" size="sm" onClick={doRandomize} disabled={isBusy}>
           {t("adv.webPasswordRandomize")}
-        </button>
+        </Button>
       </div>
     </div>
   );

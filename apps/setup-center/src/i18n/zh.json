@@ -1207,6 +1207,10 @@
     "submitSuccess": "需求提交成功（ID: {{id}}）"
   },
   "adv": {
+    "networkSecurityTitle": "网络与安全",
+    "platformTitle": "平台与云服务",
+    "dataBackupTitle": "数据与备份",
+    "sysOpsTitle": "系统信息与运维",
     "needService": "需要后端服务运行中",
     "copied": "已复制到剪贴板",
     "cleaning": "正在清理...",
@@ -1250,6 +1254,14 @@
     "clean": "清理",
     "backupTitle": "数据备份与恢复",
     "backupHint": "定时或手动备份工作区配置与数据，支持完整恢复",
+    "backupAutoTitle": "定时备份",
+    "backupAutoHint": "配置自动备份的路径、频率和备份内容",
+    "backupManualTitle": "手动备份与还原",
+    "backupManualHint": "立即创建备份或从已有备份还原工作区数据",
+    "backupSaveConfig": "保存备份配置",
+    "backupRestore": "从备份还原",
+    "backupRestoreHint": "选择 .zip 备份文件还原工作区数据",
+    "backupNowHint": "立即将当前工作区打包备份到指定目录",
     "export": "导出 .env",
     "import": "导入 .env",
     "backupEnabled": "启用定时备份",
@@ -1306,6 +1318,7 @@
     "opsLogExport": "诊断日志导出",
     "opsLogExportBtn": "打包导出",
     "opsLogExportDesc": "打包导出日志、LLM 调试数据和系统信息，用于问题排查",
+    "exportDiagBtn": "导出诊断信息",
     "opsLogExporting": "正在打包...",
     "opsLogExportSuccess": "诊断包已导出至：{{path}}"
   },

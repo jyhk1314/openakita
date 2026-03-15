@@ -1207,6 +1207,10 @@
     "submitSuccess": "Feature request submitted successfully (ID: {{id}})"
   },
   "adv": {
+    "networkSecurityTitle": "Network & Security",
+    "platformTitle": "Platform & Cloud Services",
+    "dataBackupTitle": "Data & Backup",
+    "sysOpsTitle": "System Info & Maintenance",
     "needService": "Backend service must be running",
     "copied": "Copied to clipboard",
     "cleaning": "Cleaning up...",
@@ -1250,6 +1254,14 @@
     "clean": "Clean",
     "backupTitle": "Data Backup & Restore",
     "backupHint": "Schedule or manually backup workspace config & data, with full restore support",
+    "backupAutoTitle": "Scheduled Backup",
+    "backupAutoHint": "Configure automatic backup path, frequency, and content",
+    "backupManualTitle": "Manual Backup & Restore",
+    "backupManualHint": "Create a backup now or restore workspace data from an existing backup",
+    "backupSaveConfig": "Save Backup Config",
+    "backupRestore": "Restore from Backup",
+    "backupRestoreHint": "Select a .zip backup file to restore workspace data",
+    "backupNowHint": "Back up the current workspace to the specified directory immediately",
     "export": "Export .env",
     "import": "Import .env",
     "backupEnabled": "Enable scheduled backup",
@@ -1306,6 +1318,7 @@
     "opsLogExport": "Diagnostic Log Export",
     "opsLogExportBtn": "Export Bundle",
     "opsLogExportDesc": "Bundle and export logs, LLM debug data, and system info for troubleshooting",
+    "exportDiagBtn": "Export Diagnostics",
     "opsLogExporting": "Bundling...",
     "opsLogExportSuccess": "Diagnostic bundle exported to: {{path}}"
   },
