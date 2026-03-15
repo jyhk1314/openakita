@@ -3772,6 +3772,9 @@ export function ChatView({
 
   // ── 输入框键盘处理 ──
   const handleInputKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // macOS 中文输入法按回车选字时 isComposing=true，此时不应触发发送
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+
     if (slashOpen) {
       // 与 SlashCommandPanel 保持一致的过滤逻辑（包含 description）
       const q = slashFilter.toLowerCase();
