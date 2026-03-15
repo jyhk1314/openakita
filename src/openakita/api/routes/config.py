@@ -556,7 +556,7 @@ async def list_models_api(body: ListModelsRequest):
         elif "403" in raw or "forbidden" in raw or "permission" in raw:
             friendly = "API Key 权限不足，请确认已开通模型访问权限"
         elif "404" in raw or "not found" in raw:
-            friendly = "API 地址有误，服务商未返回模型列表接口"
+            friendly = "该服务商不支持模型列表查询，您可以手动输入模型名称"
         elif "timeout" in raw or "timed out" in raw:
             friendly = "请求超时，请检查网络或稍后重试"
         elif len(friendly) > 150:
