@@ -537,9 +537,11 @@ class SkillLoader:
             if not bash_path:
                 # Windows 上尝试 Git Bash 的常见路径
                 if sys.platform == "win32":
+                    import os as _os
+                    _sd = _os.environ.get("SYSTEMDRIVE", "C:")
                     for candidate in [
-                        r"C:\Program Files\Git\bin\bash.exe",
-                        r"C:\Program Files (x86)\Git\bin\bash.exe",
+                        rf"{_sd}\Program Files\Git\bin\bash.exe",
+                        rf"{_sd}\Program Files (x86)\Git\bin\bash.exe",
                     ]:
                         if Path(candidate).exists():
                             bash_path = candidate

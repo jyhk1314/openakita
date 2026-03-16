@@ -27,9 +27,11 @@ def detect_chrome_installation() -> tuple[str | None, str | None]:
 
     if system == "Windows":
         chrome_paths = [
-            Path(os.environ.get("PROGRAMFILES", "C:\\Program Files"))
+            Path(os.environ.get("PROGRAMFILES",
+                 os.environ.get("SYSTEMDRIVE", "C:") + "\\Program Files"))
             / "Google" / "Chrome" / "Application" / "chrome.exe",
-            Path(os.environ.get("PROGRAMFILES(X86)", "C:\\Program Files (x86)"))
+            Path(os.environ.get("PROGRAMFILES(X86)",
+                 os.environ.get("SYSTEMDRIVE", "C:") + "\\Program Files (x86)"))
             / "Google" / "Chrome" / "Application" / "chrome.exe",
             Path(os.environ.get("LOCALAPPDATA", ""))
             / "Google" / "Chrome" / "Application" / "chrome.exe",
