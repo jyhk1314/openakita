@@ -69,6 +69,9 @@ def strip_tool_simulation_text(text: str) -> str:
     pattern1 = r"^[a-z_]+\s*\([^)]*\)\s*$"
     pattern2 = r"^[a-z_]+:\d+[\{\(].*[\}\)]\s*$"
     pattern3 = r'^\{["\']?(tool|function|name)["\']?\s*:'
+    # 裸工具名：含下划线的标识符独占一行，如 "browser_open"、"web_search"
+    # 部分模型不格式化工具调用，仅输出函数名
+    pattern4 = r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$"
 
     lines = text.split("\n")
     cleaned_lines = []
@@ -79,6 +82,7 @@ def strip_tool_simulation_text(text: str) -> str:
             re.match(pattern1, stripped, re.IGNORECASE)
             or re.match(pattern2, stripped, re.IGNORECASE)
             or re.match(pattern3, stripped, re.IGNORECASE)
+            or re.match(pattern4, stripped)
         )
         if not is_tool_sim:
             cleaned_lines.append(line)

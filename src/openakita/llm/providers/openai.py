@@ -639,8 +639,24 @@ class OpenAIProvider(LLMProvider):
         content_blocks = []
         has_tool_calls = False
 
-        # 文本内容
-        text_content = message.get("content") or ""
+        # 文本内容 — 兼容 string 和 array 两种格式
+        # 部分 OpenAI 兼容 API (如 Google Gemini OpenAI-compat) 返回 content 为数组:
+        #   [{"type": "text", "text": "..."}, ...]
+        raw_content = message.get("content")
+        if isinstance(raw_content, list):
+            text_content = ""
+            for part in raw_content:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    text_content += part.get("text", "")
+                elif isinstance(part, str):
+                    text_content += part
+            if not text_content and raw_content:
+                logger.warning(
+                    f"[PARSE] content is list but no text parts extracted: "
+                    f"types={[p.get('type') if isinstance(p, dict) else type(p).__name__ for p in raw_content[:3]]}"
+                )
+        else:
+            text_content = raw_content or ""
 
         # 原生工具调用
         tool_calls = message.get("tool_calls", [])
@@ -669,11 +685,13 @@ class OpenAIProvider(LLMProvider):
         # 文本格式工具调用解析（降级方案）
         # 当模型不支持原生工具调用时，解析文本中的 <function_calls> 格式
         # 同时检查 reasoning_content 中是否嵌入了工具调用
+        _tool_calls_from_reasoning = False
         combined_for_check = text_content
         reasoning_content = message.get("reasoning_content") or ""
         if not has_tool_calls and not text_content and reasoning_content:
             if has_text_tool_calls(reasoning_content):
                 combined_for_check = reasoning_content
+                _tool_calls_from_reasoning = True
                 logger.info(
                     f"[TEXT_TOOL_PARSE] Detected tool calls embedded in reasoning_content from {self.name}"
                 )
@@ -683,14 +701,20 @@ class OpenAIProvider(LLMProvider):
             clean_text, text_tool_calls = parse_text_tool_calls(combined_for_check)
 
             if text_tool_calls:
-                # 更新文本内容（仅在工具调用来自 text_content 时修改）
-                if combined_for_check == text_content:
+                if _tool_calls_from_reasoning:
+                    if clean_text.strip():
+                        text_content = clean_text
+                        logger.info(
+                            f"[TEXT_TOOL_PARSE] Preserved {len(clean_text)} chars of clean_text "
+                            f"from reasoning_content"
+                        )
+                else:
                     text_content = clean_text
                 content_blocks.extend(text_tool_calls)
                 has_tool_calls = True
                 logger.info(
                     f"[TEXT_TOOL_PARSE] Extracted {len(text_tool_calls)} tool calls "
-                    f"from {'reasoning_content' if combined_for_check != text_content else 'text'}"
+                    f"from {'reasoning_content' if _tool_calls_from_reasoning else 'text'}"
                 )
 
         # 添加文本内容

@@ -666,14 +666,15 @@ button:not([data-slot]):disabled {
   cursor: not-allowed;
 }
 
-.btnPrimary {
+button.btnPrimary {
   background: var(--brand);
   color: #fff;
   border: 1px solid transparent;
 }
 
-.btnPrimary:hover {
+button.btnPrimary:hover {
   background: var(--brand2);
+  color: #fff;
 }
 
 .btnApplyRestart {

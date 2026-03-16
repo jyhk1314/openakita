@@ -155,8 +155,10 @@ async def logout(response: Response):
 # ── GET /api/auth/check ──
 
 @router.get("/check")
-async def check_auth(request: Request):
+async def check_auth(request: Request, response: Response):
     """Check whether the current request is authenticated."""
+    response.headers["Cache-Control"] = "no-store"
+
     config = _get_config(request)
     is_local = _is_local_from_real_ip(request)
 

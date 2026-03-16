@@ -751,7 +751,9 @@ fn available_space_mb(path: &Path) -> f64 {
     {
         use std::os::windows::ffi::OsStrExt;
         use std::ffi::OsStr;
-        let wide: Vec<u16> = OsStr::new(path.to_str().unwrap_or("C:\\"))
+        let fallback = path.ancestors().last().map(|r| r.to_string_lossy().to_string())
+            .unwrap_or_else(|| "C:\\".to_string());
+        let wide: Vec<u16> = OsStr::new(path.to_str().unwrap_or(&fallback))
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
@@ -2418,7 +2420,92 @@ fn startup_reconcile() {
     }
 }
 
+/// Append a crash entry to `~/.openakita/logs/crash.log`.
+///
+/// When `show_dialog` is true, a native `MessageBoxW` (Windows) is displayed
+/// so the user gets feedback instead of a silent flash-exit.
+///
+/// Returns the path to the crash log (best-effort; may not exist if writing
+/// failed, e.g. due to permissions).
+fn write_crash_log(message: &str, show_dialog: bool) -> PathBuf {
+    let log_dir = setup_logs_dir();
+    let _ = fs::create_dir_all(&log_dir);
+    let crash_path = log_dir.join("crash.log");
+
+    let timestamp = {
+        let dur = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        dur.as_secs()
+    };
+    let exe = std::env::current_exe()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "<unknown>".to_string());
+    let cwd = std::env::current_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "<unknown>".to_string());
+    let home = home_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "<None>".to_string());
+    let entry = format!(
+        "[{timestamp}] exe={exe} cwd={cwd} home={home}\n{message}\n---\n"
+    );
+
+    let _ = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&crash_path)
+        .and_then(|mut f| f.write_all(entry.as_bytes()));
+
+    if show_dialog {
+        #[cfg(windows)]
+        {
+            use std::ffi::OsStr;
+            use std::os::windows::ffi::OsStrExt;
+            use std::iter::once;
+
+            extern "system" {
+                fn MessageBoxW(
+                    hwnd: *mut std::ffi::c_void,
+                    text: *const u16,
+                    caption: *const u16,
+                    typ: u32,
+                ) -> i32;
+            }
+
+            fn to_wide(s: &str) -> Vec<u16> {
+                OsStr::new(s).encode_wide().chain(once(0)).collect()
+            }
+
+            let body = format!(
+                "OpenAkita Desktop 启动失败 (startup failed)\n\n\
+                 {message}\n\n\
+                 崩溃日志已写入 (crash log): {}\n\
+                 请将此日志发送给开发者以帮助诊断问题。",
+                crash_path.display()
+            );
+            let caption = "OpenAkita – Crash";
+            let wb = to_wide(&body);
+            let wc = to_wide(caption);
+            unsafe {
+                MessageBoxW(std::ptr::null_mut(), wb.as_ptr(), wc.as_ptr(), 0x10);
+            }
+        }
+    }
+
+    crash_path
+}
+
 fn main() {
+    // Global panic hook: capture panics to crash.log + show dialog.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let msg = format!("PANIC: {info}");
+        eprintln!("{msg}");
+        write_crash_log(&msg, true);
+        default_hook(info);
+    }));
+
     // Ensure localhost is always excluded from proxy resolution.
     //
     // macOS: Clash/V2Ray set system proxy via Network Preferences. hyper-util
@@ -2454,7 +2541,7 @@ fn main() {
         }
     }
 
-    tauri::Builder::default()
+    let app = match tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // 第二个实例启动时，聚焦已有窗口并退出自身
             if let Some(w) = app.get_webview_window("main") {
@@ -2472,6 +2559,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
         .setup(|app| {
+            let result: Result<(), Box<dyn std::error::Error>> = (|| {
             // ── NSIS 安装后以当前用户执行清理（解决“以管理员运行安装程序”时清错目录的问题） ──
             let args: Vec<String> = std::env::args().collect();
             if let Some(pos) = args.iter().position(|a| a == "--clean-env") {
@@ -2572,6 +2660,12 @@ fn main() {
                 }
             }
             Ok(())
+            })();
+
+            if let Err(ref e) = result {
+                write_crash_log(&format!("Setup failed: {e}"), false);
+            }
+            result
         })
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
@@ -2630,6 +2724,7 @@ fn main() {
             fetch_pypi_versions,
             http_get_json,
             http_proxy_request,
+            backend_fetch,
             read_file_base64,
             download_file,
             show_item_in_folder,
@@ -2654,41 +2749,50 @@ fn main() {
             get_cli_status
         ])
         .build(tauri::generate_context!())
-        .expect("error while building tauri application")
-        .run(|_app_handle, event| {
-            #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen { has_visible_windows, .. } = &event {
-                if !has_visible_windows {
-                    if let Some(win) = _app_handle.get_webview_window("main") {
-                        let _ = win.show();
-                        let _ = win.set_focus();
-                    }
+    {
+        Ok(a) => a,
+        Err(e) => {
+            let msg = format!("Tauri build failed: {e}");
+            eprintln!("{msg}");
+            write_crash_log(&msg, true);
+            std::process::exit(1);
+        }
+    };
+
+    app.run(|_app_handle, event| {
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen { has_visible_windows, .. } = &event {
+            if !has_visible_windows {
+                if let Some(win) = _app_handle.get_webview_window("main") {
+                    let _ = win.show();
+                    let _ = win.set_focus();
                 }
             }
-            if let tauri::RunEvent::Exit = event {
-                // Safety-net: clean up backend processes on ANY exit path
-                // (SIGTERM, system shutdown, unexpected termination, etc.)
-                // Idempotent — harmless if tray-quit already stopped everything.
-                //
-                // 直接 kill 进程而非走 HTTP /api/shutdown：
-                //   1. 退出时要尽快完成清理，避免 Finder/macOS 等待超时后强杀本进程
-                //      导致后端沦为孤儿进程。
-                //   2. Python 后端已注册 SIGTERM handler，收到信号即可优雅关闭。
-                //   3. HTTP API 可能因代理、端口状态等原因不可达，增加不确定性。
-                let entries = list_service_pids();
-                for ent in &entries {
-                    if ent.started_by == "external" {
-                        continue;
-                    }
-                    if is_pid_running(ent.pid) {
-                        let _ = kill_pid(ent.pid);
-                    }
-                    let _ = fs::remove_file(std::path::PathBuf::from(&ent.pid_file));
-                    remove_heartbeat_file(&ent.workspace_id);
+        }
+        if let tauri::RunEvent::Exit = event {
+            // Safety-net: clean up backend processes on ANY exit path
+            // (SIGTERM, system shutdown, unexpected termination, etc.)
+            // Idempotent — harmless if tray-quit already stopped everything.
+            //
+            // 直接 kill 进程而非走 HTTP /api/shutdown：
+            //   1. 退出时要尽快完成清理，避免 Finder/macOS 等待超时后强杀本进程
+            //      导致后端沦为孤儿进程。
+            //   2. Python 后端已注册 SIGTERM handler，收到信号即可优雅关闭。
+            //   3. HTTP API 可能因代理、端口状态等原因不可达，增加不确定性。
+            let entries = list_service_pids();
+            for ent in &entries {
+                if ent.started_by == "external" {
+                    continue;
                 }
-                kill_openakita_orphans();
+                if is_pid_running(ent.pid) {
+                    let _ = kill_pid(ent.pid);
+                }
+                let _ = fs::remove_file(std::path::PathBuf::from(&ent.pid_file));
+                remove_heartbeat_file(&ent.workspace_id);
             }
-        });
+            kill_openakita_orphans();
+        }
+    });
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -3745,6 +3849,7 @@ fn export_workspace_backup(
     });
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(300))
+        .no_proxy()
         .build()
         .map_err(|e| format!("http client error: {e}"))?;
     let resp = client.post(&url).json(&body).send();
@@ -3876,6 +3981,7 @@ fn import_workspace_backup(
     let body = serde_json::json!({ "zip_path": zip_path });
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(300))
+        .no_proxy()
         .build()
         .map_err(|e| format!("http client error: {e}"))?;
     let resp = client.post(&url).json(&body).send();
@@ -5252,6 +5358,113 @@ async fn http_proxy_request(
     .await
 }
 
+// ── Local backend fetch (proxy-safe) ─────────────────────────────────
+//
+// On macOS, Clash / V2Ray set a *system-level* proxy via Network Preferences.
+// WKWebView's native fetch() and @tauri-apps/plugin-http's reqwest client
+// both honour that proxy, causing requests to 127.0.0.1 to be routed through
+// the external proxy server — which cannot reach the user's localhost.
+//
+// `.no_proxy()` on the reqwest Client builder **completely disables** all proxy
+// detection (env vars, system-configuration, everything) so the request always
+// goes directly to the local backend.
+//
+// The response body is streamed back to JS via a Tauri Channel, preserving
+// SSE / chunked-transfer behaviour for the chat view.
+
+#[derive(Clone, Serialize)]
+#[serde(tag = "event", content = "data", rename_all = "camelCase")]
+enum BackendFetchEvent {
+    Chunk { text: String },
+    Done,
+    Error { message: String },
+}
+
+#[tauri::command]
+async fn backend_fetch(
+    on_event: tauri::ipc::Channel<BackendFetchEvent>,
+    url: String,
+    method: Option<String>,
+    headers: Option<std::collections::HashMap<String, String>>,
+    body: Option<String>,
+    timeout_secs: Option<u64>,
+) -> Result<serde_json::Value, String> {
+    if !url.starts_with("http://127.0.0.1") && !url.starts_with("http://localhost") {
+        return Err("backend_fetch only allows localhost URLs".into());
+    }
+
+    let mut builder = reqwest::Client::builder()
+        .no_proxy()
+        .connect_timeout(std::time::Duration::from_secs(10));
+    if let Some(t) = timeout_secs {
+        builder = builder.timeout(std::time::Duration::from_secs(t));
+    }
+    let client = builder
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    let m = method.as_deref().unwrap_or("GET").to_uppercase();
+    let mut req = match m.as_str() {
+        "POST" => client.post(&url),
+        "PUT" => client.put(&url),
+        "DELETE" => client.delete(&url),
+        "PATCH" => client.patch(&url),
+        _ => client.get(&url),
+    };
+    if let Some(h) = headers {
+        for (k, v) in h {
+            req = req.header(&k, &v);
+        }
+    }
+    if let Some(b) = body {
+        req = req.body(b);
+    }
+
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("HTTP {} failed ({}): {}", m, url, e))?;
+
+    let status = resp.status().as_u16();
+    let resp_headers: std::collections::HashMap<String, String> = resp
+        .headers()
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+        .collect();
+
+    tauri::async_runtime::spawn(async move {
+        let mut response = resp;
+        loop {
+            match response.chunk().await {
+                Ok(Some(chunk)) => {
+                    let text = String::from_utf8_lossy(&chunk).to_string();
+                    if on_event
+                        .send(BackendFetchEvent::Chunk { text })
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Ok(None) => {
+                    let _ = on_event.send(BackendFetchEvent::Done);
+                    break;
+                }
+                Err(e) => {
+                    let _ = on_event.send(BackendFetchEvent::Error {
+                        message: e.to_string(),
+                    });
+                    break;
+                }
+            }
+        }
+    });
+
+    Ok(serde_json::json!({
+        "status": status,
+        "headers": resp_headers,
+    }))
+}
+
 /// Read a file from disk and return its contents as a base64 data-URL.
 /// Used by the frontend to handle Tauri file-drop events (which provide paths, not File objects).
 #[tauri::command]
@@ -5313,9 +5526,9 @@ async fn download_file(url: String, filename: String) -> Result<String, String> 
         counter += 1;
     }
 
-    // Download (timeout 30s to avoid hanging if backend is unreachable, e.g. on macOS)
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
+        .no_proxy()
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
     let resp = client

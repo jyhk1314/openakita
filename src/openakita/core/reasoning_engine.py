@@ -2956,6 +2956,20 @@ class ReasoningEngine:
             except Exception as e:
                 logger.debug(f"[_parse_decision] Thinking tool-call check failed: {e}")
 
+        # 防御层：剥离 text_content 末尾的裸工具名。
+        # 部分模型会在 content 中输出 "用户原文\nbrowser_open" 这类垃圾，
+        # 其中裸工具名既不是合法工具调用（无参数/格式），也不是有意义的回复。
+        # 仅在 text_content 较短（<200 字符）时触发，避免误伤正常长文本。
+        if text_content and len(text_content.strip()) < 200:
+            import re
+            _lines = text_content.strip().split("\n")
+            _last = _lines[-1].strip() if _lines else ""
+            if re.match(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$", _last):
+                text_content = "\n".join(_lines[:-1]).strip()
+                logger.warning(
+                    f"[_parse_decision] Stripped bare tool name '{_last}' from text_content"
+                )
+
         decision_type = DecisionType.TOOL_CALLS if tool_calls else DecisionType.FINAL_ANSWER
 
         return Decision(
@@ -3112,6 +3126,16 @@ class ReasoningEngine:
             f"has_tool_calls=False, tools_executed_in_task=False, "
             f"text_preview=\"{(stripped_text or '')[:80].replace(chr(10), ' ')}\""
         )
+
+        # 确认式回复检测：模型在向用户确认信息（如语音识别结果、执行计划），
+        # 而非遗漏工具调用。此时 ForceToolCall 重试毫无意义，只会浪费 token 并
+        # 生成重复内容。直接返回给用户即可。
+        if stripped_text and self._is_confirmation_response(stripped_text):
+            logger.info(
+                "[IntentTag] Confirmation-style response detected, "
+                "skipping ForceToolCall retries"
+            )
+            return clean_llm_response(stripped_text)
 
         # [REPLY] 允许 1 次重试（防止模型错误使用 REPLY 跳过工具调用）
         # [ACTION] 或无标记 → 使用完整重试次数（默认 2 次）
@@ -3546,6 +3570,27 @@ class ReasoningEngine:
             }
             return "tool_result" not in part_types
         return False
+
+    @staticmethod
+    def _is_confirmation_response(text: str) -> bool:
+        """检测模型回复是否为确认式回复（要求用户确认后再执行）。
+
+        典型场景：语音识别后确认识别结果、复述执行计划等待确认。
+        这类回复不应触发 ForceToolCall 重试——模型是有意征询用户意见。
+        """
+        import re
+        _text = text.strip()
+        if len(_text) < 10:
+            return False
+        _tail = _text[-200:] if len(_text) > 200 else _text
+        confirmation_patterns = [
+            r"确认后.*(?:回复|发送|输入)",
+            r"请(?:回复|发送|输入).*[\"「]?确认[\"」]?",
+            r"(?:是否|请)确认",
+            r"请确认以上",
+            r"确认.*(?:准确|正确|无误)",
+        ]
+        return any(re.search(pat, _tail) for pat in confirmation_patterns)
 
     @staticmethod
     def _effective_force_retries(base_retries: int, conversation_id: str | None) -> int:

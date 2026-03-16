@@ -129,6 +129,17 @@ def _mask_value(value: Any) -> str:
     return "***"
 
 
+def _unique_env_key(base: str, used: set[str]) -> str:
+    """Return *base* if unused, otherwise append _2, _3, … until unique."""
+    if not base or base not in used:
+        return base
+    for i in range(2, 100):
+        candidate = f"{base}_{i}"
+        if candidate not in used:
+            return candidate
+    return f"{base}_{int(__import__('time').time())}"
+
+
 def _update_env_content(existing: str, entries: dict[str, str]) -> str:
     """合并 entries 到现有 .env 内容（保留注释和顺序）"""
     lines = existing.splitlines()
@@ -522,11 +533,24 @@ class ConfigHandler:
         if not base_url:
             return f"❌ 无法推断 {provider} 的 API 地址，请手动提供 base_url"
 
+        # 加载现有端点（需要在确定 api_key_env 之前，用于去重）
+        from ...llm.config import load_endpoints_config, save_endpoints_config
+        from ...llm.types import EndpointConfig
+
+        endpoints, compiler_eps, stt_eps, ep_settings = load_endpoints_config()
+
+        # Collect all api_key_env names already in use across all endpoint lists
+        used_env_keys: set[str] = set()
+        for ep in [*endpoints, *compiler_eps, *stt_eps]:
+            if ep.api_key_env:
+                used_env_keys.add(ep.api_key_env)
+
         # 处理 API Key: 存入 .env
         api_key = endpoint_data.get("api_key", "").strip()
         api_key_env = ""
         if api_key:
-            env_var_name = api_key_env_suggestion or f"{provider.upper()}_API_KEY"
+            base_env_name = api_key_env_suggestion or f"{provider.upper()}_API_KEY"
+            env_var_name = _unique_env_key(base_env_name, used_env_keys)
             api_key_env = env_var_name
 
             from ...config import settings
@@ -538,11 +562,11 @@ class ConfigHandler:
             os.environ[env_var_name] = api_key
             logger.info(f"[ConfigHandler] Stored API key in .env as {env_var_name}")
         else:
-            api_key_env = endpoint_data.get("api_key_env") or api_key_env_suggestion
-
-        # 构建 EndpointConfig
-        from ...llm.config import load_endpoints_config, save_endpoints_config
-        from ...llm.types import EndpointConfig
+            base_env_name = endpoint_data.get("api_key_env") or api_key_env_suggestion
+            if base_env_name:
+                api_key_env = _unique_env_key(base_env_name, used_env_keys)
+            else:
+                api_key_env = ""
 
         new_ep = EndpointConfig(
             name=name,
@@ -557,9 +581,6 @@ class ConfigHandler:
             timeout=int(endpoint_data.get("timeout", 180)),
             capabilities=endpoint_data.get("capabilities"),
         )
-
-        # 加载现有端点
-        endpoints, compiler_eps, stt_eps, ep_settings = load_endpoints_config()
 
         # 选择目标列表
         if target == "compiler":

@@ -84,12 +84,24 @@ def _add_endpoint_interactive(endpoints: list[EndpointConfig]):
         print("[X] 请输入数字")
 
 
+def _unique_env_key(base: str, used: set[str]) -> str:
+    """Return *base* if unused, otherwise append _2, _3, … until unique."""
+    if not base or base not in used:
+        return base
+    for i in range(2, 100):
+        candidate = f"{base}_{i}"
+        if candidate not in used:
+            return candidate
+    return f"{base}_{int(__import__('time').time())}"
+
+
 def _add_endpoint_from_provider(endpoints: list[EndpointConfig], provider_info: ProviderInfo):
     """从服务商添加端点"""
     print(f"\n已选择: {provider_info.name}")
 
-    # 获取 API Key
-    env_key = provider_info.api_key_env_suggestion
+    # 获取 API Key — deduplicate env var name against existing endpoints
+    used_env_keys = {ep.api_key_env for ep in endpoints if ep.api_key_env}
+    env_key = _unique_env_key(provider_info.api_key_env_suggestion, used_env_keys)
     existing_key = os.environ.get(env_key)
 
     if existing_key:
@@ -396,18 +408,22 @@ def quick_add_endpoint(
     caps = infer_capabilities(model, provider_slug=provider)
     capabilities = [k for k, v in caps.items() if v and k != "thinking_only"]
 
+    endpoints, compiler_eps, stt_eps, settings = load_endpoints_config()
+
+    used_env_keys = {ep.api_key_env for ep in [*endpoints, *compiler_eps, *stt_eps] if ep.api_key_env}
+    env_key = _unique_env_key(info.api_key_env_suggestion, used_env_keys)
+
     endpoint = EndpointConfig(
         name=name,
         provider=provider,
         api_type=info.api_type,
         base_url=info.default_base_url,
-        api_key_env=info.api_key_env_suggestion,
+        api_key_env=env_key,
         model=model,
         priority=priority,
         capabilities=capabilities,
     )
 
-    endpoints, compiler_eps, stt_eps, settings = load_endpoints_config()
     endpoints.append(endpoint)
     endpoints.sort(key=lambda x: x.priority)
     save_endpoints_config(endpoints, settings, compiler_endpoints=compiler_eps, stt_endpoints=stt_eps)
