@@ -514,7 +514,7 @@ export function App() {
     () => providers.find((p) => p.slug === providerSlug) || null,
     [providers, providerSlug],
   );
-  const [apiType, setApiType] = useState<"openai" | "anthropic">("openai");
+  const [apiType, setApiType] = useState<"openai" | "openai_responses" | "anthropic">("openai");
   const [baseUrl, setBaseUrl] = useState<string>("");
   const [apiKeyEnv, setApiKeyEnv] = useState<string>("");
   const [apiKeyValue, setApiKeyValue] = useState<string>("");
@@ -571,7 +571,7 @@ export function App() {
     name: string;
     priority: number;
     providerSlug: string;
-    apiType: "openai" | "anthropic";
+    apiType: "openai" | "openai_responses" | "anthropic";
     baseUrl: string;
     apiKeyEnv: string;
     apiKeyValue: string; // optional; blank means don't change
@@ -4677,6 +4677,7 @@ export function App() {
                         <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="openai">openai</SelectItem>
+                          <SelectItem value="openai_responses">openai_responses</SelectItem>
                           <SelectItem value="anthropic">anthropic</SelectItem>
                         </SelectContent>
                       </Select>
@@ -4864,6 +4865,7 @@ export function App() {
                         <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="openai">openai</SelectItem>
+                          <SelectItem value="openai_responses">openai_responses</SelectItem>
                           <SelectItem value="anthropic">anthropic</SelectItem>
                         </SelectContent>
                       </Select>
