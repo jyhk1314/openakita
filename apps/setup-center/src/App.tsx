@@ -1,8 +1,8 @@
 import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { invoke, listen, IS_TAURI, IS_WEB, IS_CAPACITOR, getAppVersion, onWsEvent, reconnectWsNow, logger, openExternalUrl } from "./platform";
+import { invoke, listen, IS_TAURI, IS_WEB, IS_CAPACITOR, IS_LOCAL_WEB, getAppVersion, onWsEvent, reconnectWsNow, logger, openExternalUrl } from "./platform";
 import { getActiveServer, getActiveServerId } from "./platform/servers";
-import { checkAuth, tryRestoreLocalAuth, installFetchInterceptor, AUTH_EXPIRED_EVENT, isPasswordUserSet, logout, clearAccessToken, setTauriRemoteMode, isTauriRemoteMode } from "./platform/auth";
+import { checkAuth, installFetchInterceptor, AUTH_EXPIRED_EVENT, isPasswordUserSet, logout, clearAccessToken, setTauriRemoteMode, isTauriRemoteMode } from "./platform/auth";
 import { LoginView } from "./views/LoginView";
 import { ServerManagerView } from "./views/ServerManagerView";
 import { ChatView } from "./views/ChatView";
@@ -113,11 +113,12 @@ export function App() {
   const { t, i18n } = useTranslation();
 
   // ── Web / Capacitor auth gate ──
-  const needsRemoteAuth = IS_WEB || IS_CAPACITOR;
-  // Restore local-auth mode from sessionStorage so page refresh is instant
-  const cachedLocalAuth = needsRemoteAuth && !IS_CAPACITOR && tryRestoreLocalAuth();
-  const [webAuthed, setWebAuthed] = useState(!needsRemoteAuth || cachedLocalAuth);
-  const [authChecking, setAuthChecking] = useState(needsRemoteAuth && !cachedLocalAuth);
+  // IS_LOCAL_WEB: hostname is 127.0.0.1/localhost/::1 — backend authenticates
+  // by client IP, no tokens or round-trips needed.  This eliminates the entire
+  // class of "checkAuth timeout → login page flash" bugs.
+  const needsRemoteAuth = (IS_WEB || IS_CAPACITOR) && !IS_LOCAL_WEB;
+  const [webAuthed, setWebAuthed] = useState(!needsRemoteAuth);
+  const [authChecking, setAuthChecking] = useState(needsRemoteAuth);
   const [showPwBanner, setShowPwBanner] = useState(false);
   const [showServerManager, setShowServerManager] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
@@ -128,14 +129,24 @@ export function App() {
   const [tauriRemoteLoginUrl, setTauriRemoteLoginUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!needsRemoteAuth) return;
+    if (!needsRemoteAuth) {
+      // Local web: non-blocking fetch for password-banner check only
+      if (IS_LOCAL_WEB) {
+        fetch("/api/auth/check", { signal: AbortSignal.timeout(5000) })
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.password_user_set === false && !localStorage.getItem("openakita_pw_banner_dismissed")) {
+              setShowPwBanner(true);
+            }
+          })
+          .catch(() => {});
+      }
+      return;
+    }
     if (IS_CAPACITOR && !getActiveServer()) {
       setAuthChecking(false);
       return;
     }
-    // If we restored local auth from cache, install interceptor immediately
-    // and still re-validate in background (if check fails, redirect to login)
-    if (cachedLocalAuth) installFetchInterceptor();
     checkAuth(IS_CAPACITOR ? (getActiveServer()?.url || "") : "").then((ok) => {
       if (ok) {
         installFetchInterceptor();

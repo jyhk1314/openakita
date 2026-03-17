@@ -3400,27 +3400,83 @@ export function ChatView({
         }
       }
     } catch (e: unknown) {
-      const isAbort =
-        abort.signal.aborted ||
-        (e instanceof DOMException && e.name === "AbortError") ||
-        (e instanceof Error && e.name === "AbortError");
-
-      if (isAbort) {
+      // Only treat as user-initiated abort when OUR AbortController was triggered.
+      // DOMException "AbortError" can also originate from the browser itself
+      // (page lifecycle freeze, tab discard, memory pressure) and must NOT be
+      // conflated with explicit user cancellation.
+      if (abort.signal.aborted) {
         updateMessages((prev) => prev.map((m) =>
           m.id === assistantMsg.id ? { ...m, content: m.content || "（已中止）", streaming: false } : m
         ));
       } else {
-        const errMsg = e instanceof Error ? e.message : String(e);
-        let guidance = t("chat.backendServiceHint");
-        try {
-          const healthRes = await fetch(`${apiBase}/api/health`, { signal: AbortSignal.timeout(2000) });
-          if (healthRes.ok) {
-            guidance = t("chat.backendOnlineUpstreamHint");
-          }
-        } catch { /* health probe failed -> keep backend guidance */ }
-        updateMessages((prev) => prev.map((m) =>
-          m.id === assistantMsg.id ? { ...m, content: `连接失败：${errMsg}\n\n${guidance}`, streaming: false } : m
-        ));
+        const isBrowserAbort =
+          (e instanceof DOMException && e.name === "AbortError") ||
+          (e instanceof Error && e.name === "AbortError");
+
+        if (isBrowserAbort) {
+          // Browser killed the connection (tab frozen / discarded, etc.)
+          // Preserve whatever content we already received — don't overwrite it.
+          updateMessages((prev) => prev.map((m) =>
+            m.id === assistantMsg.id ? { ...m, streaming: false } : m
+          ));
+        } else {
+          const errMsg = e instanceof Error ? e.message : String(e);
+          let guidance = t("chat.backendServiceHint");
+          try {
+            const healthRes = await fetch(`${apiBase}/api/health`, { signal: AbortSignal.timeout(2000) });
+            if (healthRes.ok) {
+              guidance = t("chat.backendOnlineUpstreamHint");
+            }
+          } catch { /* health probe failed -> keep backend guidance */ }
+          updateMessages((prev) => prev.map((m) =>
+            m.id === assistantMsg.id ? { ...m, content: m.content || `连接失败：${errMsg}\n\n${guidance}`, streaming: false } : m
+          ));
+        }
+
+        // Fire-and-forget: try to recover the (possibly completed) response
+        // from backend session history.  The backend may have finished the
+        // LLM call even though the frontend stream was interrupted.
+        if (convId) {
+          const _recoverMsgId = assistantMsg.id;
+          const _recoverUserTs = userMsg.timestamp;
+          const _recoverKey = STORAGE_KEY_MSGS_PREFIX + thisConvId;
+          setTimeout(() => {
+            safeFetch(`${apiBase}/api/sessions/${encodeURIComponent(convId)}/history`)
+              .then((r) => r.ok ? r.json() : null)
+              .then((data) => {
+                if (!data) return;
+                const rows = Array.isArray(data?.messages) ? data.messages : [];
+                const candidates = rows.filter(
+                  (m: { role?: string; content?: string }) =>
+                    m?.role === "assistant" && typeof m?.content === "string",
+                );
+                const newerThanUser = candidates.filter(
+                  (m: { timestamp?: number }) =>
+                    typeof m?.timestamp === "number" && m.timestamp >= _recoverUserTs,
+                );
+                const lastAssistant = (newerThanUser.length > 0 ? newerThanUser : candidates).slice(-1)[0];
+                if (!lastAssistant?.content) return;
+                setMessages((prev) => {
+                  const updated = prev.map((m) => {
+                    if (m.id !== _recoverMsgId) return m;
+                    if (m.content && m.content.length >= (lastAssistant.content as string).length) return m;
+                    const patched: ChatMessage = { ...m, content: lastAssistant.content };
+                    if (
+                      (!m.thinkingChain || m.thinkingChain.length === 0) &&
+                      Array.isArray(lastAssistant.chain_summary) &&
+                      lastAssistant.chain_summary.length > 0
+                    ) {
+                      patched.thinkingChain = buildChainFromSummary(lastAssistant.chain_summary);
+                    }
+                    return patched;
+                  });
+                  try { saveMessagesToStorage(_recoverKey, updated); } catch { /* quota */ }
+                  return updated;
+                });
+              })
+              .catch(() => {});
+          }, 3000);
+        }
       }
     } finally {
       if (idleTimer) clearTimeout(idleTimer);
