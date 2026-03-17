@@ -2,9 +2,40 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Generic, Optional, TypeVar
 
 from pydantic import BaseModel, Field
+
+T = TypeVar("T")
+
+
+class BaseResponse(BaseModel, Generic[T]):
+    """统一响应模型"""
+
+    errorcode: int = Field(description="业务状态码，0 表示成功")
+    message: str = Field(description="返回消息")
+    data: Optional[T] = Field(default=None, description="返回数据")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "errorcode": 0,
+                "message": "success",
+                "data": None,
+            }
+        }
+
+
+def success_response(data: Any = None, message: str = "success") -> dict:
+    return {"errorcode": 0, "message": message, "data": data}
+
+
+def error_response(errorcode: int = 500, message: str = "error", error: str | None = None) -> dict:
+    return {
+        "errorcode": errorcode,
+        "message": message,
+        "data": {"error": error} if error else None,
+    }
 
 
 class ChatRequest(BaseModel):

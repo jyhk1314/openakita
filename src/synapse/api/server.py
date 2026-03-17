@@ -37,6 +37,7 @@ from .routes import (
     hub,
     identity,
     im,
+    kag,
     logs,
     mcp,
     memory,
@@ -47,6 +48,7 @@ from .routes import (
     token_stats,
     upload,
     workspace_io,
+    yuque,
     gitnexus,
     dev_iwhalecloud,
 )
@@ -171,6 +173,8 @@ def create_app(
         {"name": "统计", "description": "Token 用量统计"},
         {"name": "日志", "description": "服务日志查询"},
         {"name": "反馈", "description": "Bug 报告与功能建议"},
+        {"name": "语雀", "description": "语雀知识库文档管理"},
+        {"name": "KAG知识库", "description": "KAG 知识库管理"},
         {"name": "WebSocket", "description": "实时事件推送"},
         {"name": "系统", "description": "根路径、关机等系统操作"},
     ]
@@ -277,6 +281,8 @@ def create_app(
     app.include_router(ws_routes.router, tags=["WebSocket"])
     app.include_router(hub.router, tags=["Hub"])
     app.include_router(identity.router, tags=["身份"])
+    app.include_router(yuque.router, tags=["语雀"])
+    app.include_router(kag.router, tags=["KAG知识库"])
     app.include_router(orgs.router, tags=["组织编排"])
     app.include_router(orgs.inbox_router, tags=["组织消息中心"])
     app.include_router(gitnexus.router, tags=["GitNexus"])

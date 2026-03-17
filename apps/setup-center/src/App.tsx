@@ -1,4 +1,5 @@
 import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { ConfigProvider, theme as antdTheme } from "antd";
 import { useTranslation } from "react-i18next";
 import { invoke, listen, IS_TAURI, IS_WEB, IS_CAPACITOR, getAppVersion, onWsEvent, reconnectWsNow, logger } from "./platform";
 import { getActiveServer, getActiveServerId } from "./platform/servers";
@@ -158,6 +159,14 @@ export function App() {
     window.addEventListener(THEME_CHANGE_EVENT, handler);
     return () => window.removeEventListener(THEME_CHANGE_EVENT, handler);
   }, []);
+  const [sysDark, setSysDark] = useState(() => window.matchMedia("(prefers-color-scheme: dark)").matches);
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = (e: MediaQueryListEvent) => setSysDark(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  const isDark = themePrefState === "dark" || (themePrefState === "system" && sysDark);
   const toggleTheme = useCallback(() => {
     let next: Theme = "system";
     if (themePrefState === "system") next = "dark";
@@ -286,7 +295,7 @@ export function App() {
   }, [stepId]);
 
   // ── Onboarding Wizard (首次安装引导) ──
-  type OnboardingStep = "ob-welcome" | "ob-agreement" | "ob-llm" | "ob-im" | "ob-cli" | "ob-progress" | "ob-done";
+  type OnboardingStep = "ob-welcome" | "ob-iwhalecloud" | "ob-agreement" | "ob-llm" | "ob-im" | "ob-cli" | "ob-progress" | "ob-done";
   type ModuleInfo = { id: string; name: string; description: string; installed: boolean; bundled: boolean; sizeMb: number; category: string };
   const [obStep, setObStep] = useState<OnboardingStep>("ob-welcome");
   const [obModules, setObModules] = useState<ModuleInfo[]>([]);
@@ -326,6 +335,17 @@ export function App() {
   const [wsQuickCreateOpen, setWsQuickCreateOpen] = useState(false);
   const [wsQuickName, setWsQuickName] = useState("");
   const [obAgreementError, setObAgreementError] = useState(false);
+
+  // iWhaleCloud 身份验证
+  const [obIwcEmployeeId, setObIwcEmployeeId] = useState("");
+  const [obIwcPassword, setObIwcPassword] = useState("");
+  const [obIwcToken, setObIwcToken] = useState("");
+  const [obIwcShowPassword, setObIwcShowPassword] = useState(false);
+  const [obIwcShowToken, setObIwcShowToken] = useState(false);
+  const [obIwcShowVideo, setObIwcShowVideo] = useState(false);
+  const [obIwcValidating, setObIwcValidating] = useState(false);
+  const [obIwcValidated, setObIwcValidated] = useState(false);
+  const [obIwcError, setObIwcError] = useState<string | null>(null);
 
   /** 探测本地是否有后端服务在运行（用于 onboarding 前提示用户） */
   async function obProbeRunningService() {
@@ -6736,7 +6756,7 @@ export function App() {
 
   function renderOnboarding() {
     // Progress/done are transitional states and should not create extra indicator dots.
-    const obStepDots = ["ob-welcome", "ob-agreement", "ob-llm", "ob-im", "ob-cli"] as OnboardingStep[];
+    const obStepDots = ["ob-welcome", "ob-iwhalecloud", "ob-agreement", "ob-llm", "ob-im", "ob-cli"] as OnboardingStep[];
     const obCurrentIdxRaw = obStepDots.indexOf(obStep);
     const obCurrentIdx = obCurrentIdxRaw >= 0 ? obCurrentIdxRaw : obStepDots.length - 1;
 
@@ -6932,13 +6952,196 @@ export function App() {
                   } catch (e) {
                     logger.warn("App", "ob: create default workspace failed", { error: String(e) });
                   }
-                  setObStep("ob-agreement");
+                  setObStep("ob-iwhalecloud");
                 }}
               >
                 {t("onboarding.welcome.start")}
               </button>
             </div>
             {stepIndicator}
+          </div>
+        );
+
+      case "ob-iwhalecloud":
+        return (
+          <div className="obPage">
+            <div className="obContent">
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+                <img src="/iwhalecloud-favicon.ico" alt="iWhaleCloud" style={{ width: 36, height: 36, objectFit: "contain" }} />
+                <h2 className="obStepTitle" style={{ margin: 0 }}>{t("onboarding.iwhalecloud.title")}</h2>
+              </div>
+              <p className="obStepDesc">{t("onboarding.iwhalecloud.subtitle")}</p>
+              <div className="obFormArea" style={{ textAlign: "left" }}>
+                {/* 工号 */}
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: "block", fontWeight: 600, marginBottom: 6, fontSize: 14 }}>
+                    {t("onboarding.iwhalecloud.employeeId")} <span style={{ color: "#e53e3e" }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={obIwcEmployeeId}
+                    onChange={(e) => { setObIwcEmployeeId(e.target.value); setObIwcValidated(false); setObIwcError(null); }}
+                    placeholder={t("onboarding.iwhalecloud.employeeIdPlaceholder")}
+                    style={{
+                      width: "100%", padding: "10px 14px", fontSize: 14,
+                      borderRadius: 6, border: "1px solid var(--line)",
+                      outline: "none", boxSizing: "border-box",
+                      background: "var(--bg1)", color: "var(--text)",
+                    }}
+                  />
+                </div>
+                {/* 密码 */}
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: "block", fontWeight: 600, marginBottom: 6, fontSize: 14 }}>
+                    {t("onboarding.iwhalecloud.password")} <span style={{ color: "#e53e3e" }}>*</span>
+                  </label>
+                  <div style={{ position: "relative" }}>
+                    <input
+                      type={obIwcShowPassword ? "text" : "password"}
+                      value={obIwcPassword}
+                      onChange={(e) => { setObIwcPassword(e.target.value); setObIwcValidated(false); setObIwcError(null); }}
+                      placeholder={t("onboarding.iwhalecloud.passwordPlaceholder")}
+                      style={{
+                        width: "100%", padding: "10px 40px 10px 14px", fontSize: 14,
+                        borderRadius: 6, border: "1px solid var(--line)",
+                        outline: "none", boxSizing: "border-box",
+                        background: "var(--bg1)", color: "var(--text)",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setObIwcShowPassword((v) => !v)}
+                      style={{
+                        position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+                        background: "none", border: "none", cursor: "pointer", padding: 0,
+                        color: "var(--text-muted, #888)", fontSize: 16,
+                      }}
+                    >
+                      {obIwcShowPassword ? <IconEyeOff /> : <IconEye />}
+                    </button>
+                  </div>
+                </div>
+                {/* Token */}
+                <div style={{ marginBottom: 8 }}>
+                  <label style={{ display: "block", fontWeight: 600, marginBottom: 6, fontSize: 14 }}>
+                    {t("onboarding.iwhalecloud.token")} <span style={{ color: "#e53e3e" }}>*</span>
+                  </label>
+                  <p style={{ fontSize: 12, color: "#e07b00", margin: "0 0 8px", lineHeight: 1.5 }}>
+                    {t("onboarding.iwhalecloud.tokenHint")}
+                  </p>
+                  <div style={{ position: "relative" }}>
+                    <input
+                      type={obIwcShowToken ? "text" : "password"}
+                      value={obIwcToken}
+                      onChange={(e) => { setObIwcToken(e.target.value); setObIwcValidated(false); setObIwcError(null); }}
+                      placeholder={t("onboarding.iwhalecloud.tokenPlaceholder")}
+                      style={{
+                        width: "100%", padding: "10px 40px 10px 14px", fontSize: 14,
+                        borderRadius: 6, border: "1px solid var(--line)",
+                        outline: "none", boxSizing: "border-box",
+                        background: "var(--bg1)", color: "var(--text)",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setObIwcShowToken((v) => !v)}
+                      style={{
+                        position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+                        background: "none", border: "none", cursor: "pointer", padding: 0,
+                        color: "var(--text-muted, #888)", fontSize: 16,
+                      }}
+                    >
+                      {obIwcShowToken ? <IconEyeOff /> : <IconEye />}
+                    </button>
+                  </div>
+                </div>
+                {/* Token 申请流程视频 */}
+                <div style={{ marginBottom: 16 }}>
+                  <button
+                    type="button"
+                    className="obLinkBtn"
+                    style={{ fontSize: 12, color: "var(--brand)", marginBottom: 4 }}
+                    onClick={() => setObIwcShowVideo((v) => !v)}
+                  >
+                    {obIwcShowVideo ? `▾ ${t("onboarding.iwhalecloud.tokenVideoHide")}` : `▸ ${t("onboarding.iwhalecloud.tokenVideoLabel")}`}
+                  </button>
+                  {obIwcShowVideo && (
+                    <div style={{ marginTop: 8, borderRadius: 8, overflow: "hidden", border: "1px solid var(--line)" }}>
+                      <video
+                        src="/token.mp4"
+                        controls
+                        style={{ width: "100%", maxHeight: 260, display: "block", background: "#000" }}
+                      />
+                    </div>
+                  )}
+                </div>
+                {/* 验证按钮 */}
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+                  <button
+                    className="btnPrimary"
+                    disabled={obIwcValidating}
+                    onClick={async () => {
+                      if (!obIwcEmployeeId.trim() || !obIwcPassword.trim() || !obIwcToken.trim()) {
+                        setObIwcError(t("onboarding.iwhalecloud.fieldRequired"));
+                        return;
+                      }
+                      setObIwcValidating(true);
+                      setObIwcError(null);
+                      setObIwcValidated(false);
+                      try {
+                        const base = httpApiBase();
+                        const res = await fetch(`${base}/api/dev/iwhalecloud/validation`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            employee_id: obIwcEmployeeId.trim(),
+                            password: obIwcPassword.trim(),
+                            token: obIwcToken.trim(),
+                          }),
+                        });
+                        if (res.ok) {
+                          setObIwcValidated(true);
+                          setObIwcError(null);
+                        } else {
+                          const data = await res.json().catch(() => ({}));
+                          setObIwcError(data?.detail || data?.message || t("onboarding.iwhalecloud.validateFailed"));
+                        }
+                      } catch (e: any) {
+                        setObIwcError(t("onboarding.iwhalecloud.validateFailed"));
+                      } finally {
+                        setObIwcValidating(false);
+                      }
+                    }}
+                  >
+                    {obIwcValidating ? t("onboarding.iwhalecloud.validating") : t("onboarding.iwhalecloud.validate")}
+                  </button>
+                  {obIwcValidated && (
+                    <span style={{ color: "#38a169", fontSize: 13, display: "flex", alignItems: "center", gap: 4 }}>
+                      <IconCheckCircle /> {t("onboarding.iwhalecloud.validateSuccess")}
+                    </span>
+                  )}
+                </div>
+                {obIwcError && (
+                  <p style={{ color: "#e53e3e", fontSize: 13, marginTop: 4 }}>{obIwcError}</p>
+                )}
+              </div>
+            </div>
+            <div className="obFooter">
+              {stepIndicator}
+              <div className="obFooterBtns">
+                <button onClick={() => setObStep("ob-welcome")}>{t("config.prev")}</button>
+                <button
+                  className="btnPrimary"
+                  disabled={!obIwcValidated}
+                  title={!obIwcValidated ? t("onboarding.iwhalecloud.validateRequired") : undefined}
+                  onClick={() => {
+                    if (obIwcValidated) setObStep("ob-agreement");
+                  }}
+                >
+                  {t("onboarding.iwhalecloud.proceed")}
+                </button>
+              </div>
+            </div>
           </div>
         );
 
@@ -6995,7 +7198,7 @@ export function App() {
             <div className="obFooter">
               {stepIndicator}
               <div className="obFooterBtns">
-                <button onClick={() => setObStep("ob-welcome")}>{t("config.prev")}</button>
+                <button onClick={() => setObStep("ob-iwhalecloud")}>{t("config.prev")}</button>
                 <button
                   className="btnPrimary"
                   onClick={() => {
@@ -7723,6 +7926,7 @@ export function App() {
   }
 
   return (
+    <ConfigProvider theme={{ algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm }}>
     <EnvFieldContext.Provider value={envFieldCtx}>
     <div className={`appShell ${sidebarCollapsed ? "appShellCollapsed" : ""}${isMobile ? " appShellMobile" : ""}`} style={previewMode ? { paddingTop: IS_CAPACITOR ? "calc(32px + env(safe-area-inset-top))" : 32 } : undefined}>
       {previewMode && (
@@ -8158,6 +8362,7 @@ export function App() {
 
     </div>
     </EnvFieldContext.Provider>
+    </ConfigProvider>
   );
 }
 

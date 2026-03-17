@@ -1043,6 +1043,26 @@
       "errorsHint": "部分操作未成功，你可以稍后在设置中重试。"
     },
     "installLogSaved": "安装日志已保存至: {{path}}",
+    "iwhalecloud": {
+      "title": "浩鲸研发云验证",
+      "subtitle": "请使用研发云账号完成身份验证后，方可继续使用",
+      "employeeId": "研发云工号",
+      "employeeIdPlaceholder": "请输入研发云工号",
+      "password": "研发云密码",
+      "passwordPlaceholder": "请输入研发云密码",
+      "token": "研发云 Token",
+      "tokenPlaceholder": "请输入研发云 Token",
+      "tokenHint": "注意：Token 请勿混用，每个账号使用独立 Token",
+      "tokenVideoLabel": "查看 Token 申请流程",
+      "tokenVideoHide": "收起视频",
+      "validate": "验证",
+      "validating": "验证中...",
+      "validateSuccess": "验证通过，身份确认成功",
+      "validateFailed": "验证失败，请检查工号、密码或 Token 是否正确",
+      "validateRequired": "请先完成验证",
+      "fieldRequired": "请填写所有必填项",
+      "proceed": "下一步"
+    },
     "agreement": {
       "title": "使用风险须知",
       "subtitle": "在继续之前，请仔细阅读以下内容",

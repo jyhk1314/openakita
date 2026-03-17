@@ -1043,6 +1043,26 @@
       "errorsHint": "Some operations did not succeed. You can retry later in settings."
     },
     "installLogSaved": "Install log saved to: {{path}}",
+    "iwhalecloud": {
+      "title": "iWhaleCloud Dev Cloud Verification",
+      "subtitle": "Please verify your iWhaleCloud Dev Cloud account to continue",
+      "employeeId": "Employee ID",
+      "employeeIdPlaceholder": "Enter your iWhaleCloud employee ID",
+      "password": "Password",
+      "passwordPlaceholder": "Enter your iWhaleCloud password",
+      "token": "Dev Cloud Token",
+      "tokenPlaceholder": "Enter your Dev Cloud Token",
+      "tokenHint": "Note: Do not mix tokens — each account must use its own dedicated Token",
+      "tokenVideoLabel": "Watch Token Application Guide",
+      "tokenVideoHide": "Hide Video",
+      "validate": "Verify",
+      "validating": "Verifying...",
+      "validateSuccess": "Verification successful",
+      "validateFailed": "Verification failed. Please check your employee ID, password, or Token.",
+      "validateRequired": "Please complete verification first",
+      "fieldRequired": "Please fill in all required fields",
+      "proceed": "Next"
+    },
     "agreement": {
       "title": "Risk Acknowledgment",
       "subtitle": "Please read the following carefully before proceeding",
