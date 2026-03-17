@@ -20,7 +20,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from openakita.api.schemas import error_response, success_response
+from synapse.api.schemas import error_response, success_response
 
 logger = logging.getLogger(__name__)
 

@@ -22,8 +22,8 @@ import httpx
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from openakita.api.schemas import error_response, success_response
-from openakita.config import settings
+from synapse.api.schemas import error_response, success_response
+from synapse.config import settings
 
 logger = logging.getLogger(__name__)
 
