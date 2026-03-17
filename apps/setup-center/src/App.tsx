@@ -89,6 +89,7 @@ import { Topbar } from "./components/Topbar";
 import { useNotifications } from "./hooks/useNotifications";
 import { notifySuccess, notifyError, notifyLoading, dismissLoading } from "./utils/notify";
 import { Toaster } from "@/components/ui/sonner";
+import { toast } from "sonner";
 import { useVersionCheck, compareSemver } from "./hooks/useVersionCheck";
 
 const THEME_I18N_KEYS: Record<Theme, string> = { system: "topbar.themeSystem", dark: "topbar.themeDark", light: "topbar.themeLight" };
@@ -1977,7 +1978,10 @@ export function App() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ content: JSON.parse(content) }),
           });
-          triggerConfigReload().catch(() => {});
+          const reloaded = await triggerConfigReload();
+          if (!reloaded) {
+            toast.warning("配置已保存，但热重载未生效。建议重启后端服务以应用更改。", { duration: 6000 });
+          }
           return;
         }
         if (relativePath === "data/skills.json") {
@@ -2011,12 +2015,22 @@ export function App() {
   /**
    * 通知运行中的后端热重载配置。
    * 仅在后端运行时调用有意义；后端未运行时静默跳过。
+   * 返回 true 表示重载成功，false 表示失败或后端未运行。
    */
-  async function triggerConfigReload(): Promise<void> {
-    if (!shouldUseHttpApi()) return; // 后端未运行，无需热加载
+  async function triggerConfigReload(): Promise<boolean> {
+    if (!shouldUseHttpApi()) return false;
     try {
-      await safeFetch(`${httpApiBase()}/api/config/reload`, { method: "POST", signal: AbortSignal.timeout(3000) });
-    } catch { /* reload not supported or transient error — that's ok */ }
+      const resp = await safeFetch(`${httpApiBase()}/api/config/reload`, {
+        method: "POST",
+        signal: AbortSignal.timeout(3000),
+      });
+      const data = await resp.json();
+      if (data.reloaded) return true;
+      logger.warn("App", `Config reload not applied: ${data.reason || "unknown"}`);
+      return false;
+    } catch {
+      return false;
+    }
   }
 
   /**
