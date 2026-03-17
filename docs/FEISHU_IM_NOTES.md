@@ -163,6 +163,7 @@
 | 37 | 添加 Bot 全页崩溃 | `BotConfigTab` 是独立函数组件，未接收 `venvDir`/`apiBaseUrl` props，但飞书 UI 代码引用了这两个变量 → `ReferenceError` | 给 `BotConfigTab` 新增 `venvDir?`/`apiBaseUrl?` props 并从 `IMView` 传入 | IMView.tsx |
 | 38 | 流式输出后续消息复用旧卡片 | `finalize_stream` 成功后不清理 `_thinking_cards[sk]`（设计由 `send_message` 清理），但 `streamed_ok=True` 时 `send_message` 被跳过，导致下一轮 `send_typing` 跳过创卡、`stream_token` PATCH 旧卡 | `finalize_stream` 成功后 pop `_thinking_cards[sk]`；`send_typing` 入口清理残留 `_streaming_finalized` | feishu.py |
 | 39 | 流式卡片不显示思考过程 | `_call_agent_streaming` 忽略 `thinking_delta`/`thinking_end` 事件，思维链只通过非流式 `progress_callback` 推送独立消息 | 新增 `stream_thinking()` 方法及 `_streaming_thinking` buffer；`_compose_thinking_display()` 组合思考 + 回复内容；Gateway 检查 `chain_push` 后 pipe thinking 事件到 adapter | feishu.py, gateway.py |
+| 40 | 流式路径不推送 chain_text 进度到会话后台 | `_call_agent_streaming` 未处理 `chain_text` 事件（工具调用描述、结果摘要等），也未在 `thinking_end` 时调用 `emit_progress_event`，导致会话后台/IM 消息历史完全看不到思维过程 | 新增 `chain_text` 事件处理 → `emit_progress_event`；`thinking_end` 时发送 💭 思考预览进度；finalize 前调用 `flush_progress` 确保进度消息先于回答到达 | gateway.py |
 
 ---
 

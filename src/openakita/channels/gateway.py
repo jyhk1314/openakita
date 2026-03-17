@@ -2910,6 +2910,8 @@ class MessageGateway:
             and hasattr(adapter, "stream_thinking")
         )
 
+        _thinking_buf = ""
+
         try:
             async for event in self.agent_handler_stream(session, input_text):
                 etype = event.get("type")
@@ -2921,20 +2923,32 @@ class MessageGateway:
                         thread_id=message.thread_id,
                         is_group=is_group,
                     )
-                elif etype == "thinking_delta" and can_stream_thinking:
-                    thinking_content = event.get("content", "")
-                    if thinking_content:
-                        await adapter.stream_thinking(
-                            message.chat_id, thinking_content,
-                            thread_id=message.thread_id,
-                            is_group=is_group,
-                        )
-                elif etype == "thinking_end" and can_stream_thinking:
-                    dur_ms = event.get("duration_ms", 0)
-                    if dur_ms and hasattr(adapter, "stream_thinking"):
+                elif etype == "thinking_delta":
+                    _thinking_buf += event.get("content", "")
+                    if can_stream_thinking:
+                        thinking_content = event.get("content", "")
+                        if thinking_content:
+                            await adapter.stream_thinking(
+                                message.chat_id, thinking_content,
+                                thread_id=message.thread_id,
+                                is_group=is_group,
+                            )
+                elif etype == "thinking_end":
+                    if can_stream_thinking and hasattr(adapter, "stream_thinking"):
+                        dur_ms = event.get("duration_ms", 0)
                         sk = adapter._make_session_key(message.chat_id, message.thread_id) if hasattr(adapter, "_make_session_key") else ""
-                        if sk and hasattr(adapter, "_streaming_thinking_ms"):
+                        if sk and hasattr(adapter, "_streaming_thinking_ms") and dur_ms:
                             adapter._streaming_thinking_ms[sk] = dur_ms
+                    if chain_push and _thinking_buf:
+                        preview = _thinking_buf.strip().replace("\n", " ")[:120]
+                        if len(_thinking_buf) > 120:
+                            preview += "..."
+                        await self.emit_progress_event(session, f"💭 {preview}")
+                        _thinking_buf = ""
+                elif etype == "chain_text" and chain_push:
+                    content = event.get("content", "")
+                    if content:
+                        await self.emit_progress_event(session, content)
                 elif etype == "ask_user":
                     if not reply_text:
                         reply_text = event.get("question", "")
@@ -2951,6 +2965,8 @@ class MessageGateway:
 
         if not reply_text or not reply_text.strip():
             return (reply_text, False)
+
+        await self.flush_progress(session)
 
         ok = await adapter.finalize_stream(
             message.chat_id, reply_text, thread_id=message.thread_id,
