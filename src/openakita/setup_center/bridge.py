@@ -905,6 +905,50 @@ async def feishu_validate(app_id: str, app_secret: str, domain: str) -> None:
     _json_print(result)
 
 
+async def qqbot_onboard_start() -> None:
+    """创建 QQ 登录会话，返回 session_id 和 QR URL"""
+    from openakita.setup.qqbot_onboard import QQBotOnboard
+
+    ob = QQBotOnboard()
+    try:
+        result = await ob.create_session()
+        _json_print(result)
+    finally:
+        await ob.close()
+
+
+async def qqbot_onboard_poll(session_id: str) -> None:
+    """单次轮询 QQ 扫码登录状态"""
+    from openakita.setup.qqbot_onboard import QQBotOnboard
+
+    ob = QQBotOnboard()
+    try:
+        result = await ob.poll(session_id)
+        _json_print(result)
+    finally:
+        await ob.close()
+
+
+async def qqbot_onboard_create() -> None:
+    """创建 QQ 机器人，返回 app_id / app_secret"""
+    from openakita.setup.qqbot_onboard import QQBotOnboard
+
+    ob = QQBotOnboard()
+    try:
+        result = await ob.create_bot()
+        _json_print(result)
+    finally:
+        await ob.close()
+
+
+async def qqbot_validate(app_id: str, app_secret: str) -> None:
+    """验证 QQ 机器人凭证有效性"""
+    from openakita.setup.qqbot_onboard import validate_credentials
+
+    result = await validate_credentials(app_id, app_secret)
+    _json_print(result)
+
+
 def list_skills(workspace_dir: str) -> None:
     from openakita.skills.loader import SkillLoader
 
@@ -1519,6 +1563,17 @@ def main(argv: list[str] | None = None) -> None:
     p_fv.add_argument("--app-secret", required=True, help="飞书 App Secret")
     p_fv.add_argument("--domain", default="feishu", help="feishu | lark")
 
+    sub.add_parser("qqbot-onboard-start", help="创建 QQ 登录会话（JSON）")
+
+    p_qop = sub.add_parser("qqbot-onboard-poll", help="轮询 QQ 扫码登录状态（JSON）")
+    p_qop.add_argument("--session-id", required=True, help="create_session 返回的 session_id")
+
+    sub.add_parser("qqbot-onboard-create", help="创建 QQ 机器人（JSON）")
+
+    p_qv = sub.add_parser("qqbot-validate", help="验证 QQ 机器人凭证有效性（JSON）")
+    p_qv.add_argument("--app-id", required=True, help="QQ 机器人 App ID")
+    p_qv.add_argument("--app-secret", required=True, help="QQ 机器人 App Secret")
+
     args = p.parse_args(argv)
 
     if args.cmd == "list-providers":
@@ -1592,6 +1647,25 @@ def main(argv: list[str] | None = None) -> None:
             app_id=args.app_id,
             app_secret=args.app_secret,
             domain=args.domain,
+        ))
+        return
+
+    if args.cmd == "qqbot-onboard-start":
+        asyncio.run(qqbot_onboard_start())
+        return
+
+    if args.cmd == "qqbot-onboard-poll":
+        asyncio.run(qqbot_onboard_poll(session_id=args.session_id))
+        return
+
+    if args.cmd == "qqbot-onboard-create":
+        asyncio.run(qqbot_onboard_create())
+        return
+
+    if args.cmd == "qqbot-validate":
+        asyncio.run(qqbot_validate(
+            app_id=args.app_id,
+            app_secret=args.app_secret,
         ))
         return
 

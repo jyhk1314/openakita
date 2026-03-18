@@ -1473,5 +1473,19 @@
     "groupModeHint_smart": "AI 判断消息是否需要回复",
     "groupModeHint_always": "回复群内所有消息（慎用）",
     "groupModeHint": "⚠ 需要在飞书开放平台 → 应用 → 机器人 → 消息接收模式 中开启「接收群聊中所有消息」，否则机器人只能收到 @消息"
+  },
+  "qqbot": {
+    "qrScanCreate": "扫码创建机器人",
+    "qrTitle": "QQ 扫码授权",
+    "qrSubtitle": "使用手机 QQ 扫描二维码登录开发者后台并创建机器人",
+    "qrLoading": "正在创建会话...",
+    "qrScanHint": "请使用手机 QQ 扫描上方二维码",
+    "qrSuccess": "机器人创建成功！凭证已自动填入",
+    "qrRetry": "重试",
+    "qrTimeout": "扫码超时，请重试",
+    "qrInitFailed": "初始化失败，请检查网络",
+    "qrLoginOk": "登录成功，正在创建机器人...",
+    "qrCreateFailed": "创建机器人失败",
+    "qrNeedBrowser": "该接口需要浏览器登录态，请在浏览器中手动创建"
   }
 }

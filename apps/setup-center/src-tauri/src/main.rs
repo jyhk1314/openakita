@@ -2724,6 +2724,10 @@ fn main() {
             openakita_feishu_onboard_start,
             openakita_feishu_onboard_poll,
             openakita_feishu_validate,
+            openakita_qqbot_onboard_start,
+            openakita_qqbot_onboard_poll,
+            openakita_qqbot_onboard_create,
+            openakita_qqbot_validate,
             fetch_pypi_versions,
             http_get_json,
             http_proxy_request,
@@ -5247,6 +5251,63 @@ async fn openakita_feishu_validate(
             &app_secret,
             "--domain",
             &d,
+        ];
+        run_python_module_json(&venv_dir, "openakita.setup_center.bridge", &args, &[])
+    })
+    .await
+}
+
+/// Start QQ Bot OpenClaw onboarding (QR scan).
+/// Returns JSON with session_id + qr_url.
+#[tauri::command]
+async fn openakita_qqbot_onboard_start(venv_dir: String) -> Result<String, String> {
+    spawn_blocking_result(move || {
+        let args = vec!["qqbot-onboard-start"];
+        run_python_module_json(&venv_dir, "openakita.setup_center.bridge", &args, &[])
+    })
+    .await
+}
+
+/// Poll QQ Bot OpenClaw login status.
+/// Returns JSON with status / developer_id.
+#[tauri::command]
+async fn openakita_qqbot_onboard_poll(
+    venv_dir: String,
+    session_id: String,
+) -> Result<String, String> {
+    spawn_blocking_result(move || {
+        let args = vec!["qqbot-onboard-poll", "--session-id", &session_id];
+        run_python_module_json(&venv_dir, "openakita.setup_center.bridge", &args, &[])
+    })
+    .await
+}
+
+/// Create a QQ bot via OpenClaw.
+/// Returns JSON with app_id / app_secret / bot_name.
+#[tauri::command]
+async fn openakita_qqbot_onboard_create(venv_dir: String) -> Result<String, String> {
+    spawn_blocking_result(move || {
+        let args = vec!["qqbot-onboard-create"];
+        run_python_module_json(&venv_dir, "openakita.setup_center.bridge", &args, &[])
+    })
+    .await
+}
+
+/// Validate QQ Bot App ID / App Secret credentials.
+/// Returns JSON with {valid: bool, error?: string}.
+#[tauri::command]
+async fn openakita_qqbot_validate(
+    venv_dir: String,
+    app_id: String,
+    app_secret: String,
+) -> Result<String, String> {
+    spawn_blocking_result(move || {
+        let args = vec![
+            "qqbot-validate",
+            "--app-id",
+            &app_id,
+            "--app-secret",
+            &app_secret,
         ];
         run_python_module_json(&venv_dir, "openakita.setup_center.bridge", &args, &[])
     })

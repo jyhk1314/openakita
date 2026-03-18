@@ -1473,5 +1473,19 @@
     "groupModeHint_smart": "AI decides whether to reply",
     "groupModeHint_always": "Reply to all messages in group (use with caution)",
     "groupModeHint": "Requires enabling \"Receive all group messages\" in Feishu Developer Console → App → Bot → Message receiving mode, otherwise the bot only receives @mentions"
+  },
+  "qqbot": {
+    "qrScanCreate": "Scan QR to create bot",
+    "qrTitle": "QQ QR Authorization",
+    "qrSubtitle": "Scan with mobile QQ to log in and create a bot",
+    "qrLoading": "Creating session...",
+    "qrScanHint": "Scan the QR code above with mobile QQ",
+    "qrSuccess": "Bot created! Credentials filled automatically",
+    "qrRetry": "Retry",
+    "qrTimeout": "QR code timed out, please retry",
+    "qrInitFailed": "Initialization failed, check network",
+    "qrLoginOk": "Login successful, creating bot...",
+    "qrCreateFailed": "Failed to create bot",
+    "qrNeedBrowser": "This API requires browser login, please create manually in browser"
   }
 }

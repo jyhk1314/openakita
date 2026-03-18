@@ -13,6 +13,7 @@ import { ModalOverlay } from "../components/ModalOverlay";
 import { logger } from "../platform";
 import { IS_WEB, onWsEvent } from "../platform";
 import { FeishuQRModal } from "../components/FeishuQRModal";
+import { QQBotQRModal } from "../components/QQBotQRModal";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 // ─── Types ──────────────────────────────────────────────────────────────
@@ -423,6 +424,7 @@ function BotConfigTab({ apiBase, multiAgentEnabled, onRequestRestart, venvDir, a
   const [toastMsg, setToastMsg] = useState<{ text: string; type: "ok" | "err" } | null>(null);
   const [revealedSecrets, setRevealedSecrets] = useState<Set<string>>(new Set());
   const [showFeishuQR, setShowFeishuQR] = useState(false);
+  const [showQQBotQR, setShowQQBotQR] = useState(false);
 
   const showToast = useCallback((text: string, type: "ok" | "err" = "ok") => {
     setToastMsg({ text, type });
@@ -978,9 +980,24 @@ function BotConfigTab({ apiBase, multiAgentEnabled, onRequestRestart, venvDir, a
               </label>
             ))}
 
-            {/* QQ Bot: sandbox checkbox + mode toggle */}
+            {/* QQ Bot: QR onboard + sandbox checkbox + mode toggle */}
             {editingBot.type === "qqbot" && (
               <>
+                {venvDir && (
+                  <button
+                    type="button"
+                    style={{
+                      width: "100%", padding: "10px 0", marginBottom: 12,
+                      borderRadius: 8, border: "1.5px dashed var(--accent, #3b82f6)",
+                      background: "var(--accent-bg, rgba(59,130,246,0.06))",
+                      color: "var(--accent, #3b82f6)", fontWeight: 600, fontSize: 13,
+                      cursor: "pointer", transition: "all 0.15s",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "var(--accent-bg, rgba(59,130,246,0.12))"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "var(--accent-bg, rgba(59,130,246,0.06))"; }}
+                    onClick={() => setShowQQBotQR(true)}
+                  >{t("qqbot.qrScanCreate")}</button>
+                )}
                 <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, cursor: "pointer" }}>
                   <input
                     type="checkbox"
@@ -1156,6 +1173,19 @@ function BotConfigTab({ apiBase, multiAgentEnabled, onRequestRestart, venvDir, a
             updateCredential("app_id", appId);
             updateCredential("app_secret", appSecret);
             setShowFeishuQR(false);
+          }}
+        />
+      )}
+
+      {showQQBotQR && venvDir && (
+        <QQBotQRModal
+          venvDir={venvDir}
+          apiBaseUrl={apiBaseUrl}
+          onClose={() => setShowQQBotQR(false)}
+          onSuccess={(appId, appSecret) => {
+            updateCredential("app_id", appId);
+            updateCredential("app_secret", appSecret);
+            setShowQQBotQR(false);
           }}
         />
       )}
