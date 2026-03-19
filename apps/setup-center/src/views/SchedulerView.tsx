@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import {
   IconClock,
   DotGreen, DotGray, DotYellow, DotRed, DotBlueProcessing,
+  IM_LOGO_MAP,
 } from "../icons";
 import { safeFetch } from "../providers";
 import { IS_WEB, onWsEvent } from "../platform";
@@ -904,22 +905,38 @@ export function SchedulerView({ serviceRunning, apiBaseUrl = "" }: { serviceRunn
                     <SelectTrigger className={cn("w-full", isStale && "border-amber-400 dark:border-amber-600")}>
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent position="popper" className="max-h-[300px]">
                       <SelectItem value="__none__">
                         {t("scheduler.channelNone", "不推送通知")}
                       </SelectItem>
                       {(() => {
                         const grouped = groupChannelsByPlatform(channels);
-                        return Object.entries(grouped).map(([platform, items]) => (
-                          <SelectGroup key={platform}>
-                            <SelectLabel className="text-xs font-semibold text-muted-foreground px-2">{platform}</SelectLabel>
-                            {items.map(ch => (
-                              <SelectItem key={`${ch.channel_id}|${ch.chat_id}`} value={`${ch.channel_id}|${ch.chat_id}`}>
-                                {formatChannelLabel(ch.channel_id, ch.chat_id, ch)}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        ));
+                        return Object.entries(grouped).map(([platform, items], gi) => {
+                          const base = items[0] ? extractPlatformBase(items[0].channel_id).toLowerCase() : "";
+                          const LogoIcon = IM_LOGO_MAP[base];
+                          return (
+                            <SelectGroup key={platform}>
+                              {gi > 0 && <div className="mx-2 my-1 h-px bg-border" />}
+                              <SelectLabel className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground px-2">
+                                {LogoIcon && <LogoIcon size={14} />}
+                                {platform}
+                              </SelectLabel>
+                              {items.map(ch => {
+                                const itemBase = extractPlatformBase(ch.channel_id).toLowerCase();
+                                const ItemLogo = IM_LOGO_MAP[itemBase];
+                                return (
+                                  <SelectItem key={`${ch.channel_id}|${ch.chat_id}`} value={`${ch.channel_id}|${ch.chat_id}`}>
+                                    <span className="flex items-center gap-1.5">
+                                      {ItemLogo && <ItemLogo size={14} />}
+                                      {ch.chat_type === "group" ? "👥" : "💬"}
+                                      <span>{ch.alias || ch.chat_name || shortChatId(ch.chat_id)}</span>
+                                    </span>
+                                  </SelectItem>
+                                );
+                              })}
+                            </SelectGroup>
+                          );
+                        });
                       })()}
                       {isStale && (
                         <SelectItem value={currentKey}>

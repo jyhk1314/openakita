@@ -48,9 +48,11 @@
     "switchWorkspaceDone": "已切换当前工作区：{{id}}",
     "switchWorkspaceDoneRestart": "已切换当前工作区：{{id}}（后端仍在旧工作区运行，请重启服务以应用新工作区）",
     "refreshed": "已刷新",
-    "themeSystem": "主题: 跟随系统",
-    "themeDark": "主题: 暗色",
-    "themeLight": "主题: 亮色",
+    "themeLabel": "主题",
+    "themeSystem": "跟随系统",
+    "themeDark": "暗色",
+    "themeLight": "亮色",
+    "langLabel": "语言",
     "webAccess": "网页访问",
     "remoteUrl": "远程地址",
     "copyRemoteUrl": "复制远程访问地址"
@@ -353,6 +355,7 @@
     "wework": "企业微信",
     "weworkWs": "企业微信(WS)",
     "dingtalk": "钉钉",
+    "qqbot": "QQ 机器人",
     "needServiceRunning": "需要先启动或连接服务才能进行检测"
   },
   "config": {
@@ -465,6 +468,8 @@
     "imFeishu": "飞书",
     "imWework": "企业微信",
     "imDingtalk": "钉钉",
+    "imQQBot": "QQ 机器人",
+    "imQQBotCredentialHint": "q.qq.com 开发设置",
     "imCallbackPort": "回调端口",
     "imDoc": "文档",
     "imSaved": "已保存 IM 配置",
@@ -773,6 +778,7 @@
     "aliasPlaceholder": "输入自定义名称...",
     "clearAlias": "恢复默认名称",
     "aliasSet": "已命名",
+    "deleteSession": "删除会话",
     "responseMode_global": "跟随全局",
     "responseMode_always": "全部响应",
     "responseMode_mention_only": "@响应",
@@ -802,7 +808,17 @@
     "needMultiAgent": "需要开启多Agent模式",
     "botSaveOnly": "仅保存",
     "botApplyRestart": "应用并重启",
-    "botApplyRestartHint": "保存 Bot 配置后重启服务使其生效"
+    "botApplyRestartHint": "保存 Bot 配置后重启服务使其生效",
+    "botTypeFeishu": "飞书",
+    "botTypeTelegram": "Telegram",
+    "botTypeDingtalk": "钉钉",
+    "botTypeWeworkHttp": "企业微信(HTTP)",
+    "botTypeWeworkWs": "企业微信(WS)",
+    "botTypeWework": "企业微信",
+    "botTypeOnebotForward": "OneBot (正向WS)",
+    "botTypeOnebotReverse": "OneBot (反向WS)",
+    "botTypeOnebot": "OneBot",
+    "botTypeQQBot": "QQ 官方机器人"
   },
   "llm": {
     "title": "LLM 端点",

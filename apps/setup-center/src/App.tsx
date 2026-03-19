@@ -190,14 +190,6 @@ export function App() {
     window.addEventListener(THEME_CHANGE_EVENT, handler);
     return () => window.removeEventListener(THEME_CHANGE_EVENT, handler);
   }, []);
-  const toggleTheme = useCallback(() => {
-    let next: Theme = "system";
-    if (themePrefState === "system") next = "dark";
-    else if (themePrefState === "dark") next = "light";
-    else next = "system";
-    setThemePref(next);
-    notifySuccess(t(THEME_I18N_KEYS[next]));
-  }, [themePrefState, t]);
   const [info, setInfo] = useState<PlatformInfo | null>(null);
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [currentWorkspaceId, setCurrentWorkspaceId] = useState<string | null>(null);
@@ -8111,7 +8103,7 @@ export function App() {
             await startLocalServiceWithConflictCheck(effectiveWsId);
           }}
           onRefreshAll={async () => { await refreshAll(); try { await refreshStatus(undefined, undefined, true); } catch {} }}
-          toggleTheme={toggleTheme}
+          onSetTheme={(theme) => { setThemePref(theme); notifySuccess(`${t("topbar.themeLabel")}: ${t(THEME_I18N_KEYS[theme])}`); }}
           themePrefState={themePrefState}
           isWeb={IS_WEB || IS_CAPACITOR}
           onLogout={(IS_WEB || IS_CAPACITOR) ? async () => {

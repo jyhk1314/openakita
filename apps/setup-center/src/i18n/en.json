@@ -48,9 +48,11 @@
     "switchWorkspaceDone": "Switched workspace: {{id}}",
     "switchWorkspaceDoneRestart": "Switched workspace: {{id}} (backend still on old workspace, restart service to apply)",
     "refreshed": "Refreshed",
-    "themeSystem": "Theme: Follow system",
-    "themeDark": "Theme: Dark",
-    "themeLight": "Theme: Light",
+    "themeLabel": "Theme",
+    "themeSystem": "Follow System",
+    "themeDark": "Dark",
+    "themeLight": "Light",
+    "langLabel": "Language",
     "webAccess": "Web Access",
     "remoteUrl": "Remote URL",
     "copyRemoteUrl": "Copy remote access URL"
@@ -353,6 +355,7 @@
     "wework": "WeCom",
     "weworkWs": "WeCom (WS)",
     "dingtalk": "DingTalk",
+    "qqbot": "QQ Bot",
     "needServiceRunning": "Start or connect to a service before running health checks"
   },
   "config": {
@@ -465,6 +468,8 @@
     "imFeishu": "Feishu (Lark)",
     "imWework": "WeCom",
     "imDingtalk": "DingTalk",
+    "imQQBot": "QQ Bot",
+    "imQQBotCredentialHint": "From q.qq.com developer settings",
     "imCallbackPort": "Callback Port",
     "imDoc": "Docs",
     "imSaved": "IM config saved",
@@ -773,6 +778,7 @@
     "aliasPlaceholder": "Enter custom name...",
     "clearAlias": "Reset to default",
     "aliasSet": "Named",
+    "deleteSession": "Delete Session",
     "responseMode_global": "Follow Global",
     "responseMode_always": "Always Respond",
     "responseMode_mention_only": "Mention Only",
@@ -802,7 +808,17 @@
     "needMultiAgent": "Multi-Agent mode required",
     "botSaveOnly": "Save Only",
     "botApplyRestart": "Apply & Restart",
-    "botApplyRestartHint": "Save bot config and restart service to apply"
+    "botApplyRestartHint": "Save bot config and restart service to apply",
+    "botTypeFeishu": "Feishu",
+    "botTypeTelegram": "Telegram",
+    "botTypeDingtalk": "DingTalk",
+    "botTypeWeworkHttp": "WeCom (HTTP)",
+    "botTypeWeworkWs": "WeCom (WS)",
+    "botTypeWework": "WeCom",
+    "botTypeOnebotForward": "OneBot (Forward WS)",
+    "botTypeOnebotReverse": "OneBot (Reverse WS)",
+    "botTypeOnebot": "OneBot",
+    "botTypeQQBot": "QQ Official Bot"
   },
   "llm": {
     "title": "LLM Endpoints",

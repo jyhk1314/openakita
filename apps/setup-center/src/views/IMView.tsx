@@ -1,6 +1,7 @@
 // ─── IMView: IM Channel Viewer + Bot Configuration ───
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
@@ -29,7 +30,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/com
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Bot, BotOff, Loader2, Pencil, RefreshCw, X } from "lucide-react";
+import { Bot, BotOff, Loader2, MoreHorizontal, Pencil, RefreshCw, Trash2, X } from "lucide-react";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -98,15 +99,15 @@ const DEFAULT_API = "http://127.0.0.1:18900";
 
 const BOT_TYPES = ["wework", "wework_ws", "qqbot", "feishu", "dingtalk", "telegram", "onebot", "onebot_reverse"] as const;
 
-const BOT_TYPE_LABELS: Record<string, string> = {
-  feishu: "飞书",
-  telegram: "Telegram",
-  dingtalk: "钉钉",
-  wework: "企业微信(HTTP)",
-  wework_ws: "企业微信(WS)",
-  onebot: "OneBot (正向WS)",
-  onebot_reverse: "OneBot (反向WS)",
-  qqbot: "QQ 官方机器人",
+const BOT_TYPE_LABEL_KEYS: Record<string, string> = {
+  feishu: "im.botTypeFeishu",
+  telegram: "im.botTypeTelegram",
+  dingtalk: "im.botTypeDingtalk",
+  wework: "im.botTypeWeworkHttp",
+  wework_ws: "im.botTypeWeworkWs",
+  onebot: "im.botTypeOnebotForward",
+  onebot_reverse: "im.botTypeOnebotReverse",
+  qqbot: "im.botTypeQQBot",
 };
 
 const WEWORK_TYPES = new Set(["wework", "wework_ws"]);
@@ -188,23 +189,26 @@ export function IMView({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-1 px-3 pt-2 pb-1 border-b shrink-0">
-        <Button
-          variant={activeTab === "messages" ? "default" : "ghost"}
-          size="sm"
-          className="h-7 text-xs"
-          onClick={() => setActiveTab("messages")}
+      <div style={{ display: "flex", alignItems: "center", marginBottom: 12, flexShrink: 0 }}>
+        <ToggleGroup
+          type="single"
+          value={activeTab}
+          onValueChange={(v) => { if (v) setActiveTab(v as "messages" | "groupPolicy"); }}
+          variant="outline"
         >
-          {t("im.tabMessages")}
-        </Button>
-        <Button
-          variant={activeTab === "groupPolicy" ? "default" : "ghost"}
-          size="sm"
-          className="h-7 text-xs"
-          onClick={() => setActiveTab("groupPolicy")}
-        >
-          {t("im.tabGroupPolicy")}
-        </Button>
+          <ToggleGroupItem
+            value="messages"
+            className="text-sm data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:border-primary"
+          >
+            {t("im.tabMessages")}
+          </ToggleGroupItem>
+          <ToggleGroupItem
+            value="groupPolicy"
+            className="text-sm data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:border-primary"
+          >
+            {t("im.tabGroupPolicy")}
+          </ToggleGroupItem>
+        </ToggleGroup>
       </div>
       <div className="flex-1 min-h-0 overflow-auto">
         {activeTab === "messages" && <MessagesTab serviceRunning={serviceRunning} apiBase={api} />}
@@ -213,6 +217,12 @@ export function IMView({
     </div>
   );
 }
+
+const MENU_ITEM_CLASS =
+  "relative flex w-full cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground";
+
+const MENU_ITEM_DESTRUCTIVE_CLASS =
+  "relative flex w-full cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none text-destructive hover:bg-destructive/10 hover:text-destructive dark:hover:bg-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg]:text-destructive!";
 
 // ─── Messages Tab (original IM view) ────────────────────────────────────
 
@@ -239,6 +249,27 @@ function MessagesTab({ serviceRunning, apiBase }: { serviceRunning: boolean; api
   const [inlineEditValue, setInlineEditValue] = useState("");
   const [aliasDialogSession, setAliasDialogSession] = useState<IMSession | null>(null);
   const [aliasDialogValue, setAliasDialogValue] = useState("");
+  const [openMenuSessionId, setOpenMenuSessionId] = useState<string | null>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!openMenuSessionId) return;
+    const onDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpenMenuSessionId(null);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpenMenuSessionId(null);
+    };
+    window.addEventListener("mousedown", onDown, true);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("mousedown", onDown, true);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [openMenuSessionId]);
 
   const getChannelDisplayName = useCallback((ch: IMChannel): string => {
     const key = `status.${(ch.channel || "").toLowerCase()}`;
@@ -390,23 +421,29 @@ function MessagesTab({ serviceRunning, apiBase }: { serviceRunning: boolean; api
 
   const handleDeleteMessages = useCallback(async () => {
     if (!selectedSessionId || selectedMsgIds.size === 0) return;
+    const turnIds = messages
+      .filter((_, i) => selectedMsgIds.has(i))
+      .map((m) => m.id)
+      .filter((id): id is number => id != null);
     try {
-      await safeFetch(`${apiBase}/api/im/sessions/${encodeURIComponent(selectedSessionId)}/messages/delete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ turn_ids: Array.from(selectedMsgIds) }),
-      });
-      setMessages((prev) => prev.filter((m) => !m.id || !selectedMsgIds.has(m.id)));
+      if (turnIds.length > 0) {
+        await safeFetch(`${apiBase}/api/im/sessions/${encodeURIComponent(selectedSessionId)}/messages/delete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ turn_ids: turnIds }),
+        });
+      }
+      setMessages((prev) => prev.filter((_, i) => !selectedMsgIds.has(i)));
       setTotalMessages((prev) => Math.max(0, prev - selectedMsgIds.size));
       setSelectedMsgIds(new Set());
       setSelectMode(false);
     } catch { /* ignore */ }
-  }, [apiBase, selectedSessionId, selectedMsgIds]);
+  }, [apiBase, selectedSessionId, selectedMsgIds, messages]);
 
-  const toggleMsgSelect = useCallback((id: number) => {
+  const toggleMsgSelect = useCallback((idx: number) => {
     setSelectedMsgIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
       return next;
     });
   }, []);
@@ -437,8 +474,8 @@ function MessagesTab({ serviceRunning, apiBase }: { serviceRunning: boolean; api
     return () => observer.disconnect();
   }, [messages.length, totalMessages, loadingMore, handleLoadMore]);
 
-  const handleDeleteSession = useCallback((s: IMSession, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleDeleteSession = useCallback((s: IMSession, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     const name = s.chatType === "group"
       ? (s.chatName || s.chatId || s.sessionId.slice(0, 12))
       : (s.displayName || s.userId || s.chatId || s.sessionId.slice(0, 12));
@@ -448,8 +485,8 @@ function MessagesTab({ serviceRunning, apiBase }: { serviceRunning: boolean; api
     });
   }, [deleteSession]);
 
-  const handleToggleBot = useCallback(async (s: IMSession, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleToggleBot = useCallback(async (s: IMSession, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     const isCurrentlyDisabled = s.botEnabled === false || s.responseMode === "disabled";
     const newEnabled = isCurrentlyDisabled;
     const newMode = isCurrentlyDisabled ? null : "disabled";
@@ -511,8 +548,8 @@ function MessagesTab({ serviceRunning, apiBase }: { serviceRunning: boolean; api
     saveAlias(s, inlineEditValue);
   }, [inlineEditValue, saveAlias]);
 
-  const handleAliasDialogOpen = useCallback((s: IMSession, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleAliasDialogOpen = useCallback((s: IMSession, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     setAliasDialogSession(s);
     setAliasDialogValue(s.alias || "");
   }, []);
@@ -558,10 +595,10 @@ function MessagesTab({ serviceRunning, apiBase }: { serviceRunning: boolean; api
               <button
                 key={ch.channel}
                 className={cn(
-                  "flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-[13px] transition-colors cursor-pointer select-none",
+                  "flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-[13px] transition-colors cursor-pointer select-none border-l-2",
                   selectedChannel === ch.channel
-                    ? "bg-accent text-accent-foreground"
-                    : "hover:bg-accent/50"
+                    ? "bg-primary/10 text-foreground border-primary font-medium"
+                    : "hover:bg-accent/50 border-transparent"
                 )}
                 onClick={() => handleSelectChannel(ch.channel)}
               >
@@ -587,32 +624,78 @@ function MessagesTab({ serviceRunning, apiBase }: { serviceRunning: boolean; api
                 {sessions.length === 0 && (
                   <div className="px-4 py-4 text-center text-xs text-muted-foreground">{t("im.noSessions")}</div>
                 )}
-                <TooltipProvider delayDuration={400}>
-                  {sessions.map((s) => (
+                {(() => {
+                  const chatIdCount = new Map<string, number>();
+                  for (const s of sessions) {
+                    const cid = s.chatId || s.sessionId;
+                    chatIdCount.set(cid, (chatIdCount.get(cid) || 0) + 1);
+                  }
+                  const isGroupChat = (s: IMSession) =>
+                    s.chatType === "group" || (chatIdCount.get(s.chatId || s.sessionId) || 0) > 1;
+
+                  const groupSessions = sessions.filter(isGroupChat);
+                  const privateSessions = sessions.filter((s) => !isGroupChat(s));
+                  const groupByChatId = new Map<string, IMSession[]>();
+                  for (const s of groupSessions) {
+                    const key = s.chatId || s.sessionId;
+                    if (!groupByChatId.has(key)) groupByChatId.set(key, []);
+                    groupByChatId.get(key)!.push(s);
+                  }
+                  type RenderItem = { type: "group-header"; chatId: string; name: string; alias?: string | null } | { type: "session"; session: IMSession; indented: boolean };
+                  const renderItems: RenderItem[] = [];
+                  for (const [chatId, items] of groupByChatId) {
+                    const first = items[0];
+                    renderItems.push({ type: "group-header" as const, chatId, name: first.chatName || chatId, alias: first.alias });
+                    for (const s of items) renderItems.push({ type: "session" as const, session: s, indented: true });
+                  }
+                  for (const s of privateSessions) renderItems.push({ type: "session" as const, session: s, indented: false });
+
+                  return renderItems.map((item) => {
+                    if (item.type === "group-header") {
+                      return (
+                        <div key={`gh-${item.chatId}`} className="flex items-center gap-1.5 px-2.5 pt-3 pb-1">
+                          <IconUsers size={12} className="shrink-0 text-muted-foreground" />
+                          <span className="text-[11px] font-bold text-muted-foreground truncate">
+                            {item.alias || item.name}
+                          </span>
+                          {item.alias && item.name !== item.alias && (
+                            <span className="text-[10px] text-muted-foreground/50 truncate">({item.name})</span>
+                          )}
+                        </div>
+                      );
+                    }
+                    const s = item.session;
+                    const isBotActive = s.botEnabled !== false && s.responseMode !== "disabled";
+                    const subtitle = s.alias
+                      ? (s.chatType === "group" ? (s.chatName || s.chatId || "") : (s.displayName || s.chatId || ""))
+                      : (s.chatType === "group" && s.displayName ? s.displayName : (s.chatId || s.sessionId.slice(0, 12)));
+                    return (
                     <div
                       key={s.sessionId}
                       className={cn(
-                        "group flex items-center justify-between rounded-lg px-2.5 py-2 text-[13px] transition-colors cursor-pointer select-none gap-1.5",
+                        "group flex flex-col gap-0.5 rounded-lg py-2 transition-colors cursor-pointer select-none border-l-2",
+                        item.indented ? "pl-5 pr-2.5" : "px-2.5",
                         selectedSessionId === s.sessionId
-                          ? "bg-accent text-accent-foreground"
-                          : "hover:bg-accent/50",
-                        (s.botEnabled === false || s.responseMode === "disabled") && "opacity-50",
+                          ? "bg-primary/10 text-foreground border-primary"
+                          : "hover:bg-accent/50 border-transparent",
+                        !isBotActive && "opacity-50",
                       )}
                       onClick={() => handleSelectSession(s.sessionId)}
+                      title={[
+                        s.alias ? `✏ ${s.alias}` : null,
+                        s.chatType === "group"
+                          ? (s.chatName || s.chatId || s.sessionId)
+                          : (s.displayName || s.userId || s.chatId || s.sessionId),
+                        s.chatType === "group" && s.displayName ? `(${s.displayName})` : "",
+                        s.chatId ? `chat: ${s.chatId}` : "",
+                        s.userId ? `user: ${s.userId}` : "",
+                      ].filter(Boolean).join("\n")}
                       role="button"
                       tabIndex={0}
                     >
+                      {/* Row 1: icon + name + alias badge + time */}
                       <div
-                        className="flex items-center gap-1.5 min-w-0 flex-1"
-                        title={[
-                          s.alias ? `✏ ${s.alias}` : null,
-                          s.chatType === "group"
-                            ? (s.chatName || s.chatId || s.sessionId)
-                            : (s.displayName || s.userId || s.chatId || s.sessionId),
-                          s.chatType === "group" && s.displayName ? `(${s.displayName})` : "",
-                          s.chatId ? `chat: ${s.chatId}` : "",
-                          s.userId ? `user: ${s.userId}` : "",
-                        ].filter(Boolean).join("\n")}
+                        className="flex items-center gap-1.5"
                         onDoubleClick={(e) => { e.stopPropagation(); handleInlineEditStart(s); }}
                       >
                         {s.chatType === "group" ? <IconUsers size={13} className="shrink-0" /> : <IconUser size={13} className="shrink-0" />}
@@ -631,76 +714,82 @@ function MessagesTab({ serviceRunning, apiBase }: { serviceRunning: boolean; api
                             placeholder={t("im.aliasPlaceholder")}
                           />
                         ) : (
-                          <>
-                            <span className={cn("font-semibold truncate text-[13px]", s.alias && "text-primary")}>
-                              {getSessionDisplayName(s)}
-                            </span>
-                            {s.alias && (
-                              <Badge variant="outline" className="h-4 text-[9px] px-1 py-0 shrink-0">{t("im.aliasSet")}</Badge>
-                            )}
-                            {!s.alias && s.chatType === "group" && s.chatName && s.displayName && (
-                              <span className="text-[11px] text-muted-foreground truncate">({s.displayName})</span>
-                            )}
-                          </>
+                          <span className={cn("font-semibold truncate text-[13px] flex-1 min-w-0", s.alias && "text-primary")}>
+                            {getSessionDisplayName(s)}
+                          </span>
                         )}
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <Badge variant="outline" className="h-5 min-w-[20px] justify-center text-[11px] px-1.5">
-                          {s.messageCount}
-                        </Badge>
-                        <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                        {!inlineEditSessionId && s.alias && (
+                          <Badge variant="outline" className="h-4 text-[9px] px-1 py-0 shrink-0">{t("im.aliasSet")}</Badge>
+                        )}
+                        <span className="text-[11px] text-muted-foreground whitespace-nowrap shrink-0">
                           {s.lastActive ? new Date(s.lastActive).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
                         </span>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon-xs"
-                              className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
-                              onClick={(e) => handleAliasDialogOpen(s, e)}
+                      </div>
+                      {/* Row 2: subtitle + count + actions menu */}
+                      <div className="flex items-center gap-1.5 pl-[19px]">
+                        <span className="text-[11px] text-muted-foreground truncate flex-1 min-w-0">
+                          {subtitle}
+                        </span>
+                        <Badge variant="outline" className="h-5 min-w-[20px] justify-center text-[11px] px-1.5 shrink-0">
+                          {s.messageCount}
+                        </Badge>
+                        {!isBotActive && (
+                          <BotOff className="size-3 text-destructive/60 shrink-0" />
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          className={cn(
+                            "transition-opacity text-muted-foreground hover:text-foreground shrink-0",
+                            openMenuSessionId === s.sessionId ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                          )}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                            setOpenMenuSessionId((prev) => (prev === s.sessionId ? null : s.sessionId));
+                          }}
+                        >
+                          <MoreHorizontal className="size-3.5" />
+                        </Button>
+                        {openMenuSessionId === s.sessionId && createPortal(
+                          <div
+                            ref={menuRef}
+                            className="fixed z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95"
+                            style={{ top: menuPos.top, right: menuPos.right }}
+                          >
+                            <button
+                              className={MENU_ITEM_CLASS}
+                              onClick={() => { setOpenMenuSessionId(null); handleAliasDialogOpen(s); }}
                             >
-                              <Pencil className="size-3" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="text-xs">{t("im.renameChat")}</TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon-xs"
-                              className={cn(
-                                "opacity-0 group-hover:opacity-100 transition-opacity",
-                                (s.botEnabled !== false && s.responseMode !== "disabled")
-                                  ? "text-emerald-500 hover:text-emerald-600"
-                                  : "text-destructive hover:text-destructive/80",
-                              )}
-                              onClick={(e) => handleToggleBot(s, e)}
+                              <Pencil className="size-3.5" />
+                              {t("im.renameChat")}
+                            </button>
+                            <button
+                              className={MENU_ITEM_CLASS}
+                              onClick={() => { setOpenMenuSessionId(null); handleToggleBot(s); }}
                             >
-                              {(s.botEnabled !== false && s.responseMode !== "disabled") ? <Bot className="size-4" /> : <BotOff className="size-4" />}
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="text-xs">
-                            {(s.botEnabled !== false && s.responseMode !== "disabled") ? t("im.disableBot") : t("im.enableBot")}
-                          </TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon-xs"
-                              className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-                              onClick={(e) => handleDeleteSession(s, e)}
+                              {isBotActive
+                                ? <><BotOff className="size-3.5 text-destructive" />{t("im.disableBot")}</>
+                                : <><Bot className="size-3.5 text-emerald-500" />{t("im.enableBot")}</>
+                              }
+                            </button>
+                            <div className="-mx-1 my-1 h-px bg-border" />
+                            <button
+                              className={MENU_ITEM_DESTRUCTIVE_CLASS}
+                              onClick={() => { setOpenMenuSessionId(null); handleDeleteSession(s); }}
                             >
-                              <X className="size-3" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent side="right" className="text-xs">删除会话</TooltipContent>
-                        </Tooltip>
+                              <Trash2 className="size-3.5" />
+                              {t("im.deleteSession")}
+                            </button>
+                          </div>,
+                          document.body,
+                        )}
                       </div>
                     </div>
-                  ))}
-                </TooltipProvider>
+                    );
+                  });
+                })()}
               </div>
             </>
           )}
@@ -808,10 +897,10 @@ function MessagesTab({ serviceRunning, apiBase }: { serviceRunning: boolean; api
                     </div>
                   )}
                   <div className="flex gap-2">
-                    {selectMode && msg.id != null && (
+                    {selectMode && (
                       <Checkbox
-                        checked={selectedMsgIds.has(msg.id)}
-                        onCheckedChange={() => toggleMsgSelect(msg.id!)}
+                        checked={selectedMsgIds.has(idx)}
+                        onCheckedChange={() => toggleMsgSelect(idx)}
                         className="mt-1.5 shrink-0"
                       />
                     )}
@@ -835,7 +924,7 @@ function MessagesTab({ serviceRunning, apiBase }: { serviceRunning: boolean; api
                         msg.role === "user"
                           ? "bg-primary/[0.04] border-primary/[0.12]"
                           : "bg-muted/50 border-border",
-                        selectMode && msg.id != null && selectedMsgIds.has(msg.id) && "ring-2 ring-primary/30",
+                        selectMode && selectedMsgIds.has(idx) && "ring-2 ring-primary/30",
                       )}>
                         <MediaContent content={msg.content} />
                       </div>
@@ -940,7 +1029,11 @@ function GroupPolicyTab({ apiBase }: { apiBase: string }) {
           responseMode: (s as any).responseMode ?? null,
           botEnabled: s.botEnabled !== false,
         }));
-      setGroupSessions(groups);
+      const deduped = new Map<string, GroupSessionInfo>();
+      for (const g of groups) {
+        if (!deduped.has(g.chatId)) deduped.set(g.chatId, g);
+      }
+      setGroupSessions(Array.from(deduped.values()));
     } catch { /* ignore */ }
   }, [apiBase]);
 
@@ -1000,10 +1093,10 @@ function GroupPolicyTab({ apiBase }: { apiBase: string }) {
             <button
               key={ch.channel}
               className={cn(
-                "flex w-full items-center gap-1.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors cursor-pointer select-none",
+                "flex w-full items-center gap-1.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors cursor-pointer select-none border-l-2",
                 selectedChannel === ch.channel
-                  ? "bg-accent text-accent-foreground"
-                  : "hover:bg-accent/50",
+                  ? "bg-primary/10 text-foreground border-primary font-medium"
+                  : "hover:bg-accent/50 border-transparent",
               )}
               onClick={() => handleSelectChannel(ch.channel)}
             >
@@ -1297,7 +1390,7 @@ export function BotConfigTab({ apiBase, multiAgentEnabled, onRequestRestart, ven
               <div className="absolute top-2 right-2 flex gap-1">
                 <Badge variant="secondary" className="text-[10px] gap-1 px-1.5 py-0">
                   {IM_LOGO_MAP[bot.type]?.({ size: 12 })}
-                  {BOT_TYPE_LABELS[bot.type] || bot.type}
+                  {t(BOT_TYPE_LABEL_KEYS[bot.type] || "", { defaultValue: bot.type })}
                 </Badge>
                 <Badge variant={bot.enabled ? "default" : "destructive"} className="text-[10px] px-1.5 py-0">
                   {bot.enabled ? t("im.botEnabled") : t("im.botDisabled")}
@@ -1402,7 +1495,7 @@ export function BotConfigTab({ apiBase, multiAgentEnabled, onRequestRestart, ven
                     .filter((bt) => !enabledChannels || enabledChannels.includes(bt))
                     .map((bt) => (
                     <SelectItem key={bt} value={bt}>
-                      {bt === "wework_ws" ? "企业微信" : bt === "onebot_reverse" ? "OneBot" : (BOT_TYPE_LABELS[bt] || bt)}
+                      {bt === "wework_ws" ? t("im.botTypeWework") : bt === "onebot_reverse" ? t("im.botTypeOnebot") : t(BOT_TYPE_LABEL_KEYS[bt] || "", { defaultValue: bt })}
                     </SelectItem>
                   ))}
                 </SelectContent>

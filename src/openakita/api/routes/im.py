@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -164,6 +165,16 @@ def _get_storage():
         return None
 
 
+def _to_safe_session_id(session_key: str) -> str:
+    """Convert session_key (e.g. 'telegram:123:user') to the safe format
+    used as SQLite session_id (e.g. 'telegram__123__user').
+
+    Must match the logic in agent.py _prepare_session_context.
+    """
+    safe = session_key.replace(":", "__")
+    return re.sub(r'[/\\+=%?*<>|"\x00-\x1f]', "_", safe)
+
+
 @router.get("/api/im/sessions/{session_id}/messages")
 async def get_session_messages(
     request: Request,
@@ -183,8 +194,9 @@ async def get_session_messages(
     if source == "sqlite":
         storage = _get_storage()
         if storage:
+            safe_id = _to_safe_session_id(session_id)
             rows, total = storage.list_turns(
-                session_id, limit, offset,
+                safe_id, limit, offset,
                 date_from=date_from, date_to=date_to,
             )
             messages = [
@@ -232,12 +244,29 @@ async def get_session_messages(
     total = len(history)
     page = history[offset: offset + limit]
 
+    def _to_str(content: Any) -> str:
+        """Ensure content is a plain string for the API response.
+
+        Anthropic MessageParam may store content as a list of content blocks.
+        """
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    parts.append(block.get("text", ""))
+                elif isinstance(block, str):
+                    parts.append(block)
+            return "".join(parts)
+        return str(content) if content is not None else ""
+
     messages: list[dict[str, Any]] = []
     for item in page:
         if isinstance(item, dict):
             messages.append({
                 "role": item.get("role", "user"),
-                "content": item.get("content", ""),
+                "content": _to_str(item.get("content", "")),
                 "timestamp": item.get("timestamp", ""),
                 "metadata": item.get("metadata"),
                 "chain_summary": item.get("chain_summary"),
@@ -245,7 +274,7 @@ async def get_session_messages(
         else:
             messages.append({
                 "role": getattr(item, "role", "user"),
-                "content": str(getattr(item, "content", "")),
+                "content": _to_str(getattr(item, "content", "")),
                 "timestamp": str(getattr(item, "timestamp", "")),
                 "metadata": getattr(item, "metadata", None),
                 "chain_summary": getattr(item, "chain_summary", None),
@@ -254,17 +283,27 @@ async def get_session_messages(
     storage = _get_storage()
     if storage and messages:
         try:
-            turns, _ = storage.list_turns(session_id, limit=limit, offset=offset,
+            safe_id = _to_safe_session_id(session_id)
+            turns, _ = storage.list_turns(safe_id, limit=9999, offset=0,
                                           date_from=date_from, date_to=date_to)
-            id_map: dict[int, int] = {}
+            content_id_map: dict[tuple[str, str], int] = {}
             for t in turns:
-                ti = t.get("turn_index")
-                if ti is not None and t.get("id") is not None:
-                    id_map[ti] = t["id"]
-            for i, msg in enumerate(messages):
-                msg["id"] = id_map.get(offset + i)
-        except Exception:
-            pass
+                if t.get("id") is not None:
+                    key = (t.get("role", ""), _to_str(t.get("content", ""))[:200])
+                    content_id_map.setdefault(key, t["id"])
+            matched = 0
+            for msg in messages:
+                key = (msg.get("role", ""), (msg.get("content") or "")[:200])
+                msg["id"] = content_id_map.get(key)
+                if msg["id"] is not None:
+                    matched += 1
+            if messages and matched == 0:
+                logger.warning(
+                    "ID matching failed for session %s: 0/%d messages matched "
+                    "(sqlite turns=%d)", session_id, len(messages), len(turns),
+                )
+        except Exception as exc:
+            logger.warning("ID matching error for session %s: %s", session_id, exc)
 
     return JSONResponse(content={
         "messages": messages,
@@ -285,12 +324,30 @@ async def delete_session_messages(request: Request, session_id: str, body: Delet
     if storage is None:
         return JSONResponse(status_code=500, content={"error": "storage not available"})
 
+    # Fetch content of turns before deleting so we can match them in memory
+    deleted_keys: set[tuple[str, str]] = set()
+    try:
+        safe_id = _to_safe_session_id(session_id)
+        placeholders = ",".join("?" for _ in body.turn_ids)
+        conn = getattr(storage, "_conn", None)
+        if conn:
+            rows = conn.execute(
+                f"SELECT role, content FROM conversation_turns "
+                f"WHERE session_id = ? AND id IN ({placeholders})",
+                [safe_id] + list(body.turn_ids),
+            ).fetchall()
+            for r in rows:
+                deleted_keys.add((r[0] or "", (r[1] or "")[:200]))
+    except Exception:
+        pass
+
     deleted = storage.delete_turns(body.turn_ids)
     if deleted:
         logger.info(f"[IM] Deleted {deleted} message(s) from session {session_id}")
 
+    # Remove matching messages from in-memory session context
     session_mgr = _get_session_manager(request)
-    if session_mgr and body.turn_ids:
+    if session_mgr and deleted_keys:
         sessions = getattr(session_mgr, "_sessions", {})
         sess = sessions.get(session_id)
         if sess:
@@ -298,11 +355,11 @@ async def delete_session_messages(request: Request, session_id: str, body: Delet
             if ctx:
                 msgs = getattr(ctx, "messages", [])
                 if msgs:
-                    turn_id_set = set(body.turn_ids)
-                    ctx.messages = [
-                        m for i, m in enumerate(msgs)
-                        if i not in turn_id_set
-                    ]
+                    def _msg_key(m: Any) -> tuple[str, str]:
+                        if isinstance(m, dict):
+                            return (m.get("role", ""), (m.get("content") or "")[:200])
+                        return (getattr(m, "role", ""), str(getattr(m, "content", ""))[:200])
+                    ctx.messages = [m for m in msgs if _msg_key(m) not in deleted_keys]
 
     return JSONResponse(content={"ok": True, "deleted": deleted})
 
@@ -324,7 +381,7 @@ async def delete_im_session(request: Request, session_id: str):
         from openakita.memory.storage import get_shared_storage
         db_path = settings.project_root / "data" / "memory" / "openakita.db"
         storage = get_shared_storage(db_path)
-        turns_deleted = storage.delete_turns_for_session(session_id)
+        turns_deleted = storage.delete_turns_for_session(_to_safe_session_id(session_id))
         if turns_deleted:
             logger.info(f"[IM] Purged {turns_deleted} conversation_turns for session: {session_id}")
     except Exception as e:

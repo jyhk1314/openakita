@@ -197,7 +197,7 @@ export function IMConfigView(props: IMConfigViewProps) {
       ),
     },
     {
-      title: "QQ 机器人",
+      title: t("config.imQQBot"),
       appType: `${t("config.imTypeQQBot")} (${(envDraft["QQBOT_MODE"] || "websocket") === "webhook" ? "Webhook" : "WebSocket"})`,
       logo: <LogoQQ size={22} />,
       enabledKey: "QQBOT_ENABLED",
@@ -210,8 +210,8 @@ export function IMConfigView(props: IMConfigViewProps) {
               {t("qqbot.qrScanCreate")}
             </Button>
           )}
-          {FT({ k: "QQBOT_APP_ID", label: "AppID", placeholder: "q.qq.com 开发设置" })}
-          {FT({ k: "QQBOT_APP_SECRET", label: "AppSecret", type: "password", placeholder: "q.qq.com 开发设置" })}
+          {FT({ k: "QQBOT_APP_ID", label: "AppID", placeholder: t("config.imQQBotCredentialHint") })}
+          {FT({ k: "QQBOT_APP_SECRET", label: "AppSecret", type: "password", placeholder: t("config.imQQBotCredentialHint") })}
           {FB({ k: "QQBOT_SANDBOX", label: t("config.imQQBotSandbox") })}
           <div className="mt-2 space-y-1">
             <Label>{t("config.imQQBotMode")}</Label>
