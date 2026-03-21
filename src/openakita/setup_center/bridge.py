@@ -716,16 +716,8 @@ def ensure_channel_deps(workspace_dir: str) -> None:
             if eq > 0:
                 env[line[:eq].strip()] = line[eq + 1 :].strip()
 
-    # 通道 → [(import_name, pip_package), ...]
-    channel_deps: dict[str, list[tuple[str, str]]] = {
-        "feishu": [("lark_oapi", "lark-oapi")],
-        "dingtalk": [("dingtalk_stream", "dingtalk-stream")],
-        "wework": [("aiohttp", "aiohttp"), ("Crypto", "pycryptodome")],
-        "wework_ws": [("websockets", "websockets"), ("cryptography", "cryptography")],
-        "onebot": [("websockets", "websockets")],
-        "onebot_reverse": [("websockets", "websockets")],
-        "qqbot": [("botpy", "qq-botpy"), ("pilk", "pilk")],
-    }
+    from openakita.channels.deps import CHANNEL_DEPS
+    channel_deps = CHANNEL_DEPS
 
     enabled_key_map = {
         "feishu": "FEISHU_ENABLED",

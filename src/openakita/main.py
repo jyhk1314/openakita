@@ -109,16 +109,7 @@ async def _init_orchestrator():
 
 # ==================== IM 通道依赖自动安装 ====================
 
-# 通道名 → [(import_name, pip_package), ...]
-_CHANNEL_DEPS: dict[str, list[tuple[str, str]]] = {
-    "feishu": [("lark_oapi", "lark-oapi")],
-    "dingtalk": [("dingtalk_stream", "dingtalk-stream")],
-    "wework": [("aiohttp", "aiohttp"), ("Crypto", "pycryptodome")],
-    "wework_ws": [("websockets", "websockets"), ("cryptography", "cryptography")],
-    "onebot": [("websockets", "websockets")],
-    "onebot_reverse": [("websockets", "websockets")],
-    "qqbot": [("botpy", "qq-botpy"), ("pilk", "pilk")],
-}
+from .channels.deps import CHANNEL_DEPS as _CHANNEL_DEPS
 
 
 def _patch_backports_zstd() -> None:

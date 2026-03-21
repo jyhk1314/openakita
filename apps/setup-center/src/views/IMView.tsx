@@ -1159,14 +1159,19 @@ export function BotConfigTab({ apiBase, multiAgentEnabled, onRequestRestart, ven
     }
   }, [apiBase]);
 
-  const fetchBots = useCallback(async () => {
+  const fetchBots = useCallback(async (): Promise<boolean> => {
     setLoading(true);
     try {
       const res = await safeFetch(`${apiBase}/api/agents/bots`);
       const data = await res.json();
       setBots(data.bots || []);
-    } catch (e) { logger.warn("IM", "Failed to fetch bots", { error: String(e) }); }
-    setLoading(false);
+      setLoading(false);
+      return true;
+    } catch (e) {
+      logger.warn("IM", "Failed to fetch bots", { error: String(e) });
+      setLoading(false);
+      return false;
+    }
   }, [apiBase]);
 
   const fetchProfiles = useCallback(async () => {
@@ -1178,9 +1183,31 @@ export function BotConfigTab({ apiBase, multiAgentEnabled, onRequestRestart, ven
   }, [apiBase]);
 
   useEffect(() => {
-    fetchBots();
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let cancelled = false;
+    const loadWithRetry = async (attempt = 0) => {
+      if (cancelled) return;
+      const ok = await fetchBots();
+      if (!ok && !cancelled && attempt < 3) {
+        retryTimer = setTimeout(() => loadWithRetry(attempt + 1), 2000 * (attempt + 1));
+      }
+    };
+    loadWithRetry();
     fetchProfiles();
-  }, [multiAgentEnabled, fetchBots, fetchProfiles]);
+    return () => { cancelled = true; clearTimeout(retryTimer); };
+  }, [fetchBots, fetchProfiles]);
+
+  useEffect(() => {
+    const timer = setInterval(fetchBots, IS_WEB ? 60_000 : 30_000);
+    return () => clearInterval(timer);
+  }, [fetchBots]);
+
+  useEffect(() => {
+    if (!IS_WEB) return;
+    return onWsEvent((event) => {
+      if (event === "im:bot_config_changed") fetchBots();
+    });
+  }, [fetchBots]);
 
   const openCreate = () => {
     setEditingBot({ ...EMPTY_BOT });
@@ -1459,7 +1486,7 @@ export function BotConfigTab({ apiBase, multiAgentEnabled, onRequestRestart, ven
                 onValueChange={(val) => setEditingBot((p) => ({ ...p, type: val, credentials: {} }))}
                 disabled={!isCreating}
               >
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-full"><SelectValue placeholder={t("im.botTypePlaceholder")} /></SelectTrigger>
                 <SelectContent>
                   {BOT_TYPES.filter((bt) => bt !== "wework" && bt !== "onebot")
                     .filter((bt) => !enabledChannels || enabledChannels.includes(bt))
