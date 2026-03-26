@@ -86,6 +86,8 @@ apps/**/tsconfig.tsbuildinfo
 # Tauri resources - 构建产物，不应提交（保留 .gitkeep 使空目录入库）
 apps/setup-center/src-tauri/resources/synapse-server/*
 !apps/setup-center/src-tauri/resources/synapse-server/.gitkeep
+apps/setup-center/src-tauri/resources/claude-code-releases/*
+!apps/setup-center/src-tauri/resources/claude-code-releases/.gitkeep
 apps/setup-center/src-tauri/resources/modules/
 
 # Data (keep structure)

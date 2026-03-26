@@ -7,17 +7,96 @@ fn main() {
 
     // 图标变更时强制重新嵌入，避免任务栏仍显示旧图标
     println!("cargo:rerun-if-changed=icons/icon.ico");
+    println!("cargo:rerun-if-changed=../../../resources/claude-code-releases");
+    println!("cargo:rerun-if-changed=resources/claude-code-init");
+    println!("cargo:rerun-if-changed=resources/synapse-term");
+    println!("cargo:rerun-if-changed=video");
 
     ensure_resource_dir();
+    ensure_claude_bundle_from_repo();
     ensure_gitignored_placeholders();
+    // `tauri-build` 会遍历 bundle 内所有资源文件并 emit `rerun-if-changed`。
+    // `claude-code-init` 里若含 marketplace 的嵌套 `.git/`，Windows 上读 pack 等文件常触发「拒绝访问」导致构建失败。
+    // 模板分发不需要 git 元数据，构建前剥离。
+    strip_nested_git_dirs_under_claude_code_init();
 
     tauri_build::build()
+}
+
+fn strip_nested_git_dirs_under_claude_code_init() {
+    use std::fs;
+    use std::path::Path;
+
+    fn walk(dir: &Path) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(ty) = entry.file_type() else {
+                continue;
+            };
+            if !ty.is_dir() {
+                continue;
+            }
+            if path.file_name().and_then(|n| n.to_str()) == Some(".git") {
+                if let Err(e) = fs::remove_dir_all(&path) {
+                    eprintln!(
+                        "[build] remove nested {}: {e}",
+                        path.display()
+                    );
+                }
+                continue;
+            }
+            walk(&path);
+        }
+    }
+
+    let root = Path::new("resources").join("claude-code-init");
+    if root.is_dir() {
+        walk(&root);
+    }
 }
 
 fn ensure_resource_dir() {
     let dir = std::path::Path::new("resources").join("synapse-server");
     if !dir.exists() {
         let _ = std::fs::create_dir_all(&dir);
+    }
+}
+
+/// 若仓库根目录存在 `resources/claude-code-releases/`，构建时同步到 `src-tauri/resources/`，便于打包内置 Claude CLI。
+fn ensure_claude_bundle_from_repo() {
+    fn copy_tree(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+        if !src.is_dir() {
+            return Ok(());
+        }
+        std::fs::create_dir_all(dst)?;
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            let dest = dst.join(entry.file_name());
+            let ty = entry.file_type()?;
+            if ty.is_dir() {
+                copy_tree(&entry.path(), &dest)?;
+            } else {
+                let _ = std::fs::copy(entry.path(), &dest)?;
+            }
+        }
+        Ok(())
+    }
+
+    let repo_claude = std::path::Path::new("..")
+        .join("..")
+        .join("..")
+        .join("resources")
+        .join("claude-code-releases");
+    let dst = std::path::Path::new("resources").join("claude-code-releases");
+    if repo_claude.is_dir() {
+        if let Err(e) = copy_tree(&repo_claude, &dst) {
+            eprintln!("[build] sync claude-code-releases from repo: {e}");
+        }
+    } else if !dst.exists() {
+        let _ = std::fs::create_dir_all(&dst);
     }
 }
 

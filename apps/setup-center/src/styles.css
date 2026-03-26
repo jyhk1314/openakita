@@ -1,5 +1,7 @@
 :root, :root[data-theme="light"] {
   color-scheme: light;
+  /* Windows 自绘标题栏高度（仅 Tauri + Windows，见 WindowsTitleBar） */
+  --win-titlebar-height: 36px;
   --bg-app: #f4f5f7;
   --bg-app-grad: linear-gradient(180deg, #f4f5f7, #e2e8f0);
   --bg1: #f0f2f5;
@@ -40,13 +42,18 @@
   --warn-bg: #fef3c7;
   --warn: #d97706;
   --err: #dc2626;
+  /* 研发中心 psmux 终端外框：浅色主题下与面板对比明显 */
+  --rd-terminal-frame: rgba(17, 24, 39, 0.5);
+  --rd-terminal-ring: rgba(14, 165, 233, 0.55);
+  --rd-terminal-shadow: 0 2px 0 rgba(17, 24, 39, 0.06), 0 6px 20px rgba(17, 24, 39, 0.14);
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg-app: #09090b;
-  --bg-app-grad: linear-gradient(180deg, #09090b, #18181b);
-  --bg1: #18181b;
+  /* 主底：炭灰而非纯黑，减轻 OLED 式压抑感 */
+  --bg-app: #22232c;
+  --bg-app-grad: linear-gradient(180deg, #20212a, #181920);
+  --bg1: #252631;
   --panel: rgba(24, 24, 27, 0.88);
   --panel2: rgba(39, 39, 42, 0.92);
   --line: rgba(255, 255, 255, 0.12);
@@ -68,7 +75,7 @@
   --nav-hover: rgba(56, 189, 248, 0.1);
   --nav-active: rgba(56, 189, 248, 0.15);
   --nav-active-border: rgba(56, 189, 248, 0.3);
-  --bg: #09090b;
+  --bg: #22232c;
   --border: rgba(255, 255, 255, 0.14);
   --warning: #fbbf24;
   --primary: #38bdf8;
@@ -84,6 +91,10 @@
   --warn-bg: rgba(245, 158, 11, 0.15);
   --warn: #fbbf24;
   --err: #f87171;
+  /* 研发中心 psmux 终端外框：深色主题下与深灰底对比明显 */
+  --rd-terminal-frame: rgba(255, 255, 255, 0.38);
+  --rd-terminal-ring: rgba(56, 189, 248, 0.5);
+  --rd-terminal-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 8px 28px rgba(0, 0, 0, 0.55);
 }
 
 /* ── Scrollbar: hidden by default, visible on hover ── */
@@ -167,11 +178,21 @@ a:hover {
 }
 .sidebarCollapsed .sidebarHeader { padding: 12px 8px 10px 8px; justify-content: center; }
 .sidebarCollapsed .sidebarNav { padding: 6px 4px; }
-.sidebarCollapsed .navItem { justify-content: center; padding: 8px 0; gap: 0; }
+.sidebarCollapsed .navItem {
+  justify-content: center;
+  padding: 8px 0;
+  gap: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
 .sidebarCollapsed .configSection { padding: 0 4px; }
 .sidebarCollapsed .configHeader { justify-content: center; padding: 8px 0; }
+.sidebarCollapsed .configHeader > div { justify-content: center; }
+.sidebarCollapsed .sidebarNavDivider { margin: 6px 8px; }
 
 .sidebarHeader {
+  display: flex;
+  align-items: center;
   padding: 12px 14px 10px 14px;
   border-bottom: 1px solid var(--line);
 }
@@ -182,6 +203,13 @@ a:hover {
   border-radius: 8px;
   object-fit: contain;
   flex-shrink: 0;
+  display: block;
+}
+
+.sidebarNavDivider {
+  height: 1px;
+  background: var(--line);
+  margin: 6px 12px;
 }
 
 .brandTitle {
@@ -439,6 +467,134 @@ a:hover {
   cursor: not-allowed;
 }
 
+/* ─── Windows Tauri：自绘标题栏（可调 --win-titlebar-height） ─── */
+
+.winNativeTitlebar {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  height: var(--win-titlebar-height);
+  background: var(--panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--line);
+  user-select: none;
+}
+
+.winNativeTitlebarBrand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 12px;
+  flex-shrink: 0;
+  min-width: 0;
+  -webkit-app-region: drag;
+}
+
+.winNativeTitlebarLogo {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.winNativeTitlebarTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+
+.winNativeTitlebarDragPad {
+  flex: 1;
+  min-width: 0;
+  -webkit-app-region: drag;
+}
+
+.winNativeTitlebarControls {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.winNativeTitlebarBtn {
+  width: 46px;
+  min-height: var(--win-titlebar-height);
+  border: none;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, color 0.12s;
+  -webkit-app-region: no-drag;
+}
+
+.winNativeTitlebarBtn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text);
+}
+
+.winNativeTitlebarClose:hover {
+  background: rgba(232, 17, 35, 0.9);
+  color: #fff;
+}
+
+:root[data-theme="dark"] .winNativeTitlebarBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="dark"] .winNativeTitlebarClose:hover {
+  background: rgba(232, 17, 35, 0.95);
+  color: #fff;
+}
+
+/* Tauri Windows：根布局（避免 100vh 与自绘标题栏叠加出滚动条） */
+#root.appRootTauriWindows {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 100vh;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+#root.appRootTauriWindows .tauriWinMainColumn {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+#root.appRootTauriWindows .tauriWinMainColumn > * {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box;
+}
+
+#root.appRootTauriWindows .appShell,
+#root.appRootTauriWindows .appShellMobile {
+  height: 100% !important;
+  max-height: 100% !important;
+}
+
+#root.appRootTauriWindows .onboardingShell {
+  width: 100% !important;
+  height: 100% !important;
+  max-height: 100% !important;
+}
+
 /* Window control buttons (custom title bar) */
 .winCtrl {
   width: 32px; height: 24px;
@@ -483,6 +639,147 @@ a:hover {
   padding: 18px;
   overflow: auto;
   min-width: 0;
+}
+
+/* 研发中心：主内容区参与 flex 高度传递，终端与窗口剩余高度一致 */
+.content.content--rdFlexFill {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.contentRdFullHeight {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.rdCenterRoot {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.rdCenterRoot .rdCenterTabs.ant-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.rdCenterRoot .rdCenterTabs .ant-tabs-nav {
+  flex-shrink: 0;
+  margin-bottom: 4px;
+}
+
+.rdCenterRoot .rdCenterTabs .ant-tabs-content-holder {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rdCenterRoot .rdCenterTabs .ant-tabs-content,
+.rdCenterRoot .rdCenterTabs .ant-tabs-content-top {
+  height: 100%;
+  min-height: 0;
+}
+
+.rdCenterRoot .rdCenterTabs .ant-tabs-tabpane {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rdCenterRoot .rdCenterTabs .ant-tabs-tabpane-active {
+  display: flex !important;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* 研发中心：可编辑 Tab — 扁标签栏 + 标题过长省略（不覆盖字号） */
+.rdCenterTabs.ant-tabs-editable .ant-tabs-tab {
+  max-width: min(380px, 32vw);
+  padding: 1px 10px !important;
+  min-height: 0 !important;
+  line-height: 1.15;
+}
+
+.rdCenterTabs .rdCenterTabLabel {
+  display: inline-block;
+  max-width: min(240px, 28vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  color: inherit;
+}
+
+/* 研发中心 Tab：与技能页「已安装 / 市场」按钮同款对比度（panel2 + 正文色 / brand + 白字） */
+.rdCenterRoot .rdCenterTabs.ant-tabs-editable-card .ant-tabs-nav .ant-tabs-tab {
+  background: var(--panel2) !important;
+  color: var(--text) !important;
+  border-color: var(--line) !important;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.rdCenterRoot .rdCenterTabs.ant-tabs-editable-card .ant-tabs-nav .ant-tabs-tab:hover {
+  background: var(--bg-app) !important;
+  border-color: var(--muted2) !important;
+  color: var(--text) !important;
+}
+
+.rdCenterRoot .rdCenterTabs.ant-tabs-editable-card .ant-tabs-nav .ant-tabs-tab-active,
+.rdCenterRoot .rdCenterTabs.ant-tabs-editable-card .ant-tabs-nav .ant-tabs-tab-active:hover {
+  background: var(--brand) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+}
+
+.rdCenterRoot .rdCenterTabs .ant-tabs-tab-btn {
+  color: inherit !important;
+}
+
+.rdCenterRoot .rdCenterTabs .ant-tabs-tab-remove {
+  color: inherit !important;
+  opacity: 0.72;
+  margin-inline: 2px 0 !important;
+}
+
+.rdCenterRoot .rdCenterTabs .ant-tabs-tab-remove:hover {
+  opacity: 1;
+  color: inherit !important;
+}
+
+.rdCenterRoot .rdCenterTabs .ant-tabs-tab-active .ant-tabs-tab-remove {
+  color: #fff !important;
+  opacity: 0.88;
+}
+
+.rdCenterRoot .rdCenterTabs .ant-tabs-tab-active .ant-tabs-tab-remove:hover {
+  color: #fff !important;
+  opacity: 1;
+}
+
+/* 研发中心：psmux / xterm 区域 — 粗边框 + 主题色外圈，明暗主题均清晰 */
+.rdCenterTerminalFrame {
+  flex: 1;
+  min-height: 0;
+  border-radius: var(--radius-sm, 8px);
+  overflow: hidden;
+  background: #0d0d0d;
+  border: 2px solid var(--rd-terminal-frame);
+  box-shadow:
+    0 0 0 1px var(--rd-terminal-ring),
+    var(--rd-terminal-shadow);
+  box-sizing: border-box;
 }
 
 .card {

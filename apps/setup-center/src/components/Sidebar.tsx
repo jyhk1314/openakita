@@ -5,11 +5,11 @@ import {
   IconChevronDown, IconChevronRight, IconGlobe,
   IconZap, IconPlug, IconCalendar,
   IconBrain, IconGitHub, IconGitee, IconUsers, IconBot,
-  IconGear, IconBook, IconStorefront, IconPuzzle, IconFingerprint, IconLayoutGrid,
+  IconGear, IconBook, IconStorefront, IconPuzzle, IconFingerprint, IconLayoutGrid, IconPackage,
 } from "../icons";
 import logoUrl from "../assets/logo.png";
 
-type ViewId = "wizard" | "status" | "chat" | "skills" | "im" | "onboarding" | "modules" | "token_stats" | "mcp" | "scheduler" | "memory" | "identity" | "dashboard" | "org_editor" | "agent_manager" | "agent_store" | "skill_store";
+type ViewId = "wizard" | "status" | "chat" | "skills" | "im" | "onboarding" | "modules" | "token_stats" | "mcp" | "scheduler" | "memory" | "identity" | "dashboard" | "org_editor" | "agent_manager" | "agent_store" | "skill_store" | "rd_center";
 
 export type SidebarProps = {
   collapsed: boolean;
@@ -31,6 +31,7 @@ export type SidebarProps = {
   onRefreshStatus: () => Promise<void>;
   isWeb?: boolean;
   mobileOpen?: boolean;
+  rdCenterVisible?: boolean;
 };
 
 const stepIcons: Partial<Record<StepId, React.ReactNode>> = {
@@ -54,14 +55,23 @@ export function Sidebar({
   disabledViews, multiAgentEnabled, onToggleMultiAgent,
   storeVisible,
   desktopVersion, backendVersion, serviceRunning,
-  onRefreshStatus, isWeb, mobileOpen,
+  onRefreshStatus, isWeb, mobileOpen, rdCenterVisible,
 }: SidebarProps) {
   const { t } = useTranslation();
 
   return (
     <aside className={`sidebar ${collapsed ? "sidebarCollapsed" : ""}${mobileOpen ? " sidebarOpen" : ""}`}>
       <div className="sidebarHeader">
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            width: "100%",
+            minWidth: 0,
+            justifyContent: collapsed ? "center" : "flex-start",
+          }}
+        >
           <img
             src={logoUrl}
             alt="Synapse"
@@ -73,7 +83,7 @@ export function Sidebar({
           {!collapsed && (
             <div>
               <div className="brandTitle">{t("brand.title")}</div>
-              <div className="brandSub">{t("brand.sub")}</div>
+              {t("brand.sub")?.trim() ? <div className="brandSub">{t("brand.sub")}</div> : null}
             </div>
           )}
         </div>
@@ -105,6 +115,11 @@ export function Sidebar({
         <div className={`navItem ${view === "token_stats" ? "navItemActive" : ""}`} onClick={() => onViewChange("token_stats")} role="button" tabIndex={0} title={t("sidebar.tokenStats", "Token 统计")} style={disabledViews.includes("token_stats") ? { opacity: 0.4 } : undefined}>
           <IconZap size={16} /> {!collapsed && <span>{t("sidebar.tokenStats", "Token 统计")}</span>}
         </div>
+        {rdCenterVisible && (
+          <div className={`navItem ${view === "rd_center" ? "navItemActive" : ""}`} onClick={() => onViewChange("rd_center")} role="button" tabIndex={0} title={t("sidebar.rdCenter")}>
+            <IconPackage size={16} /> {!collapsed && <span>{t("sidebar.rdCenter")}</span>}
+          </div>
+        )}
         {multiAgentEnabled && (
           <div className={`navItem ${view === "dashboard" ? "navItemActive" : ""}`} onClick={() => onViewChange("dashboard")} role="button" tabIndex={0} title={t("sidebar.dashboard")}>
             <IconUsers size={16} /> {!collapsed && <span>{t("sidebar.dashboard")} <sup style={{ fontSize: 9, color: "var(--primary, #3b82f6)", fontWeight: 600 }}>Beta</sup></span>}
@@ -122,7 +137,7 @@ export function Sidebar({
         )}
         {storeVisible && (
           <>
-            <div style={{ height: 1, background: "var(--line)", margin: "6px 12px" }} />
+            <div className="sidebarNavDivider" role="presentation" />
             <div className={`navItem ${view === "agent_store" ? "navItemActive" : ""}`} onClick={() => onViewChange("agent_store")} role="button" tabIndex={0} title={t("sidebar.agentStore")}>
               <IconStorefront size={16} /> {!collapsed && <span>{t("sidebar.agentStore")} <sup style={{ fontSize: 9, color: "var(--primary, #3b82f6)", fontWeight: 600 }}>Beta</sup></span>}
             </div>

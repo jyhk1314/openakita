@@ -1,6 +1,7 @@
 #![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
 
 mod migrations;
+mod rd_terminal;
 
 use base64::Engine as _;
 use dirs_next::home_dir;
@@ -10,7 +11,8 @@ use std::fs;
 use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, ExitStatus, Stdio};
+use std::time::Duration;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::Emitter;
@@ -415,6 +417,298 @@ fn bundled_backend_dir() -> PathBuf {
     }
 
     primary
+}
+
+/// 安装包内嵌的 Claude Code CLI（Windows x64），与 `tauri.conf.json` 中 `resources/claude-code-releases/` 布局一致。
+fn bundled_claude_win32_dir() -> PathBuf {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    let tail = PathBuf::from("claude-code-releases")
+        .join("2.1.81")
+        .join("win32-x64");
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(contents_dir) = exe_dir.parent() {
+            let primary = contents_dir
+                .join("Resources")
+                .join("resources")
+                .join("claude-code-releases")
+                .join("2.1.81")
+                .join("win32-x64");
+            if primary.exists() {
+                return primary;
+            }
+            let fallback = contents_dir
+                .join("Resources")
+                .join("claude-code-releases")
+                .join("2.1.81")
+                .join("win32-x64");
+            if fallback.exists() {
+                return fallback;
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let mut candidates: Vec<PathBuf> = vec![];
+        for app_name in &["synapse-desktop", "synapse-desktop"] {
+            candidates.push(PathBuf::from(format!(
+                "/usr/lib/{}/resources/claude-code-releases/2.1.81/win32-x64",
+                app_name
+            )));
+        }
+        if let Some(usr_dir) = exe_dir.parent() {
+            for app_name in &["synapse-desktop", "synapse-desktop"] {
+                candidates.push(
+                    usr_dir
+                        .join("lib")
+                        .join(app_name)
+                        .join("resources")
+                        .join("claude-code-releases")
+                        .join("2.1.81")
+                        .join("win32-x64"),
+                );
+            }
+        }
+        if let Some(mount_root) = exe_dir.parent().and_then(|p| p.parent()) {
+            for app_name in &["synapse-desktop", "synapse-desktop"] {
+                candidates.push(
+                    mount_root
+                        .join("lib")
+                        .join(app_name)
+                        .join("resources")
+                        .join("claude-code-releases")
+                        .join("2.1.81")
+                        .join("win32-x64"),
+                );
+            }
+            candidates.push(
+                mount_root
+                    .join("resources")
+                    .join("claude-code-releases")
+                    .join("2.1.81")
+                    .join("win32-x64"),
+            );
+        }
+        for c in &candidates {
+            if c.exists() {
+                return c.clone();
+            }
+        }
+    }
+
+    exe_dir.join("resources").join(&tail)
+}
+
+/// 安装包内 Claude Code 用户配置模板：`resources/claude-code-init/`（与 tauri.conf bundle.resources 一致）。
+fn bundled_claude_code_init_dir() -> PathBuf {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(contents_dir) = exe_dir.parent() {
+            let primary = contents_dir
+                .join("Resources")
+                .join("resources")
+                .join("claude-code-init");
+            if primary.exists() {
+                return primary;
+            }
+            let fallback = contents_dir
+                .join("Resources")
+                .join("claude-code-init");
+            if fallback.exists() {
+                return fallback;
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let mut candidates: Vec<PathBuf> = vec![];
+        for app_name in &["synapse-desktop", "synapse-desktop"] {
+            candidates.push(PathBuf::from(format!(
+                "/usr/lib/{}/resources/claude-code-init",
+                app_name
+            )));
+        }
+        if let Some(usr_dir) = exe_dir.parent() {
+            for app_name in &["synapse-desktop", "synapse-desktop"] {
+                candidates.push(
+                    usr_dir
+                        .join("lib")
+                        .join(app_name)
+                        .join("resources")
+                        .join("claude-code-init"),
+                );
+            }
+        }
+        if let Some(mount_root) = exe_dir.parent().and_then(|p| p.parent()) {
+            for app_name in &["synapse-desktop", "synapse-desktop"] {
+                candidates.push(
+                    mount_root
+                        .join("lib")
+                        .join(app_name)
+                        .join("resources")
+                        .join("claude-code-init"),
+                );
+            }
+            candidates.push(mount_root.join("resources").join("claude-code-init"));
+        }
+        for c in &candidates {
+            if c.exists() {
+                return c.clone();
+            }
+        }
+    }
+
+    let primary = exe_dir.join("resources").join("claude-code-init");
+    if primary.exists() {
+        return primary;
+    }
+
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("resources")
+        .join("claude-code-init")
+}
+
+/// 大模型 Token 申请说明视频：`video/llmtoken.mp4`。
+fn bundled_llm_token_guide_video_path() -> PathBuf {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(contents_dir) = exe_dir.parent() {
+            let primary = contents_dir
+                .join("Resources")
+                .join("resources")
+                .join("video")
+                .join("llmtoken.mp4");
+            if primary.exists() {
+                return primary;
+            }
+            let fallback = contents_dir
+                .join("Resources")
+                .join("video")
+                .join("llmtoken.mp4");
+            if fallback.exists() {
+                return fallback;
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let mut candidates: Vec<PathBuf> = vec![];
+        for app_name in &["synapse-desktop", "synapse-desktop"] {
+            candidates.push(PathBuf::from(format!(
+                "/usr/lib/{}/resources/video/llmtoken.mp4",
+                app_name
+            )));
+        }
+        if let Some(usr_dir) = exe_dir.parent() {
+            for app_name in &["synapse-desktop", "synapse-desktop"] {
+                candidates.push(
+                    usr_dir
+                        .join("lib")
+                        .join(app_name)
+                        .join("resources")
+                        .join("video")
+                        .join("llmtoken.mp4"),
+                );
+            }
+        }
+        if let Some(mount_root) = exe_dir.parent().and_then(|p| p.parent()) {
+            for app_name in &["synapse-desktop", "synapse-desktop"] {
+                candidates.push(
+                    mount_root
+                        .join("lib")
+                        .join(app_name)
+                        .join("resources")
+                        .join("video")
+                        .join("llmtoken.mp4"),
+                );
+            }
+            candidates.push(
+                mount_root
+                    .join("resources")
+                    .join("video")
+                    .join("llmtoken.mp4"),
+            );
+        }
+        for c in &candidates {
+            if c.exists() {
+                return c.clone();
+            }
+        }
+    }
+
+    let primary = exe_dir
+        .join("resources")
+        .join("video")
+        .join("llmtoken.mp4");
+    if primary.exists() {
+        return primary;
+    }
+
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("video")
+        .join("llmtoken.mp4")
+}
+
+fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), String> {
+    if !src.is_dir() {
+        return Err(format!("源目录不存在或不是目录: {}", src.display()));
+    }
+    fs::create_dir_all(dst).map_err(|e| format!("创建目录失败 {}: {e}", dst.display()))?;
+    for entry in fs::read_dir(src).map_err(|e| format!("读取目录失败 {}: {e}", src.display()))? {
+        let entry = entry.map_err(|e| format!("读取目录项失败: {e}"))?;
+        let dest = dst.join(entry.file_name());
+        let ty = entry
+            .file_type()
+            .map_err(|e| format!("读取文件类型失败: {e}"))?;
+        if ty.is_dir() {
+            copy_dir_all(&entry.path(), &dest)?;
+        } else {
+            fs::copy(&entry.path(), &dest).map_err(|e| {
+                format!(
+                    "复制文件失败 {} -> {}: {e}",
+                    entry.path().display(),
+                    dest.display()
+                )
+            })?;
+        }
+    }
+    Ok(())
+}
+
+fn synapse_claude_install_dir() -> PathBuf {
+    synapse_root_dir()
+        .join("resources")
+        .join("claude-code-releases")
+        .join("2.1.81")
+        .join("win32-x64")
+}
+
+#[cfg(target_os = "windows")]
+fn write_claude_cmd_wrapper(bin_dir: &Path, claude_exe: &Path) -> Result<(), String> {
+    fs::create_dir_all(bin_dir).map_err(|e| format!("创建 bin 目录失败: {e}"))?;
+    let cmd_path = bin_dir.join("claude.cmd");
+    let exe = claude_exe.to_string_lossy().replace('"', "\"\"");
+    let content = format!("@echo off\r\n\"{exe}\" %*\r\n");
+    fs::write(&cmd_path, content).map_err(|e| format!("写入 {} 失败: {e}", cmd_path.display()))?;
+    Ok(())
 }
 
 /// 获取安装包内置的 Python 解释器路径（synapse-server/_internal）
@@ -2187,6 +2481,8 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_shell::init())
+        .manage(rd_terminal::PtyManager::new())
         .setup(|app| {
             // ── NSIS 安装后以当前用户执行清理（解决“以管理员运行安装程序”时清错目录的问题） ──
             let args: Vec<String> = std::env::args().collect();
@@ -2216,6 +2512,9 @@ fn main() {
             // ── 启动对账：清理残留 .lock 和 stale PID 文件 ──
             startup_reconcile();
 
+            #[cfg(target_os = "windows")]
+            rd_terminal::kill_psmux_hard();
+
             // ── 配置文件版本迁移 ──
             let root = synapse_root_dir();
             let state_path = state_file_path();
@@ -2224,6 +2523,14 @@ fn main() {
             }
 
             setup_tray(app)?;
+
+            // Windows：关闭系统标题栏，由前端自绘更高标题栏（见 WindowsTitleBar）
+            #[cfg(target_os = "windows")]
+            {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.set_decorations(false);
+                }
+            }
 
             // ── 自启自修复：防止注册表条目意外丢失（上游 Issue #771） ──
             // 如果用户之前开启了自启（记录在 state file），但注册表条目被意外移除，
@@ -2365,7 +2672,30 @@ fn main() {
             save_log_export,
             register_cli,
             unregister_cli,
-            get_cli_status
+            get_cli_status,
+            claude_code_check,
+            claude_code_install,
+            claude_code_install_local,
+            claude_code_install_winget,
+            claude_code_apply_user_init,
+            get_llm_token_guide_video_path,
+            rd_terminal::commands::create_agent_workspace,
+            rd_terminal::commands::pty_create_attach,
+            rd_terminal::commands::pty_write,
+            rd_terminal::commands::pty_resize,
+            rd_terminal::commands::pty_close,
+            rd_terminal::commands::transcripts_start,
+            rd_terminal::commands::transcripts_stop,
+            rd_terminal::commands::agent_psmux_kill_session,
+            rd_terminal::commands::write_data,
+            rd_terminal::commands::write_rawBytes,
+            rd_terminal::commands::agent_env_write,
+            rd_terminal::commands::agent_env_control,
+            rd_terminal::commands::agent_pane0_scroll_page_up,
+            rd_terminal::commands::agent_pane0_scroll_page_down,
+            rd_terminal::commands::agent_pane0_scroll_to_latest,
+            rd_terminal::commands::agent_pane0_clear_copy_mode,
+            rd_terminal::commands::agent_pane0_query_mode
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -2392,6 +2722,8 @@ fn main() {
                     remove_heartbeat_file(&ent.workspace_id);
                 }
                 kill_synapse_orphans();
+                #[cfg(target_os = "windows")]
+                rd_terminal::force_kill_psmux_on_exit();
             }
         });
 }
@@ -5588,6 +5920,68 @@ fn write_path_value(key: &winreg::RegKey, value: &str) -> Result<(), String> {
     .map_err(|e| format!("写入 PATH 注册表失败: {e}"))
 }
 
+/// 展开 PATH 等字符串中的 `%VAR%`（与「环境变量」对话框一致）
+#[cfg(target_os = "windows")]
+fn expand_windows_env_str(input: &str) -> String {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    let wide: Vec<u16> = std::ffi::OsStr::new(input)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut buf = vec![0u16; 32768];
+    let n = unsafe {
+        extern "system" {
+            fn ExpandEnvironmentStringsW(lpSrc: *const u16, lpDst: *mut u16, nSize: u32) -> u32;
+        }
+        ExpandEnvironmentStringsW(wide.as_ptr(), buf.as_mut_ptr(), buf.len() as u32)
+    };
+    if n == 0 || (n as usize) > buf.len() {
+        return input.to_string();
+    }
+    let len = (n as usize).saturating_sub(1);
+    OsString::from_wide(&buf[..len])
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// 合并本机「系统 + 用户」PATH（从注册表读取并展开），用于子进程检测，避免当前进程仍持有旧的 PATH。
+#[cfg(target_os = "windows")]
+fn windows_registry_path_merged() -> Result<String, String> {
+    use winreg::enums::*;
+    use winreg::RegKey;
+
+    let machine = RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey_with_flags(
+            r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+            KEY_READ,
+        )
+        .ok()
+        .map(|k| read_path_value(&k).unwrap_or_default())
+        .unwrap_or_default();
+
+    let user = RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey_with_flags("Environment", KEY_READ)
+        .ok()
+        .map(|k| read_path_value(&k).unwrap_or_default())
+        .unwrap_or_default();
+
+    let machine_e = expand_windows_env_str(machine.trim());
+    let user_e = expand_windows_env_str(user.trim());
+
+    let mut parts: Vec<String> = Vec::new();
+    if !machine_e.is_empty() {
+        parts.push(machine_e.trim_end_matches(';').to_string());
+    }
+    if !user_e.is_empty() {
+        parts.push(user_e.trim_end_matches(';').to_string());
+    }
+    if parts.is_empty() {
+        return Err("registry PATH empty".into());
+    }
+    Ok(parts.join(";"))
+}
+
 // ── PATH 操作：macOS / Linux ──
 
 #[cfg(not(target_os = "windows"))]
@@ -5883,6 +6277,472 @@ fn get_cli_status() -> Result<CliStatus, String> {
             bin_dir: bin_dir.to_string_lossy().to_string(),
         })
     }
+}
+
+// ── Claude Code CLI（onboarding 检测与一键安装） ──
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ClaudeCodeCheckResult {
+    installed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ClaudeCodeUserInitResult {
+    home_dir: String,
+    claude_config_dir: String,
+}
+
+fn patch_claude_settings_company_token(home: &Path, token: &str) -> Result<(), String> {
+    let path = home.join(".claude").join("settings.json");
+    if !path.is_file() {
+        return Err(format!("未找到配置文件: {}", path.display()));
+    }
+    let raw = fs::read_to_string(&path).map_err(|e| format!("读取 settings.json 失败: {e}"))?;
+    let mut v: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| format!("解析 settings.json 失败: {e}"))?;
+    let env = v
+        .get_mut("env")
+        .and_then(|e| e.as_object_mut())
+        .ok_or_else(|| "settings.json 缺少 env 对象".to_string())?;
+    env.insert(
+        "ANTHROPIC_AUTH_TOKEN".to_string(),
+        serde_json::Value::String(token.to_string()),
+    );
+    let out = serde_json::to_string_pretty(&v)
+        .map_err(|e| format!("序列化 settings.json 失败: {e}"))?;
+    fs::write(&path, out.as_bytes()).map_err(|e| format!("写入 settings.json 失败: {e}"))?;
+    Ok(())
+}
+
+fn patch_known_marketplaces_install_locations(home: &Path) -> Result<(), String> {
+    let path = home
+        .join(".claude")
+        .join("plugins")
+        .join("known_marketplaces.json");
+    if !path.is_file() {
+        return Ok(());
+    }
+    let raw = fs::read_to_string(&path)
+        .map_err(|e| format!("读取 known_marketplaces.json 失败: {e}"))?;
+    let mut map: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&raw)
+        .map_err(|e| format!("解析 known_marketplaces.json 失败: {e}"))?;
+    let base = home.join(".claude").join("plugins").join("marketplaces");
+    for (key, val) in map.iter_mut() {
+        if let Some(obj) = val.as_object_mut() {
+            if obj.contains_key("installLocation") {
+                let loc = base.join(key);
+                obj.insert(
+                    "installLocation".to_string(),
+                    serde_json::Value::String(loc.to_string_lossy().to_string()),
+                );
+            }
+        }
+    }
+    let out = serde_json::to_string_pretty(&serde_json::Value::Object(map)).map_err(|e| {
+        format!("序列化 known_marketplaces.json 失败: {e}")
+    })?;
+    fs::write(&path, out.as_bytes())
+        .map_err(|e| format!("写入 known_marketplaces.json 失败: {e}"))?;
+    Ok(())
+}
+
+fn claude_code_apply_user_init_sync(company_token: String) -> Result<ClaudeCodeUserInitResult, String> {
+    let token = company_token.trim();
+    if token.is_empty() {
+        return Err("公司 Token 不能为空".into());
+    }
+    let home = home_dir().ok_or_else(|| "无法解析用户主目录".to_string())?;
+    let src = bundled_claude_code_init_dir();
+    if !src.is_dir() {
+        return Err(format!(
+            "安装包中未找到 claude-code-init 模板目录: {}",
+            src.display()
+        ));
+    }
+    for entry in fs::read_dir(&src).map_err(|e| format!("读取模板目录失败: {e}"))? {
+        let entry = entry.map_err(|e| format!("读取目录项失败: {e}"))?;
+        let from = entry.path();
+        let name = entry.file_name();
+        let to = home.join(&name);
+        let ty = entry
+            .file_type()
+            .map_err(|e| format!("读取文件类型失败: {e}"))?;
+        if ty.is_dir() {
+            copy_dir_all(&from, &to)?;
+        } else if ty.is_file() {
+            if let Some(parent) = to.parent() {
+                fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
+            }
+            fs::copy(&from, &to).map_err(|e| {
+                format!(
+                    "复制 {} 失败: {e}",
+                    name.to_string_lossy()
+                )
+            })?;
+        }
+    }
+    patch_claude_settings_company_token(&home, token)?;
+    patch_known_marketplaces_install_locations(&home)?;
+    Ok(ClaudeCodeUserInitResult {
+        home_dir: home.to_string_lossy().to_string(),
+        claude_config_dir: home.join(".claude").to_string_lossy().to_string(),
+    })
+}
+
+/// 将打包内的 `claude-code-init` 完整同步到当前用户主目录，写入公司 Token，并重写插件市场的 `installLocation` 为当前用户路径。
+#[tauri::command]
+async fn claude_code_apply_user_init(company_token: String) -> Result<ClaudeCodeUserInitResult, String> {
+    spawn_blocking_result(move || claude_code_apply_user_init_sync(company_token)).await
+}
+
+/// 返回内置教学视频绝对路径；文件不存在时返回 `None`（前端可隐藏播放器）。
+#[tauri::command]
+fn get_llm_token_guide_video_path() -> Option<String> {
+    let p = bundled_llm_token_guide_video_path();
+    if p.is_file() {
+        Some(p.to_string_lossy().to_string())
+    } else {
+        None
+    }
+}
+
+/// 运行子进程并将 stdout/stderr 分块推到 `claude_code_install_log`（供前端实时展示）。
+/// 长时间无输出时会推送心跳行，避免用户以为界面卡死。
+fn stream_command_to_app(mut cmd: Command, label: &str, app: &tauri::AppHandle) -> Result<ExitStatus, String> {
+    use std::io::Read as _;
+    use std::sync::mpsc;
+    use std::thread;
+
+    let _ = app.emit(
+        "claude_code_install_log",
+        serde_json::json!({ "text": format!("\n=== {label} ===\n") }),
+    );
+
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("{label}: 无法启动进程: {e}"))?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| format!("{label}: stdout 管道不可用"))?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| format!("{label}: stderr 管道不可用"))?;
+
+    let (tx, rx) = mpsc::channel::<String>();
+    let tx1 = tx.clone();
+    let h1 = thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        loop {
+            match stdout.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let s = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let _ = tx1.send(s);
+                }
+                Err(_) => break,
+            }
+        }
+    });
+    let tx2 = tx.clone();
+    let h2 = thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        loop {
+            match stderr.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let s = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let _ = tx2.send(s);
+                }
+                Err(_) => break,
+            }
+        }
+    });
+    drop(tx);
+
+    let mut silence_accum = Duration::ZERO;
+    const TICK: Duration = Duration::from_millis(120);
+    const HEARTBEAT_AFTER: Duration = Duration::from_secs(5);
+
+    loop {
+        match rx.recv_timeout(TICK) {
+            Ok(chunk) => {
+                silence_accum = Duration::ZERO;
+                let _ = app.emit(
+                    "claude_code_install_log",
+                    serde_json::json!({ "text": chunk }),
+                );
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                silence_accum += TICK;
+                if silence_accum >= HEARTBEAT_AFTER {
+                    silence_accum = Duration::ZERO;
+                    if child.try_wait().ok().flatten().is_none() {
+                        let _ = app.emit(
+                            "claude_code_install_log",
+                            serde_json::json!({ "text": "… 仍在安装中（下载或脚本执行可能较慢，请稍候）\n" }),
+                        );
+                    }
+                }
+                if let Ok(Some(_)) = child.try_wait() {
+                    break;
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+
+    let status = child
+        .wait()
+        .map_err(|e| format!("{label}: 等待进程结束失败: {e}"))?;
+    let _ = h1.join();
+    let _ = h2.join();
+
+    while let Ok(chunk) = rx.try_recv() {
+        let _ = app.emit(
+            "claude_code_install_log",
+            serde_json::json!({ "text": chunk }),
+        );
+    }
+
+    Ok(status)
+}
+
+fn claude_version_from_success_output(o: &std::process::Output) -> Option<String> {
+    if !o.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
+}
+
+/// 检测是否可用 `claude`（Claude Code CLI）。
+/// Windows：先查 Synapse 本地安装目录与 `bin/claude.cmd`（不依赖进程内缓存的 PATH），
+/// 再用注册表合并后的 PATH 调用 `claude --version`，避免 PATH 已写入注册表但应用未重启时误判。
+#[tauri::command]
+fn claude_code_check() -> ClaudeCodeCheckResult {
+    #[cfg(target_os = "windows")]
+    {
+        let install_exe = synapse_claude_install_dir().join("claude.exe");
+        if install_exe.is_file() {
+            let mut c = Command::new(&install_exe);
+            c.arg("--version");
+            apply_no_window(&mut c);
+            if let Ok(o) = c.output() {
+                if let Some(ver) = claude_version_from_success_output(&o) {
+                    return ClaudeCodeCheckResult {
+                        installed: true,
+                        version: Some(ver),
+                    };
+                }
+            }
+        }
+
+        let wrapper = synapse_root_dir().join("bin").join("claude.cmd");
+        if wrapper.is_file() {
+            let w = wrapper.to_string_lossy().replace('"', "\"\"");
+            let inner = format!("\"{w}\" --version");
+            let mut c = Command::new("cmd");
+            c.arg("/C").arg(inner);
+            apply_no_window(&mut c);
+            if let Ok(o) = c.output() {
+                if let Some(ver) = claude_version_from_success_output(&o) {
+                    return ClaudeCodeCheckResult {
+                        installed: true,
+                        version: Some(ver),
+                    };
+                }
+            }
+        }
+
+        let path_env = windows_registry_path_merged()
+            .unwrap_or_else(|_| std::env::var("PATH").unwrap_or_default());
+        let mut c = Command::new("cmd");
+        c.env("PATH", &path_env);
+        c.args(["/c", "claude", "--version"]);
+        apply_no_window(&mut c);
+        if let Ok(o) = c.output() {
+            if let Some(ver) = claude_version_from_success_output(&o) {
+                return ClaudeCodeCheckResult {
+                    installed: true,
+                    version: Some(ver),
+                };
+            }
+        }
+
+        return ClaudeCodeCheckResult {
+            installed: false,
+            version: None,
+        };
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut cmd = Command::new("sh");
+        cmd.arg("-lc").arg("claude --version");
+        match cmd.output() {
+            Ok(o) => {
+                if let Some(ver) = claude_version_from_success_output(&o) {
+                    ClaudeCodeCheckResult {
+                        installed: true,
+                        version: Some(ver),
+                    }
+                } else {
+                    ClaudeCodeCheckResult {
+                        installed: false,
+                        version: None,
+                    }
+                }
+            }
+            _ => ClaudeCodeCheckResult {
+                installed: false,
+                version: None,
+            },
+        }
+    }
+}
+
+fn claude_code_install_official_script_sync(app: tauri::AppHandle) -> Result<String, String> {
+    let status = if cfg!(target_os = "windows") {
+        let mut c = Command::new("powershell");
+        c.args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            "& { $ProgressPreference = 'Continue'; irm https://claude.ai/install.ps1 | iex }",
+        ]);
+        // 安装脚本可能向控制台输出；不使用 CREATE_NO_WINDOW，减少“无输出一直等”的观感问题
+        stream_command_to_app(c, "Windows PowerShell（Claude Code）", &app)?
+    } else {
+        let mut c = Command::new("sh");
+        c.arg("-c")
+            .arg("curl -fsSL https://claude.ai/install.sh | bash");
+        stream_command_to_app(c, "curl | bash（Claude Code）", &app)?
+    };
+
+    if status.success() {
+        let _ = app.emit(
+            "claude_code_install_log",
+            serde_json::json!({ "text": "\n=== 安装命令已结束 ===\n" }),
+        );
+        Ok("安装命令已执行完成。".into())
+    } else {
+        Err(format!(
+            "安装失败（进程退出码 {:?}）。请查看上方日志。",
+            status.code()
+        ))
+    }
+}
+
+/// 将内置 `resources/claude-code-releases/2.1.81/win32-x64` 复制到 Synapse 工作根目录，并在工作根下 `bin` 生成 `claude.cmd`，同时把该 `bin` 加入用户 PATH。
+#[cfg(target_os = "windows")]
+fn claude_code_install_local_sync(app: tauri::AppHandle) -> Result<String, String> {
+    let _ = app.emit(
+        "claude_code_install_log",
+        serde_json::json!({ "text": "\n=== 本地受控安装（复制内置 Claude Code）===\n" }),
+    );
+
+    let src = bundled_claude_win32_dir();
+    let claude_src = src.join("claude.exe");
+    if !claude_src.is_file() {
+        return Err(format!(
+            "安装包中未找到内置 Claude CLI，请确认已放入：{}",
+            claude_src.display()
+        ));
+    }
+
+    let dest_dir = synapse_claude_install_dir();
+    copy_dir_all(&src, &dest_dir)?;
+
+    let claude_exe = dest_dir.join("claude.exe");
+    if !claude_exe.is_file() {
+        return Err(format!("复制后未找到: {}", claude_exe.display()));
+    }
+
+    let bin_dir = synapse_root_dir().join("bin");
+    write_claude_cmd_wrapper(&bin_dir, &claude_exe)?;
+    windows_add_to_path(&bin_dir)?;
+
+    let _ = app.emit(
+        "claude_code_install_log",
+        serde_json::json!({ "text": format!(
+            "\n已复制到: {}\n已写入: {}\\claude.cmd\n已将 {} 加入用户 PATH（本向导内「重新检测」可立即识别；新开终端亦可使用）\n=== 本地安装步骤完成 ===\n",
+            dest_dir.display(),
+            bin_dir.display(),
+            bin_dir.display()
+        )}),
+    );
+
+    Ok("本地受控安装已完成。".into())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn claude_code_install_local_sync(_app: tauri::AppHandle) -> Result<String, String> {
+    Err("本地受控安装当前仅支持 Windows。".into())
+}
+
+#[cfg(target_os = "windows")]
+fn claude_code_install_winget_sync(app: tauri::AppHandle) -> Result<String, String> {
+    let mut c = Command::new("winget");
+    c.args([
+        "install",
+        "Anthropic.ClaudeCode",
+        "--accept-package-agreements",
+        "--accept-source-agreements",
+    ]);
+    let status = stream_command_to_app(c, "winget install Anthropic.ClaudeCode", &app)?;
+
+    if status.success() {
+        let _ = app.emit(
+            "claude_code_install_log",
+            serde_json::json!({ "text": "\n=== winget 命令已结束 ===\n" }),
+        );
+        Ok("winget 安装命令已执行完成。".into())
+    } else {
+        Err(format!(
+            "winget 安装失败（进程退出码 {:?}）。请查看上方日志。",
+            status.code()
+        ))
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn claude_code_install_winget_sync(_app: tauri::AppHandle) -> Result<String, String> {
+    Err("winget 安装仅适用于 Windows。".into())
+}
+
+/// 执行官方一键安装脚本（需网络）。实时日志通过事件 `claude_code_install_log` 推送（payload: `{ text }`）。
+#[tauri::command]
+async fn claude_code_install(app: tauri::AppHandle) -> Result<String, String> {
+    let app = app.clone();
+    spawn_blocking_result(move || claude_code_install_official_script_sync(app)).await
+}
+
+/// 本地受控安装：复制内置 win32-x64 包到工作根目录并注册 `claude` 命令（用户 PATH）。
+#[tauri::command]
+async fn claude_code_install_local(app: tauri::AppHandle) -> Result<String, String> {
+    let app = app.clone();
+    spawn_blocking_result(move || claude_code_install_local_sync(app)).await
+}
+
+/// 远程安装：`winget install Anthropic.ClaudeCode`（仅 Windows）。
+#[tauri::command]
+async fn claude_code_install_winget(app: tauri::AppHandle) -> Result<String, String> {
+    let app = app.clone();
+    spawn_blocking_result(move || claude_code_install_winget_sync(app)).await
 }
 
 #[cfg(test)]

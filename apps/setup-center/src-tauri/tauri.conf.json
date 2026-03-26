@@ -16,7 +16,11 @@
       "icons/icon.icns"
     ],
     "resources": [
-      "resources/synapse-server/"
+      "resources/synapse-server/",
+      "resources/claude-code-releases/",
+      "resources/claude-code-init/",
+      "resources/synapse-term/",
+      "video/"
     ],
     "macOS": {
       "entitlements": "Entitlements.plist",
@@ -57,7 +61,8 @@
         "title": "Synapse",
         "width": 1100,
         "height": 760,
-        "resizable": true
+        "resizable": false,
+        "maximizable": false
       }
     ]
   }

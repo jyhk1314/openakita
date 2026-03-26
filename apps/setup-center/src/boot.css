@@ -20,8 +20,8 @@ body {
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --boot-bg: #09090b;
-  --boot-grad: linear-gradient(180deg, #09090b, #18181b);
+  --boot-bg: #1c1d24;
+  --boot-grad: linear-gradient(180deg, #20212a, #181920);
   --boot-card: rgba(24, 24, 27, 0.9);
   --boot-text: rgba(255, 255, 255, 0.92);
   --boot-muted: rgba(255, 255, 255, 0.55);

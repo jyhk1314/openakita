@@ -3,8 +3,8 @@
 // Tauri-specific modules are loaded via dynamic import() so they are never
 // bundled into the web build and never evaluated when running in a browser.
 
-import { IS_TAURI, IS_WEB, IS_CAPACITOR } from "./detect";
-export { IS_TAURI, IS_WEB, IS_CAPACITOR };
+import { IS_TAURI, IS_WEB, IS_CAPACITOR, IS_WINDOWS } from "./detect";
+export { IS_TAURI, IS_WEB, IS_CAPACITOR, IS_WINDOWS };
 
 // ---------------------------------------------------------------------------
 // Core: invoke & listen

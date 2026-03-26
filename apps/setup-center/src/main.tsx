@@ -19,6 +19,8 @@ import ReactDOM from "react-dom/client";
 import "./i18n";
 import "./styles.css";
 import { App } from "./App";
+import { WindowsTitleBar } from "./components/WindowsTitleBar";
+import { IS_WINDOWS } from "./platform/detect";
 import { initTheme } from "./theme";
 import { logger } from "./platform/logger";
 import { copyToClipboard } from "./utils/clipboard";
@@ -335,11 +337,28 @@ if ("serviceWorker" in navigator && __BUILD_TARGET__ === "web") {
   });
 }
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
+const showWinCustomTitlebar = __BUILD_TARGET__ === "tauri" && IS_WINDOWS;
+const rootElement = document.getElementById("root")!;
+if (showWinCustomTitlebar) {
+  rootElement.classList.add("appRootTauriWindows");
+}
+
+ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <GlobalErrorBoundary>
-      <App />
-    </GlobalErrorBoundary>
+    {showWinCustomTitlebar ? (
+      <>
+        <WindowsTitleBar />
+        <GlobalErrorBoundary>
+          <div className="tauriWinMainColumn">
+            <App />
+          </div>
+        </GlobalErrorBoundary>
+      </>
+    ) : (
+      <GlobalErrorBoundary>
+        <App />
+      </GlobalErrorBoundary>
+    )}
   </React.StrictMode>,
 );
 

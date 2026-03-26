@@ -1,7 +1,7 @@
 import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ConfigProvider, theme as antdTheme } from "antd";
 import { useTranslation } from "react-i18next";
-import { invoke, listen, IS_TAURI, IS_WEB, IS_CAPACITOR, getAppVersion, onWsEvent, reconnectWsNow, logger } from "./platform";
+import { invoke, listen, IS_TAURI, IS_WEB, IS_CAPACITOR, IS_WINDOWS, getAppVersion, onWsEvent, reconnectWsNow, logger } from "./platform";
 import { getActiveServer, getActiveServerId } from "./platform/servers";
 import { checkAuth, installFetchInterceptor, AUTH_EXPIRED_EVENT, isPasswordUserSet, logout, clearAccessToken, setTauriRemoteMode, isTauriRemoteMode } from "./platform/auth";
 import { LoginView } from "./views/LoginView";
@@ -40,7 +40,15 @@ import logoUrl from "./assets/logo.png";
 import "highlight.js/styles/github.css";
 import { getThemePref, setThemePref, THEME_CHANGE_EVENT, type Theme } from "./theme";
 import { copyToClipboard } from "./utils/clipboard";
-import { BUILTIN_PROVIDERS, STT_RECOMMENDED_MODELS, PIP_INDEX_PRESETS, sortProvidersForDisplay, COMPILER_COMPANY_DEFAULTS } from "./constants";
+import {
+  BUILTIN_PROVIDERS,
+  STT_RECOMMENDED_MODELS,
+  PIP_INDEX_PRESETS,
+  sortProvidersForDisplay,
+  COMPILER_COMPANY_DEFAULTS,
+  IWHALECLOUD_ONBOARDING_VALIDATION_MOCK,
+  CLAUDE_CODE_BUNDLED_VERSION,
+} from "./constants";
 import {
   isLocalProvider, localProviderPlaceholderKey, friendlyFetchError,
   inferCapabilities, fetchModelsDirectly, safeFetch, proxyFetch,
@@ -74,6 +82,7 @@ import { FieldText, FieldBool, FieldSelect, FieldCombo, TelegramPairingCodeHint 
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { ToastContainer } from "./components/ToastContainer";
 import { Sidebar } from "./components/Sidebar";
+import { RdCenterView } from "./components/RdCenterView";
 import { Topbar } from "./components/Topbar";
 import { useNotifications } from "./hooks/useNotifications";
 import { useVersionCheck, compareSemver } from "./hooks/useVersionCheck";
@@ -239,7 +248,7 @@ export function App() {
     [t],
   );
 
-  const [view, setView] = useState<"wizard" | "status" | "chat" | "skills" | "im" | "onboarding" | "modules" | "token_stats" | "mcp" | "scheduler" | "memory" | "identity" | "dashboard" | "org_editor" | "agent_manager" | "agent_store" | "skill_store">(() => {
+  const [view, setView] = useState<"wizard" | "status" | "chat" | "skills" | "im" | "onboarding" | "modules" | "token_stats" | "mcp" | "scheduler" | "memory" | "identity" | "dashboard" | "org_editor" | "agent_manager" | "agent_store" | "skill_store" | "rd_center">(() => {
     const hash = window.location.hash;
     if (hash === "#/org-editor") return "org_editor";
     return (IS_WEB || IS_CAPACITOR) ? "chat" : "wizard";
@@ -295,7 +304,7 @@ export function App() {
   }, [stepId]);
 
   // ── Onboarding Wizard (首次安装引导) ──
-  type OnboardingStep = "ob-welcome" | "ob-iwhalecloud" | "ob-agreement" | "ob-llm" | "ob-im" | "ob-cli" | "ob-progress" | "ob-done";
+  type OnboardingStep = "ob-welcome" | "ob-iwhalecloud" | "ob-claude-code" | "ob-agreement" | "ob-llm" | "ob-im" | "ob-cli" | "ob-progress" | "ob-done";
   type ModuleInfo = { id: string; name: string; description: string; installed: boolean; bundled: boolean; sizeMb: number; category: string };
   const [obStep, setObStep] = useState<OnboardingStep>("ob-welcome");
   const [obModules, setObModules] = useState<ModuleInfo[]>([]);
@@ -337,6 +346,7 @@ export function App() {
   const [obAgreementError, setObAgreementError] = useState(false);
 
   // iWhaleCloud 身份验证
+  const [obIwcFullName, setObIwcFullName] = useState("");
   const [obIwcEmployeeId, setObIwcEmployeeId] = useState("");
   const [obIwcPassword, setObIwcPassword] = useState("");
   const [obIwcToken, setObIwcToken] = useState("");
@@ -346,6 +356,20 @@ export function App() {
   const [obIwcValidating, setObIwcValidating] = useState(false);
   const [obIwcValidated, setObIwcValidated] = useState(false);
   const [obIwcError, setObIwcError] = useState<string | null>(null);
+
+  /** Claude Code CLI（onboarding：检测 / 一键安装） */
+  const [obClaudeInstalled, setObClaudeInstalled] = useState<boolean | null>(null);
+  const [obClaudeVersion, setObClaudeVersion] = useState<string | null>(null);
+  const [obClaudeChecking, setObClaudeChecking] = useState(false);
+  const [obClaudeInstalling, setObClaudeInstalling] = useState<false | "local" | "winget" | "script">(false);
+  const [obClaudeError, setObClaudeError] = useState<string | null>(null);
+  const [obClaudeInstallLog, setObClaudeInstallLog] = useState<string | null>(null);
+  /** Claude Code：用户主目录一键配置（claude-code-init + 公司 Token） */
+  const [obClaudeCompanyToken, setObClaudeCompanyToken] = useState("");
+  const [obClaudeShowLlmVideo, setObClaudeShowLlmVideo] = useState(false);
+  const [obClaudeLlmVideoSrc, setObClaudeLlmVideoSrc] = useState<string | null>(null);
+  const [obClaudeUserConfigBusy, setObClaudeUserConfigBusy] = useState(false);
+  const [obClaudeUserConfigOk, setObClaudeUserConfigOk] = useState<string | null>(null);
 
   /** 探测本地是否有后端服务在运行（用于 onboarding 前提示用户） */
   async function obProbeRunningService() {
@@ -393,6 +417,66 @@ export function App() {
     }
   }
 
+  useEffect(() => {
+    if (obStep !== "ob-claude-code") return;
+    setObClaudeInstallLog(null);
+    setObClaudeError(null);
+    setObClaudeInstalling(false);
+    setObClaudeShowLlmVideo(false);
+    setObClaudeLlmVideoSrc(null);
+    setObClaudeUserConfigOk(null);
+    let cancelled = false;
+    if (!IS_TAURI) {
+      setObClaudeInstalled(null);
+      setObClaudeVersion(null);
+      setObClaudeChecking(false);
+      return () => { cancelled = true; };
+    }
+    setObClaudeInstalled(null);
+    setObClaudeVersion(null);
+    (async () => {
+      setObClaudeChecking(true);
+      try {
+        const r = await invoke<{ installed: boolean; version?: string }>("claude_code_check");
+        if (!cancelled) {
+          setObClaudeInstalled(r.installed);
+          setObClaudeVersion(r.version ?? null);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setObClaudeInstalled(false);
+          setObClaudeError(String(e));
+        }
+      } finally {
+        if (!cancelled) setObClaudeChecking(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [obStep]);
+
+  useEffect(() => {
+    if (obStep !== "ob-claude-code" || !IS_TAURI || !obClaudeShowLlmVideo) {
+      if (!obClaudeShowLlmVideo) setObClaudeLlmVideoSrc(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const p = await invoke<string | null>("get_llm_token_guide_video_path");
+        if (cancelled) return;
+        if (!p) {
+          setObClaudeLlmVideoSrc(null);
+          return;
+        }
+        const { convertFileSrc } = await import("@tauri-apps/api/core");
+        setObClaudeLlmVideoSrc(convertFileSrc(p));
+      } catch {
+        if (!cancelled) setObClaudeLlmVideoSrc(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [obStep, obClaudeShowLlmVideo]);
+
   // 首次运行检测（在此完成前不渲染主界面，防止先闪主页再跳 onboarding）
   useEffect(() => {
     (async () => {
@@ -438,6 +522,49 @@ export function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 桌面端：引导固定尺寸且不可缩放。主界面用「最大化」占满屏幕（保留系统标题栏/关闭那一行），不用独占全屏——全屏会隐藏整条标题栏。
+  useEffect(() => {
+    if (!IS_TAURI) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getCurrentWindow, LogicalSize } = await import("@tauri-apps/api/window");
+        if (cancelled) return;
+        const win = getCurrentWindow();
+        const guide = view === "wizard" || view === "onboarding";
+        if (guide) {
+          await win.setFullscreen(false);
+          try {
+            await win.unmaximize();
+          } catch {
+            /* ignore */
+          }
+          await win.setResizable(false);
+          await win.setMaximizable(false);
+          await win.setSize(new LogicalSize(1400, 1000));
+          await win.center();
+        } else {
+          await win.setFullscreen(false);
+          try {
+            await win.unmaximize();
+          } catch {
+            /* ignore */
+          }
+          await win.setResizable(false);
+          // 先允许最大化以便 API 能执行，最大化后再关掉「最大化按钮」避免用户拖出固定尺寸
+          await win.setMaximizable(true);
+          // await win.maximize();
+          // await win.setMaximizable(false);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [view]);
 
   // workspace create
   const [newWsName, setNewWsName] = useState("默认工作区");
@@ -6756,7 +6883,11 @@ export function App() {
 
   function renderOnboarding() {
     // Progress/done are transitional states and should not create extra indicator dots.
-    const obStepDots = ["ob-welcome", "ob-iwhalecloud", "ob-agreement", "ob-llm", "ob-im", "ob-cli"] as OnboardingStep[];
+    const obStepDots = (
+      IS_TAURI
+        ? ["ob-welcome", "ob-iwhalecloud", "ob-claude-code", "ob-agreement", "ob-llm", "ob-im", "ob-cli"]
+        : ["ob-welcome", "ob-iwhalecloud", "ob-agreement", "ob-llm", "ob-im", "ob-cli"]
+    ) as OnboardingStep[];
     const obCurrentIdxRaw = obStepDots.indexOf(obStep);
     const obCurrentIdx = obCurrentIdxRaw >= 0 ? obCurrentIdxRaw : obStepDots.length - 1;
 
@@ -6972,6 +7103,24 @@ export function App() {
               </div>
               <p className="obStepDesc">{t("onboarding.iwhalecloud.subtitle")}</p>
               <div className="obFormArea" style={{ textAlign: "left" }}>
+                {/* 姓名 */}
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: "block", fontWeight: 600, marginBottom: 6, fontSize: 14 }}>
+                    {t("onboarding.iwhalecloud.fullName")} <span style={{ color: "#e53e3e" }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={obIwcFullName}
+                    onChange={(e) => { setObIwcFullName(e.target.value); setObIwcValidated(false); setObIwcError(null); }}
+                    placeholder={t("onboarding.iwhalecloud.fullNamePlaceholder")}
+                    style={{
+                      width: "100%", padding: "10px 14px", fontSize: 14,
+                      borderRadius: 6, border: "1px solid var(--line)",
+                      outline: "none", boxSizing: "border-box",
+                      background: "var(--bg1)", color: "var(--text)",
+                    }}
+                  />
+                </div>
                 {/* 工号 */}
                 <div style={{ marginBottom: 16 }}>
                   <label style={{ display: "block", fontWeight: 600, marginBottom: 6, fontSize: 14 }}>
@@ -7068,7 +7217,7 @@ export function App() {
                   {obIwcShowVideo && (
                     <div style={{ marginTop: 8, borderRadius: 8, overflow: "hidden", border: "1px solid var(--line)" }}>
                       <video
-                        src="/token.mp4"
+                        src="/devtoken.mp4"
                         controls
                         style={{ width: "100%", maxHeight: 260, display: "block", background: "#000" }}
                       />
@@ -7081,7 +7230,7 @@ export function App() {
                     className="btnPrimary"
                     disabled={obIwcValidating}
                     onClick={async () => {
-                      if (!obIwcEmployeeId.trim() || !obIwcPassword.trim() || !obIwcToken.trim()) {
+                      if (!obIwcFullName.trim() || !obIwcEmployeeId.trim() || !obIwcPassword.trim() || !obIwcToken.trim()) {
                         setObIwcError(t("onboarding.iwhalecloud.fieldRequired"));
                         return;
                       }
@@ -7089,22 +7238,29 @@ export function App() {
                       setObIwcError(null);
                       setObIwcValidated(false);
                       try {
-                        const base = httpApiBase();
-                        const res = await fetch(`${base}/api/dev/iwhalecloud/validation`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            employee_id: obIwcEmployeeId.trim(),
-                            password: obIwcPassword.trim(),
-                            token: obIwcToken.trim(),
-                          }),
-                        });
-                        if (res.ok) {
+                        if (IWHALECLOUD_ONBOARDING_VALIDATION_MOCK) {
+                          await new Promise((r) => setTimeout(r, 350));
                           setObIwcValidated(true);
                           setObIwcError(null);
                         } else {
-                          const data = await res.json().catch(() => ({}));
-                          setObIwcError(data?.detail || data?.message || t("onboarding.iwhalecloud.validateFailed"));
+                          const base = httpApiBase();
+                          const res = await fetch(`${base}/api/dev/iwhalecloud/validation`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              full_name: obIwcFullName.trim(),
+                              employee_id: obIwcEmployeeId.trim(),
+                              password: obIwcPassword.trim(),
+                              token: obIwcToken.trim(),
+                            }),
+                          });
+                          if (res.ok) {
+                            setObIwcValidated(true);
+                            setObIwcError(null);
+                          } else {
+                            const data = await res.json().catch(() => ({}));
+                            setObIwcError(data?.detail || data?.message || t("onboarding.iwhalecloud.validateFailed"));
+                          }
                         }
                       } catch (e: any) {
                         setObIwcError(t("onboarding.iwhalecloud.validateFailed"));
@@ -7135,7 +7291,7 @@ export function App() {
                   disabled={!obIwcValidated}
                   title={!obIwcValidated ? t("onboarding.iwhalecloud.validateRequired") : undefined}
                   onClick={() => {
-                    if (obIwcValidated) setObStep("ob-agreement");
+                    if (obIwcValidated) setObStep(IS_TAURI ? "ob-claude-code" : "ob-agreement");
                   }}
                 >
                   {t("onboarding.iwhalecloud.proceed")}
@@ -7144,6 +7300,362 @@ export function App() {
             </div>
           </div>
         );
+
+      case "ob-claude-code": {
+        const canProceedClaude = obClaudeInstalled === true;
+        const isWindows = info?.os === "windows";
+        const installBusy = obClaudeInstalling !== false;
+        const statusLoading = obClaudeChecking || (IS_TAURI && obClaudeInstalled === null);
+
+        async function obClaudeRecheck(opts?: { afterInstall?: boolean }) {
+          setObClaudeChecking(true);
+          setObClaudeError(null);
+          try {
+            const r = await invoke<{ installed: boolean; version?: string }>("claude_code_check");
+            setObClaudeInstalled(r.installed);
+            setObClaudeVersion(r.version ?? null);
+            if (!r.installed && opts?.afterInstall) {
+              setObClaudeError(t("onboarding.claudeCode.installStillMissing"));
+            }
+          } catch (e) {
+            setObClaudeInstalled(false);
+            setObClaudeError(String(e));
+          } finally {
+            setObClaudeChecking(false);
+          }
+        }
+
+        async function runObClaudeInstall(kind: "local" | "winget" | "script") {
+          const cmd =
+            kind === "local"
+              ? "claude_code_install_local"
+              : kind === "winget"
+                ? "claude_code_install_winget"
+                : "claude_code_install";
+          setObClaudeInstalling(kind);
+          setObClaudeError(null);
+          setObClaudeInstallLog("");
+          let unlisten: (() => void) | undefined;
+          try {
+            unlisten = await listen("claude_code_install_log", (ev) => {
+              const p = ev.payload as { text?: string } | null;
+              const chunk = typeof p?.text === "string" ? p.text : "";
+              if (!chunk) return;
+              setObClaudeInstallLog((prev) => {
+                const base = prev ?? "";
+                const next = base + chunk;
+                const max = 80_000;
+                return next.length > max ? next.slice(next.length - max) : next;
+              });
+            });
+            await invoke<string>(cmd);
+            await obClaudeRecheck({ afterInstall: true });
+          } catch (e) {
+            setObClaudeError(String(e));
+          } finally {
+            unlisten?.();
+            setObClaudeInstalling(false);
+          }
+        }
+
+        async function runObClaudeUserConfig() {
+          const tok = obClaudeCompanyToken.trim();
+          if (!tok) {
+            setObClaudeError(t("onboarding.claudeCode.tokenRequired"));
+            setObClaudeUserConfigOk(null);
+            return;
+          }
+          setObClaudeUserConfigBusy(true);
+          setObClaudeError(null);
+          setObClaudeUserConfigOk(null);
+          try {
+            const r = await invoke<{ homeDir: string; claudeConfigDir: string }>("claude_code_apply_user_init", { companyToken: tok });
+            setObClaudeUserConfigOk(t("onboarding.claudeCode.userConfigSuccess", { dir: r.claudeConfigDir }));
+          } catch (e) {
+            setObClaudeError(String(e));
+          } finally {
+            setObClaudeUserConfigBusy(false);
+          }
+        }
+
+        return (
+          <div className="obPage">
+            <div className="obContent">
+              <h2 className="obStepTitle">{t("onboarding.claudeCode.title")}</h2>
+              <p className="obStepDesc">{t("onboarding.claudeCode.subtitle")}</p>
+              <div className="obFormArea" style={{ textAlign: "left" }}>
+                <div style={{
+                  borderRadius: 12,
+                  border: "1px solid var(--line)",
+                  background: "var(--bg1)",
+                  padding: "18px 20px",
+                  marginBottom: 20,
+                  boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
+                }}
+                >
+                  <div style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    flexWrap: "wrap",
+                    marginBottom: statusLoading || obClaudeInstalled === true || obClaudeInstalled === false ? 12 : 0,
+                  }}
+                  >
+                    <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+                      <p style={{ margin: 0, fontSize: 12, fontWeight: 600, letterSpacing: "0.02em", color: "var(--text-muted, #888)", textTransform: "uppercase" }}>
+                        {t("onboarding.claudeCode.statusTitle")}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="btnSecondary"
+                      disabled={installBusy || obClaudeChecking}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0 }}
+                      onClick={() => { void obClaudeRecheck(); }}
+                    >
+                      <IconRefresh size={16} />
+                      {t("onboarding.claudeCode.recheck")}
+                    </button>
+                  </div>
+
+                  {statusLoading && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: "var(--text-muted, #888)" }}>
+                      <span style={{
+                        width: 8, height: 8, borderRadius: "50%",
+                        background: "var(--accent, #3182ce)",
+                        animation: "pulse 1s ease-in-out infinite",
+                      }}
+                      />
+                      {t("onboarding.claudeCode.checking")}
+                    </div>
+                  )}
+
+                  {!statusLoading && obClaudeInstalled === true && (
+                    <div style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 12,
+                      padding: "12px 14px",
+                      borderRadius: 10,
+                      background: "rgba(56, 161, 105, 0.1)",
+                      border: "1px solid rgba(56, 161, 105, 0.35)",
+                    }}
+                    >
+                      <IconCheckCircle size={22} style={{ color: "#276749", flexShrink: 0, marginTop: 2 }} />
+                      <div style={{ minWidth: 0 }}>
+                        <strong style={{ color: "#276749", fontSize: 15 }}>{t("onboarding.claudeCode.installed")}</strong>
+                        {obClaudeVersion ? (
+                          <p style={{
+                            margin: "6px 0 0",
+                            fontFamily: "ui-monospace, SFMono-Regular, monospace",
+                            fontSize: 13,
+                            color: "var(--text)",
+                            wordBreak: "break-all",
+                          }}
+                          >
+                            {t("onboarding.claudeCode.versionLabel")}: {obClaudeVersion}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  )}
+
+                  {!statusLoading && obClaudeInstalled === false && (
+                    <div style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 12,
+                      padding: "12px 14px",
+                      borderRadius: 10,
+                      background: "rgba(214, 158, 46, 0.1)",
+                      border: "1px solid rgba(214, 158, 46, 0.45)",
+                    }}
+                    >
+                      <IconXCircle size={22} style={{ color: "#b7791f", flexShrink: 0, marginTop: 2 }} />
+                      <div style={{ minWidth: 0 }}>
+                        <strong style={{ color: "#975a16", fontSize: 15 }}>{t("onboarding.claudeCode.missing")}</strong>
+                        <p style={{ margin: "8px 0 0", fontSize: 13, lineHeight: 1.55, color: "var(--text-muted, #666)" }}>
+                          {t("onboarding.claudeCode.notDetectedHint")}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {IS_TAURI && (
+                  <div style={{
+                    marginBottom: 20,
+                    padding: "18px 20px",
+                    borderRadius: 12,
+                    border: "1px solid var(--line)",
+                    background: "var(--bg1)",
+                    boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
+                  }}
+                  >
+                    <p style={{ margin: "0 0 10px", fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
+                      {t("onboarding.claudeCode.userConfigTitle")}
+                    </p>
+                    <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--text-muted, #888)", lineHeight: 1.55 }}>
+                      {t("onboarding.claudeCode.userConfigDesc")}
+                    </p>
+                    <label style={{ display: "block", fontWeight: 600, marginBottom: 6, fontSize: 14 }}>
+                      {t("onboarding.claudeCode.companyToken")} <span style={{ color: "#e53e3e" }}>*</span>
+                    </label>
+                    <p style={{ fontSize: 12, color: "#e07b00", margin: "0 0 8px", lineHeight: 1.5 }}>
+                      {t("onboarding.claudeCode.companyTokenHint")}
+                    </p>
+                    <div style={{ position: "relative", marginBottom: 12 }}>
+                      <input
+                        type="password"
+                        value={obClaudeCompanyToken}
+                        onChange={(e) => {
+                          setObClaudeCompanyToken(e.target.value);
+                          setObClaudeUserConfigOk(null);
+                          setObClaudeError(null);
+                        }}
+                        placeholder={t("onboarding.claudeCode.companyTokenPlaceholder")}
+                        style={{
+                          width: "100%", padding: "10px 14px", fontSize: 14,
+                          borderRadius: 6, border: "1px solid var(--line)",
+                          outline: "none", boxSizing: "border-box",
+                          background: "var(--bg0)", color: "var(--text)",
+                        }}
+                      />
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                      <button
+                        type="button"
+                        className="obLinkBtn"
+                        style={{ fontSize: 12, color: "var(--brand)", marginBottom: 4 }}
+                        onClick={() => setObClaudeShowLlmVideo((v) => !v)}
+                      >
+                        {obClaudeShowLlmVideo ? `▾ ${t("onboarding.claudeCode.llmTokenVideoHide")}` : `▸ ${t("onboarding.claudeCode.llmTokenVideoLabel")}`}
+                      </button>
+                      {obClaudeShowLlmVideo && (
+                        <div style={{ marginTop: 8, borderRadius: 8, overflow: "hidden", border: "1px solid var(--line)" }}>
+                          {obClaudeLlmVideoSrc ? (
+                            <video
+                              src={obClaudeLlmVideoSrc}
+                              controls
+                              style={{ width: "100%", maxHeight: 260, display: "block", background: "#000" }}
+                            />
+                          ) : (
+                            <p style={{ margin: 0, padding: 16, fontSize: 13, color: "var(--text-muted, #888)" }}>
+                              {t("onboarding.claudeCode.videoNotFound")}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className="btnPrimary"
+                      disabled={obClaudeUserConfigBusy || installBusy || obClaudeChecking}
+                      onClick={() => { void runObClaudeUserConfig(); }}
+                    >
+                      {obClaudeUserConfigBusy ? t("onboarding.claudeCode.applyingUserConfig") : t("onboarding.claudeCode.applyUserConfig")}
+                    </button>
+                    {obClaudeUserConfigOk ? (
+                      <p style={{ margin: "12px 0 0", fontSize: 13, color: "#276749", lineHeight: 1.5 }}>{obClaudeUserConfigOk}</p>
+                    ) : null}
+                  </div>
+                )}
+
+                {!statusLoading && obClaudeInstalled === false && (
+                  <div style={{ marginBottom: 18 }}>
+                    <p style={{ fontSize: 13, fontWeight: 600, margin: "0 0 12px", color: "var(--text)" }}>
+                      {t("onboarding.claudeCode.installActionsTitle")}
+                    </p>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                      {isWindows && (
+                        <>
+                          <button
+                            type="button"
+                            className="btnPrimary"
+                            disabled={installBusy}
+                            style={{ minWidth: 0 }}
+                            onClick={() => { void runObClaudeInstall("local"); }}
+                          >
+                            {obClaudeInstalling === "local"
+                              ? t("onboarding.claudeCode.installingLocal")
+                              : t("onboarding.claudeCode.installLocalBundled", { version: CLAUDE_CODE_BUNDLED_VERSION })}
+                          </button>
+                          <button
+                            type="button"
+                            className="btnSecondary"
+                            disabled={installBusy}
+                            onClick={() => { void runObClaudeInstall("winget"); }}
+                          >
+                            {obClaudeInstalling === "winget"
+                              ? t("onboarding.claudeCode.installingWingetShort")
+                              : t("onboarding.claudeCode.installWingetShort")}
+                          </button>
+                        </>
+                      )}
+                      {!isWindows && (
+                        <button
+                          type="button"
+                          className="btnPrimary"
+                          disabled={installBusy}
+                          onClick={() => { void runObClaudeInstall("script"); }}
+                        >
+                          {obClaudeInstalling === "script"
+                            ? t("onboarding.claudeCode.installing")
+                            : t("onboarding.claudeCode.installOneClick")}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {(installBusy || (obClaudeInstallLog != null && obClaudeInstallLog !== "")) && (
+                  <div style={{ marginBottom: 14 }}>
+                    <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: "var(--text-muted, #888)" }}>{t("onboarding.claudeCode.liveLogLabel")}</p>
+                    <pre style={{
+                      fontSize: 12,
+                      lineHeight: 1.45,
+                      padding: 14,
+                      borderRadius: 10,
+                      maxHeight: 260,
+                      overflow: "auto",
+                      background: "var(--bg0, #141414)",
+                      border: "1px solid var(--line)",
+                      whiteSpace: "pre-wrap",
+                      margin: 0,
+                    }}
+                    >
+                      {obClaudeInstallLog || (installBusy ? t("onboarding.claudeCode.logWaiting") : "")}
+                    </pre>
+                  </div>
+                )}
+                {obClaudeError && (
+                  <p style={{ color: "#e53e3e", fontSize: 13, marginBottom: 12 }}>{obClaudeError}</p>
+                )}
+                <p style={{ fontSize: 12, color: "var(--text-muted, #888)", lineHeight: 1.55, margin: 0 }}>
+                  {t("onboarding.claudeCode.installSuccessHint")}
+                </p>
+              </div>
+            </div>
+            <div className="obFooter">
+              {stepIndicator}
+              <div className="obFooterBtns">
+                <button onClick={() => setObStep("ob-iwhalecloud")}>{t("config.prev")}</button>
+                <button
+                  className="btnPrimary"
+                  disabled={obClaudeChecking || installBusy || !canProceedClaude}
+                  title={!canProceedClaude ? t("onboarding.claudeCode.needInstall") : undefined}
+                  onClick={() => {
+                    if (canProceedClaude) setObStep("ob-agreement");
+                  }}
+                >
+                  {t("onboarding.claudeCode.proceed")}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      }
 
       case "ob-agreement":
         return (
@@ -7198,7 +7710,7 @@ export function App() {
             <div className="obFooter">
               {stepIndicator}
               <div className="obFooterBtns">
-                <button onClick={() => setObStep("ob-iwhalecloud")}>{t("config.prev")}</button>
+                <button onClick={() => setObStep(IS_TAURI ? "ob-claude-code" : "ob-iwhalecloud")}>{t("config.prev")}</button>
                 <button
                   className="btnPrimary"
                   onClick={() => {
@@ -7637,6 +8149,13 @@ export function App() {
         </div>
       );
     }
+    if (view === "rd_center") {
+      return (
+        <div className="contentRdFullHeight">
+          <RdCenterView />
+        </div>
+      );
+    }
     if (view === "identity") {
       return (
         <IdentityView serviceRunning={serviceStatus?.running ?? false} apiBaseUrl={apiBaseUrl} />
@@ -7931,7 +8450,9 @@ export function App() {
     <div className={`appShell ${sidebarCollapsed ? "appShellCollapsed" : ""}${isMobile ? " appShellMobile" : ""}`} style={previewMode ? { paddingTop: IS_CAPACITOR ? "calc(32px + env(safe-area-inset-top))" : 32 } : undefined}>
       {previewMode && (
         <div style={{
-          position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999,
+          position: "fixed",
+          top: IS_TAURI && IS_WINDOWS ? "var(--win-titlebar-height)" : 0,
+          left: 0, right: 0, zIndex: 9999,
           background: "linear-gradient(135deg, #0ea5e9, #6366f1)",
           color: "#fff", textAlign: "center",
           padding: "6px 16px",
@@ -7987,6 +8508,7 @@ export function App() {
         serviceRunning={serviceStatus?.running ?? false}
         onRefreshStatus={async () => { await refreshStatus(undefined, undefined, true); }}
         isWeb={IS_WEB}
+        rdCenterVisible={IS_TAURI && IS_WINDOWS}
       />
 
       <main className="main">
@@ -8095,7 +8617,10 @@ export function App() {
               }}
             />
           </div>
-          <div className="content" style={{ display: view !== "chat" ? undefined : "none", flex: 1, minHeight: 0 }}>
+          <div
+            className={`content${view === "rd_center" ? " content--rdFlexFill" : ""}`}
+            style={{ display: view !== "chat" ? undefined : "none", flex: 1, minHeight: 0 }}
+          >
             {renderStepContent()}
           </div>
         </div>
