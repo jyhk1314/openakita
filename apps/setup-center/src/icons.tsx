@@ -288,6 +288,16 @@ export function IconUsers(p: IconProps = {}) {
   </>);
 }
 
+/** 团队管理侧栏：双人叠影 */
+export function IconUserGroup(p: IconProps = {}) {
+  return svg(p, <>
+    <circle cx="9" cy="7" r="3.5" />
+    <path d="M3 19.5v-.5a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v.5" />
+    <circle cx="17" cy="8" r="2.8" />
+    <path d="M21 19.5v-.3a3 3 0 0 0-3-3h-1.2" />
+  </>);
+}
+
 export function IconBot(p: IconProps = {}) {
   return svg(p, <>
     <rect x="3" y="11" width="18" height="10" rx="2" />

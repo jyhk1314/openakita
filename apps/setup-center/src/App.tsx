@@ -23,6 +23,7 @@ import { TYPE_TO_ENABLED_KEY } from "./views/im-shared";
 import { AgentSystemView } from "./views/AgentSystemView";
 import { AgentStoreView } from "./views/AgentStoreView";
 import { SkillStoreView } from "./views/SkillStoreView";
+import { TeamManagementView } from "./components/team-manage/TeamManagementView";
 import type {
   EndpointSummary as EndpointSummaryType,
   PlatformInfo, WorkspaceSummary, ProviderInfo, ListedModel,
@@ -248,7 +249,7 @@ export function App() {
     [t],
   );
 
-  const [view, setView] = useState<"wizard" | "status" | "chat" | "skills" | "im" | "onboarding" | "modules" | "token_stats" | "mcp" | "scheduler" | "memory" | "identity" | "dashboard" | "org_editor" | "agent_manager" | "agent_store" | "skill_store" | "rd_center">(() => {
+  const [view, setView] = useState<"wizard" | "status" | "chat" | "skills" | "im" | "onboarding" | "modules" | "token_stats" | "mcp" | "scheduler" | "memory" | "identity" | "dashboard" | "org_editor" | "agent_manager" | "agent_store" | "skill_store" | "rd_center" | "team_manage">(() => {
     const hash = window.location.hash;
     if (hash === "#/org-editor") return "org_editor";
     return (IS_WEB || IS_CAPACITOR) ? "chat" : "wizard";
@@ -8156,6 +8157,13 @@ export function App() {
         </div>
       );
     }
+    if (view === "team_manage") {
+      return (
+        <div className="contentRdFullHeight">
+          <TeamManagementView />
+        </div>
+      );
+    }
     if (view === "identity") {
       return (
         <IdentityView serviceRunning={serviceStatus?.running ?? false} apiBaseUrl={apiBaseUrl} />
@@ -8618,7 +8626,7 @@ export function App() {
             />
           </div>
           <div
-            className={`content${view === "rd_center" ? " content--rdFlexFill" : ""}`}
+            className={`content${view === "rd_center" || view === "team_manage" ? " content--rdFlexFill" : ""}`}
             style={{ display: view !== "chat" ? undefined : "none", flex: 1, minHeight: 0 }}
           >
             {renderStepContent()}

@@ -17,6 +17,7 @@
     "cap:ios": "npx cap open ios"
   },
   "dependencies": {
+    "@ant-design/icons": "^6.1.1",
     "@capacitor/android": "^8.1.0",
     "@capacitor/cli": "^8.1.0",
     "@capacitor/core": "^8.1.0",
@@ -38,6 +39,7 @@
     "react-dom": "^18.3.1",
     "react-i18next": "^16.5.4",
     "react-markdown": "^10.1.0",
+    "recharts": "^3.8.1",
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1"
   },

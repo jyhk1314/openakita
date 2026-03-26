@@ -42,8 +42,18 @@
     "agentStore": "Agent Store",
     "skillStore": "Skill Store",
     "rdCenter": "R&D Center",
+    "teamManage": "Team Metrics",
     "collapse": "Collapse sidebar",
     "expand": "Expand sidebar"
+  },
+  "teamManage": {
+    "pageTitle": "Team summary metrics",
+    "dimMonth": "Month",
+    "dimWeek": "Week",
+    "dimDay": "Day",
+    "memberCount": "{{count}} members",
+    "notifications": "Notifications",
+    "settings": "Settings"
   },
   "topbar": {
     "workspace": "Workspace",
