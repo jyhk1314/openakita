@@ -95,8 +95,15 @@ fn ensure_claude_bundle_from_repo() {
         if let Err(e) = copy_tree(&repo_claude, &dst) {
             eprintln!("[build] sync claude-code-releases from repo: {e}");
         }
-    } else if !dst.exists() {
-        let _ = std::fs::create_dir_all(&dst);
+    }
+    // `tauri.conf.json` bundles this path; it must exist even when sync is skipped or fails.
+    if !dst.is_dir() {
+        std::fs::create_dir_all(&dst).unwrap_or_else(|e| {
+            panic!(
+                "[build] failed to create {} (required by tauri bundle): {e}",
+                dst.display()
+            );
+        });
     }
 }
 

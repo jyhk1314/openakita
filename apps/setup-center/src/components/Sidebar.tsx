@@ -5,11 +5,11 @@ import {
   IconChevronDown, IconChevronRight, IconGlobe,
   IconZap, IconPlug, IconCalendar,
   IconBrain, IconGitHub, IconGitee, IconUsers, IconBot,
-  IconGear, IconBook, IconStorefront, IconPuzzle, IconFingerprint, IconLayoutGrid, IconPackage, IconUserGroup,
+  IconGear, IconBook, IconStorefront, IconPuzzle, IconFingerprint, IconLayoutGrid, IconPackage, IconUserGroup, IconPlan,
 } from "../icons";
 import logoUrl from "../assets/logo.png";
 
-type ViewId = "wizard" | "status" | "chat" | "skills" | "im" | "onboarding" | "modules" | "token_stats" | "mcp" | "scheduler" | "memory" | "identity" | "dashboard" | "org_editor" | "agent_manager" | "agent_store" | "skill_store" | "rd_center" | "team_manage";
+type ViewId = "wizard" | "status" | "chat" | "skills" | "im" | "onboarding" | "modules" | "token_stats" | "mcp" | "scheduler" | "memory" | "identity" | "dashboard" | "org_editor" | "agent_manager" | "agent_store" | "skill_store" | "rd_center" | "team_manage" | "rd_process";
 
 export type SidebarProps = {
   collapsed: boolean;
@@ -122,6 +122,9 @@ export function Sidebar({
         )}
         <div className={`navItem ${view === "team_manage" ? "navItemActive" : ""}`} onClick={() => onViewChange("team_manage")} role="button" tabIndex={0} title={t("sidebar.teamManage")}>
           <IconUserGroup size={16} /> {!collapsed && <span>{t("sidebar.teamManage")}</span>}
+        </div>
+        <div className={`navItem ${view === "rd_process" ? "navItemActive" : ""}`} onClick={() => onViewChange("rd_process")} role="button" tabIndex={0} title={t("sidebar.rdProcess")}>
+          <IconPlan size={16} /> {!collapsed && <span>{t("sidebar.rdProcess")}</span>}
         </div>
         {multiAgentEnabled && (
           <div className={`navItem ${view === "dashboard" ? "navItemActive" : ""}`} onClick={() => onViewChange("dashboard")} role="button" tabIndex={0} title={t("sidebar.dashboard")}>

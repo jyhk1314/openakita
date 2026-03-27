@@ -59,8 +59,8 @@
     "windows": [
       {
         "title": "Synapse",
-        "width": 1100,
-        "height": 760,
+        "width": 1920,
+        "height": 1200,
         "resizable": false,
         "maximizable": false
       }

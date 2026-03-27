@@ -59,6 +59,10 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // Cargo/Tauri 会把资源拷到 src-tauri/target；若 Vite 监视该目录会与构建进程抢锁，触发 Windows os error 32。
+    watch: {
+      ignored: ["**/src-tauri/target/**"],
+    },
     // Dev 时（npm run dev / npm run dev:web）都代理到后端，避免 CORS，端口与后端 API_PORT(18900) 一致
     proxy: {
       "/api": {

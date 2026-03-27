@@ -24,6 +24,7 @@ import { AgentSystemView } from "./views/AgentSystemView";
 import { AgentStoreView } from "./views/AgentStoreView";
 import { SkillStoreView } from "./views/SkillStoreView";
 import { TeamManagementView } from "./components/team-manage/TeamManagementView";
+import { RdProcessManagementView } from "./components/rd-process/RdProcessManagementView";
 import type {
   EndpointSummary as EndpointSummaryType,
   PlatformInfo, WorkspaceSummary, ProviderInfo, ListedModel,
@@ -249,7 +250,7 @@ export function App() {
     [t],
   );
 
-  const [view, setView] = useState<"wizard" | "status" | "chat" | "skills" | "im" | "onboarding" | "modules" | "token_stats" | "mcp" | "scheduler" | "memory" | "identity" | "dashboard" | "org_editor" | "agent_manager" | "agent_store" | "skill_store" | "rd_center" | "team_manage">(() => {
+  const [view, setView] = useState<"wizard" | "status" | "chat" | "skills" | "im" | "onboarding" | "modules" | "token_stats" | "mcp" | "scheduler" | "memory" | "identity" | "dashboard" | "org_editor" | "agent_manager" | "agent_store" | "skill_store" | "rd_center" | "team_manage" | "rd_process">(() => {
     const hash = window.location.hash;
     if (hash === "#/org-editor") return "org_editor";
     return (IS_WEB || IS_CAPACITOR) ? "chat" : "wizard";
@@ -524,16 +525,22 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /** 仅在进入/离开引导页时调整 Tauri 窗口；主界面内切换侧栏不改变尺寸、全屏或最大化 */
+  const tauriDesktopWinLayoutRef = useRef<"guide" | "main" | null>(null);
+
   // 桌面端：引导固定尺寸且不可缩放。主界面用「最大化」占满屏幕（保留系统标题栏/关闭那一行），不用独占全屏——全屏会隐藏整条标题栏。
   useEffect(() => {
     if (!IS_TAURI) return;
+    const guide = view === "wizard" || view === "onboarding";
+    const mode: "guide" | "main" = guide ? "guide" : "main";
+    if (tauriDesktopWinLayoutRef.current === mode) return;
+    tauriDesktopWinLayoutRef.current = mode;
     let cancelled = false;
     (async () => {
       try {
         const { getCurrentWindow, LogicalSize } = await import("@tauri-apps/api/window");
         if (cancelled) return;
         const win = getCurrentWindow();
-        const guide = view === "wizard" || view === "onboarding";
         if (guide) {
           await win.setFullscreen(false);
           try {
@@ -8164,6 +8171,13 @@ export function App() {
         </div>
       );
     }
+    if (view === "rd_process") {
+      return (
+        <div className="contentRdFullHeight">
+          <RdProcessManagementView />
+        </div>
+      );
+    }
     if (view === "identity") {
       return (
         <IdentityView serviceRunning={serviceStatus?.running ?? false} apiBaseUrl={apiBaseUrl} />
@@ -8626,7 +8640,7 @@ export function App() {
             />
           </div>
           <div
-            className={`content${view === "rd_center" || view === "team_manage" ? " content--rdFlexFill" : ""}`}
+            className={`content${view === "rd_center" || view === "team_manage" || view === "rd_process" ? " content--rdFlexFill" : ""}`}
             style={{ display: view !== "chat" ? undefined : "none", flex: 1, minHeight: 0 }}
           >
             {renderStepContent()}
