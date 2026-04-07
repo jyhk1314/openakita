@@ -49,7 +49,7 @@ async def create_repo(req: CreateRepoRequest):
     headers = {
         "X-Auth-Token": token,
         "Content-Type": "application/json",
-        "User-Agent": "OpenAkita",
+        "User-Agent": "Synapse",
     }
 
     try:
@@ -148,7 +148,7 @@ async def delete_repo(req: DeleteBookRequest):
     headers = {
         "X-Auth-Token": token,
         "Content-Type": "application/json",
-        "User-Agent": "OpenAkita",
+        "User-Agent": "Synapse",
     }
 
     try:
@@ -199,7 +199,7 @@ async def get_repo(req: GetReposRequest):
     headers = {
         "X-Auth-Token": token,
         "Content-Type": "application/json",
-        "User-Agent": "OpenAkita",
+        "User-Agent": "Synapse",
     }
 
     try:
@@ -286,7 +286,7 @@ async def create_docs(req: CreateDocsRequest):
     headers = {
         "X-Auth-Token": token,
         "Content-Type": "application/json",
-        "User-Agent": "OpenAkita",
+        "User-Agent": "Synapse",
     }
 
     try:
@@ -390,7 +390,7 @@ async def delete_docs(req: DeleteDocsRequest):
     headers = {
         "X-Auth-Token": token,
         "Content-Type": "application/json",
-        "User-Agent": "OpenAkita",
+        "User-Agent": "Synapse",
     }
 
     try:
@@ -445,7 +445,7 @@ async def update_docs(req: UpdateDocsRequest):
     headers = {
         "X-Auth-Token": token,
         "Content-Type": "application/json",
-        "User-Agent": "OpenAkita",
+        "User-Agent": "Synapse",
     }
 
     try:
@@ -525,7 +525,7 @@ async def get_docs(req: GetDocsRequest):
     headers = {
         "X-Auth-Token": token,
         "Content-Type": "application/json",
-        "User-Agent": "OpenAkita",
+        "User-Agent": "Synapse",
     }
 
     try:
@@ -592,7 +592,7 @@ async def get_repo_docs(req: GetRepoDocsRequest):
     headers = {
         "X-Auth-Token": token,
         "Content-Type": "application/json",
-        "User-Agent": "OpenAkita",
+        "User-Agent": "Synapse",
     }
 
     try:
@@ -662,7 +662,7 @@ async def search_repo(req: SearchRepoRequest):
     headers = {
         "X-Auth-Token": token,
         "Content-Type": "application/json",
-        "User-Agent": "OpenAkita",
+        "User-Agent": "Synapse",
     }
 
     try:
@@ -742,7 +742,7 @@ async def search_docs(req: SearchDocsRequest):
     headers = {
         "X-Auth-Token": token,
         "Content-Type": "application/json",
-        "User-Agent": "OpenAkita",
+        "User-Agent": "Synapse",
     }
 
     try:

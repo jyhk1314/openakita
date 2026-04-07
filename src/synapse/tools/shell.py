@@ -11,13 +11,93 @@ import asyncio
 import base64
 import logging
 import os
-import platform
 import re
 import shutil
+import subprocess
+import sys
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+_KILL_WAIT_TIMEOUT = 5  # seconds to wait for process.wait() after kill
+
+# ---------------------------------------------------------------------------
+# Git Bash 自动定位（参考 CC BashTool findGitBashPath）
+# ---------------------------------------------------------------------------
+_git_bash_cache: str | None | bool = False  # False = not yet searched
+
+
+def find_git_bash_path() -> str | None:
+    """在 Windows 上自动定位 Git Bash 可执行文件。
+
+    搜索顺序（参考 CC）:
+    1. SYNAPSE_GIT_BASH_PATH 环境变量
+    2. 常见安装路径
+    3. 系统 PATH
+    """
+    global _git_bash_cache
+    if _git_bash_cache is not False:
+        return _git_bash_cache  # type: ignore[return-value]
+
+    if sys.platform != "win32":
+        _git_bash_cache = None
+        return None
+
+    env_path = os.environ.get("SYNAPSE_GIT_BASH_PATH")
+    if env_path and os.path.isfile(env_path):
+        _git_bash_cache = env_path
+        logger.info(f"[GitBash] Found via env: {env_path}")
+        return env_path
+
+    candidates = [
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Program Files (x86)\Git\bin\bash.exe",
+        r"C:\Git\bin\bash.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\Programs\Git\bin\bash.exe"),
+    ]
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            _git_bash_cache = candidate
+            logger.info(f"[GitBash] Found at: {candidate}")
+            return candidate
+
+    which_bash = shutil.which("bash")
+    if which_bash:
+        _git_bash_cache = which_bash
+        logger.info(f"[GitBash] Found in PATH: {which_bash}")
+        return which_bash
+
+    _git_bash_cache = None
+    logger.debug("[GitBash] Not found on this system")
+    return None
+
+
+# ---------------------------------------------------------------------------
+# UNC 路径安全检查（参考 CC isUNCPath — 防 NTLM 认证泄漏）
+# ---------------------------------------------------------------------------
+_UNC_RE = re.compile(r"^\\\\[^\\]")
+
+
+def is_unc_path(path: str) -> bool:
+    """检查是否为 UNC 路径（\\\\server\\share 形式）。
+
+    UNC 路径可能触发 Windows 自动 NTLM 认证，导致凭证泄漏。
+    """
+    return bool(_UNC_RE.match(path))
+
+
+def check_unc_safety(command: str) -> str | None:
+    """检查命令中是否包含 UNC 路径，返回警告信息或 None。"""
+    tokens = command.split()
+    for token in tokens:
+        if is_unc_path(token):
+            return (
+                f"Blocked: UNC path detected ({token}). "
+                "UNC paths can trigger automatic NTLM authentication "
+                "and leak credentials. Use mapped drive letters instead."
+            )
+    return None
 
 
 @dataclass
@@ -46,23 +126,47 @@ class ShellTool:
     # ------------------------------------------------------------------
     POWERSHELL_PATTERNS = [
         # 原有
-        r"Get-EventLog", r"Get-ScheduledTask",
-        r"ConvertFrom-Csv", r"ConvertTo-Csv",
-        r"Select-Object", r"Where-Object", r"ForEach-Object",
-        r"Import-Module", r"Get-Process", r"Get-Service",
-        r"Get-ChildItem", r"Set-ExecutionPolicy",
+        r"Get-EventLog",
+        r"Get-ScheduledTask",
+        r"ConvertFrom-Csv",
+        r"ConvertTo-Csv",
+        r"Select-Object",
+        r"Where-Object",
+        r"ForEach-Object",
+        r"Import-Module",
+        r"Get-Process",
+        r"Get-Service",
+        r"Get-ChildItem",
+        r"Set-ExecutionPolicy",
         # 新增常见 cmdlet
-        r"Sort-Object", r"Out-File", r"Out-String",
-        r"Invoke-WebRequest", r"Invoke-RestMethod",
-        r"Test-Path", r"New-Item", r"Remove-Item", r"Copy-Item", r"Move-Item",
-        r"Measure-Object", r"Group-Object",
-        r"ConvertTo-Json", r"ConvertFrom-Json",
-        r"Write-Output", r"Write-Host", r"Write-Error",
-        r"Get-Content", r"Set-Content", r"Add-Content",
-        r"Get-ItemProperty", r"Set-ItemProperty",
-        r"Start-Process", r"Stop-Process",
-        r"Get-WmiObject", r"Get-CimInstance",
-        r"New-Object", r"Add-Type",
+        r"Sort-Object",
+        r"Out-File",
+        r"Out-String",
+        r"Invoke-WebRequest",
+        r"Invoke-RestMethod",
+        r"Test-Path",
+        r"New-Item",
+        r"Remove-Item",
+        r"Copy-Item",
+        r"Move-Item",
+        r"Measure-Object",
+        r"Group-Object",
+        r"ConvertTo-Json",
+        r"ConvertFrom-Json",
+        r"Write-Output",
+        r"Write-Host",
+        r"Write-Error",
+        r"Get-Content",
+        r"Set-Content",
+        r"Add-Content",
+        r"Get-ItemProperty",
+        r"Set-ItemProperty",
+        r"Start-Process",
+        r"Stop-Process",
+        r"Get-WmiObject",
+        r"Get-CimInstance",
+        r"New-Object",
+        r"Add-Type",
     ]
 
     # 通用 Verb-Noun 模式：PowerShell cmdlet 格式为 Verb-Noun（如 Get-Item, Test-Path）
@@ -86,8 +190,48 @@ class ShellTool:
         self.default_cwd = default_cwd or os.getcwd()
         self.timeout = timeout
         self.shell = shell
-        self._is_windows = platform.system() == "Windows"
+        self._is_windows = sys.platform == "win32"
         self._oem_encoding: str | None = None
+
+    # ------------------------------------------------------------------
+    # 进程清理（Windows 安全杀死进程树）
+    # ------------------------------------------------------------------
+
+    async def _kill_process_tree(self, process: asyncio.subprocess.Process) -> None:
+        """杀死进程及其所有子进程，然后带超时地等待退出。
+
+        Windows 上 process.kill() 仅杀死直接子进程，孙进程（如 node 启动的
+        服务）会继续运行并持有 stdout/stderr 管道，导致 process.wait() 永久
+        阻塞。改用 taskkill /T /F 杀死整个进程树。
+        """
+        pid = process.pid
+        if pid is None:
+            return
+
+        if self._is_windows:
+            try:
+                subprocess.run(
+                    ["taskkill", "/T", "/F", "/PID", str(pid)],
+                    capture_output=True,
+                    timeout=_KILL_WAIT_TIMEOUT,
+                )
+            except Exception as e:
+                logger.debug(f"taskkill failed for PID {pid}: {e}")
+                try:
+                    process.kill()
+                except Exception:
+                    pass
+        else:
+            try:
+                process.kill()
+            except Exception:
+                pass
+
+        # 带超时等待，防止无限阻塞
+        try:
+            await asyncio.wait_for(process.wait(), timeout=_KILL_WAIT_TIMEOUT)
+        except (TimeoutError, Exception):
+            logger.warning(f"Process {pid} did not exit within {_KILL_WAIT_TIMEOUT}s after kill")
 
     # ------------------------------------------------------------------
     # Windows 编码处理
@@ -99,6 +243,7 @@ class ShellTool:
             return self._oem_encoding
         try:
             import ctypes
+
             oem_cp = ctypes.windll.kernel32.GetOEMCP()
             self._oem_encoding = f"cp{oem_cp}"
         except Exception:
@@ -179,14 +324,14 @@ class ShellTool:
         # 尝试匹配 powershell/pwsh ... -Command "内容" 或 powershell/pwsh ... -Command '内容'
         # 也处理 -Command {脚本块} 的情况
         m = re.match(
-            r"^(?:powershell|pwsh)(?:\.exe)?"       # powershell 或 pwsh
-            r"(?:\s+-\w+)*"                          # 可选参数如 -NoProfile
-            r"\s+-Command\s+"                        # -Command
+            r"^(?:powershell|pwsh)(?:\.exe)?"  # powershell 或 pwsh
+            r"(?:\s+-\w+)*"  # 可选参数如 -NoProfile
+            r"\s+-Command\s+"  # -Command
             r"(?:"
-            r'"((?:[^"\\]|\\.)*)"|'                  # "双引号内容"
-            r"'((?:[^'\\]|\\.)*)'|"                  # '单引号内容'
-            r"\{(.*)\}|"                             # {脚本块}
-            r"(.+)"                                  # 无引号直接跟内容
+            r'"((?:[^"\\]|\\.)*)"|'  # "双引号内容"
+            r"'((?:[^'\\]|\\.)*)'|"  # '单引号内容'
+            r"\{(.*)\}|"  # {脚本块}
+            r"(.+)"  # 无引号直接跟内容
             r")\s*$",
             command.strip(),
             re.IGNORECASE | re.DOTALL,
@@ -241,19 +386,47 @@ class ShellTool:
         work_dir = cwd or self.default_cwd
         cmd_timeout = timeout or self.timeout
 
+        # UNC 路径安全检查
+        unc_warning = check_unc_safety(command)
+        if unc_warning:
+            return CommandResult(returncode=-1, stdout="", stderr=unc_warning)
+
+        if work_dir and is_unc_path(work_dir):
+            return CommandResult(
+                returncode=-1,
+                stdout="",
+                stderr=f"Blocked: UNC working directory ({work_dir}). "
+                "Use a local path or mapped drive letter.",
+            )
+
         # 合并环境变量
         cmd_env = os.environ.copy()
         if env:
             cmd_env.update(env)
 
+        # macOS GUI 应用 PATH 增强：Finder/Dock 启动的 .app 只继承
+        # /usr/bin:/bin:/usr/sbin:/sbin，不含 Homebrew/NVM 等路径。
+        # 复用 path_helper 已缓存的 login shell PATH，使 run_shell
+        # 能找到 brew/node/npm/python3 等用户已安装的工具。
+        try:
+            from ..utils.path_helper import resolve_macos_login_shell_path
+
+            _shell_path = resolve_macos_login_shell_path()
+            if _shell_path:
+                cmd_env["PATH"] = _shell_path
+        except Exception:
+            pass
+
         # 打包模式：将外置 Python 目录 prepend 到子进程 PATH，
         # 使 `python script.py` 自动找到正确解释器
         try:
             from ..runtime_env import IS_FROZEN, get_python_executable
+
             if IS_FROZEN:
                 _ext_py = get_python_executable()
                 if _ext_py:
                     from pathlib import Path
+
                     _py_dir = str(Path(_ext_py).parent)
                     cmd_env["PATH"] = _py_dir + os.pathsep + cmd_env.get("PATH", "")
         except Exception:
@@ -302,21 +475,13 @@ class ShellTool:
             # 三路竞速 cancel/skip：立即杀掉子进程，实时中断
             logger.warning(f"Command cancelled, killing subprocess: {original_command[:200]}")
             if process and process.returncode is None:
-                try:
-                    process.kill()
-                    await process.wait()
-                except Exception:
-                    pass
+                await self._kill_process_tree(process)
             raise  # 重新抛出，让上层三路竞速逻辑处理
 
-        except TimeoutError:
+        except (asyncio.TimeoutError, TimeoutError):
             logger.error(f"Command timed out after {cmd_timeout}s")
             if process and process.returncode is None:
-                try:
-                    process.kill()
-                    await process.wait()
-                except Exception:
-                    pass
+                await self._kill_process_tree(process)
             return CommandResult(
                 returncode=-1,
                 stdout="",
@@ -340,11 +505,21 @@ class ShellTool:
 
         cmd_env = os.environ.copy()
         try:
+            from ..utils.path_helper import resolve_macos_login_shell_path
+
+            _shell_path = resolve_macos_login_shell_path()
+            if _shell_path:
+                cmd_env["PATH"] = _shell_path
+        except Exception:
+            pass
+        try:
             from ..runtime_env import IS_FROZEN, get_python_executable
+
             if IS_FROZEN:
                 _ext_py = get_python_executable()
                 if _ext_py:
                     from pathlib import Path
+
                     _py_dir = str(Path(_ext_py).parent)
                     cmd_env["PATH"] = _py_dir + os.pathsep + cmd_env.get("PATH", "")
         except Exception:
@@ -382,6 +557,7 @@ class ShellTool:
     async def pip_install(self, package: str) -> CommandResult:
         """使用 pip 安装包（PyInstaller 兼容：使用 runtime_env 获取正确的 Python 解释器）"""
         from synapse.runtime_env import IS_FROZEN, get_python_executable
+
         py = get_python_executable()
         if py:
             return await self.run(f'"{py}" -m pip install {package}')
@@ -390,7 +566,7 @@ class ShellTool:
                 returncode=-1,
                 stdout="",
                 stderr="未找到可用的 Python 解释器，无法执行 pip install。"
-                       "请前往「设置中心 → Python 环境」使用「一键修复」。",
+                "请前往「设置中心 → Python 环境」使用「一键修复」。",
             )
         return await self.run(f"pip install {package}")
 

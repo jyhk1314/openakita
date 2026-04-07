@@ -2,7 +2,7 @@
 BrowserManager - 浏览器生命周期管理
 
 通过状态机管理 Playwright 浏览器的启动、停止和健康检查。
-对外提供 ``page``（供 PlaywrightTools）和 ``cdp_url``（供 BrowserUseRunner）。
+对外提供 ``page``（供 PlaywrightTools）和 ``cdp_url``（供外部 CDP 集成）。
 """
 
 from __future__ import annotations
@@ -11,11 +11,25 @@ import asyncio
 import logging
 import os
 import platform
+import subprocess
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+_IS_MAC = platform.system() == "Darwin"
+
+# Mach-O / fat binary magic bytes (covers both byte orders)
+_MACHO_MAGICS = frozenset(
+    {
+        b"\xfe\xed\xfa\xce",
+        b"\xce\xfa\xed\xfe",  # 32-bit
+        b"\xfe\xed\xfa\xcf",
+        b"\xcf\xfa\xed\xfe",  # 64-bit
+        b"\xca\xfe\xba\xbe",  # universal (fat)
+    }
+)
 
 _LAUNCH_TIMEOUT = 30  # seconds
 
@@ -80,6 +94,49 @@ def _is_server_environment() -> bool:
     return False
 
 
+def _is_native_executable(path: Path) -> bool:
+    """通过文件头判断是否为 Mach-O 二进制或 #! 脚本。"""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(4)
+        return head in _MACHO_MAGICS or head[:2] == b"#!"
+    except OSError:
+        return False
+
+
+def _ensure_macos_executability(target: Path) -> None:
+    """确保目录下所有原生二进制可执行且无 quarantine 属性。
+
+    PyInstaller 将 Chromium.app 和 Playwright driver 作为 data 打包，
+    macOS 上会丢失 Unix 执行权限。下载的文件还会带有 com.apple.quarantine
+    扩展属性，导致 Gatekeeper 阻止执行。此函数统一处理两个问题。
+    """
+    if not _IS_MAC or not target.exists():
+        return
+
+    try:
+        subprocess.run(
+            ["xattr", "-cr", str(target)],
+            capture_output=True,
+            timeout=30,
+        )
+    except Exception:
+        pass
+
+    fixed = 0
+    for fp in target.rglob("*"):
+        if not fp.is_file() or os.access(str(fp), os.X_OK):
+            continue
+        if _is_native_executable(fp):
+            try:
+                fp.chmod(fp.stat().st_mode | 0o755)
+                fixed += 1
+            except OSError:
+                pass
+    if fixed:
+        logger.info(f"[Browser] Fixed execute permissions for {fixed} binaries in {target.name}")
+
+
 def _find_bundled_browser_executable() -> str | None:
     """在 PyInstaller 打包目录中搜索内置的 Chromium/Chrome 可执行文件。
 
@@ -120,21 +177,26 @@ def _find_bundled_browser_executable() -> str | None:
     candidates: list[Path] = []
     for root in search_roots:
         if is_mac:
-            candidates.append(
-                root / "browser" / "Chromium.app" / "Contents" / "MacOS" / "Chromium"
-            )
+            candidates.append(root / "browser" / "Chromium.app" / "Contents" / "MacOS" / "Chromium")
         candidates.append(root / "browser" / exe_name)
 
-        pw_dir = root / "playwright-browsers"
-        if pw_dir.is_dir():
+        for pw_name in ("playwright-browsers", "playwright-browser"):
+            pw_dir = root / pw_name
+            if not pw_dir.is_dir():
+                continue
             for chromium_dir in sorted(pw_dir.glob("chromium-*"), reverse=True):
                 if is_win:
-                    candidates.append(chromium_dir / "chrome-win" / exe_name)
+                    for win_dir in ("chrome-win", "chrome-win64"):
+                        candidates.append(chromium_dir / win_dir / exe_name)
                 elif is_mac:
                     for mac_dir in ("chrome-mac-arm64", "chrome-mac"):
                         candidates.append(
-                            chromium_dir / mac_dir / "Chromium.app"
-                            / "Contents" / "MacOS" / "Chromium"
+                            chromium_dir
+                            / mac_dir
+                            / "Chromium.app"
+                            / "Contents"
+                            / "MacOS"
+                            / "Chromium"
                         )
                         candidates.append(chromium_dir / mac_dir / headless_name)
                 else:
@@ -144,18 +206,26 @@ def _find_bundled_browser_executable() -> str | None:
         candidates.append(root / "browser" / headless_name)
 
     for path in candidates:
-        if path.is_file():
-            if not is_win and not os.access(str(path), os.X_OK):
-                try:
-                    path.chmod(path.stat().st_mode | 0o755)
-                    logger.info(f"[Browser] Fixed execute permission: {path}")
-                except OSError as e:
-                    logger.warning(
-                        f"[Browser] Cannot set execute permission for {path}: {e}"
-                    )
-                    continue
-            logger.info(f"[Browser] Found bundled browser executable: {path}")
-            return str(path)
+        if not path.is_file():
+            continue
+
+        # macOS: fix the entire .app bundle or containing directory
+        if is_mac:
+            fix_root = next(
+                (p for p in path.parents if p.suffix == ".app"),
+                path.parent,
+            )
+            _ensure_macos_executability(fix_root)
+        elif not is_win and not os.access(str(path), os.X_OK):
+            try:
+                path.chmod(path.stat().st_mode | 0o755)
+                logger.info(f"[Browser] Fixed execute permission: {path}")
+            except OSError as e:
+                logger.warning(f"[Browser] Cannot set execute permission for {path}: {e}")
+                continue
+
+        logger.info(f"[Browser] Found bundled browser executable: {path}")
+        return str(path)
 
     searched = list({str(c.parent) for c in candidates[:6]})
     logger.debug(f"[Browser] No bundled browser found in: {searched}")
@@ -175,6 +245,76 @@ class StartupStrategy(Enum):
     USER_CHROME_USER_PROFILE = "user_chrome_user_profile"
     USER_CHROME_OA_PROFILE = "user_chrome_oa_profile"
     BUNDLED_CHROMIUM = "bundled_chromium"
+
+
+class _IsolatedBrowserContext:
+    """Lightweight wrapper around a dedicated BrowserContext for parallel sub-agents.
+
+    Implements the same minimal interface as BrowserManager so that
+    PlaywrightTools / BrowserUseRunner can work unchanged.
+    """
+
+    def __init__(self, parent: BrowserManager, context: Any, page: Any):
+        self._parent = parent
+        self._context = context
+        self._page = page
+        self.state = BrowserState.READY
+        self.visible = parent.visible
+        self.using_user_chrome = parent.using_user_chrome
+
+    @property
+    def page(self) -> Any | None:
+        return self._page
+
+    @property
+    def context(self) -> Any | None:
+        return self._context
+
+    @property
+    def cdp_url(self) -> str | None:
+        return self._parent.cdp_url
+
+    @property
+    def is_ready(self) -> bool:
+        return self.state == BrowserState.READY
+
+    @property
+    def current_url(self) -> str | None:
+        return self._page.url if self._page else None
+
+    async def ensure_ready(self, visible: bool = True) -> bool:
+        return self.state == BrowserState.READY
+
+    async def start(self, visible: bool = True) -> bool:
+        return True
+
+    async def stop(self) -> None:
+        try:
+            if self._context:
+                await self._context.close()
+        except Exception:
+            pass
+        self._context = None
+        self._page = None
+        self.state = BrowserState.IDLE
+
+    async def get_status(self) -> dict:
+        if not self._page:
+            return {"is_open": False, "state": "idle"}
+        try:
+            return {
+                "is_open": True,
+                "state": "ready",
+                "visible": self.visible,
+                "tab_count": len(self._context.pages) if self._context else 0,
+                "current_tab": {
+                    "url": self._page.url,
+                    "title": await self._page.title(),
+                },
+                "isolated": True,
+            }
+        except Exception as e:
+            return {"is_open": True, "state": "ready", "error": str(e)}
 
 
 class BrowserManager:
@@ -210,6 +350,41 @@ class BrowserManager:
 
         if self._is_server:
             logger.info("[Browser] Server environment detected, will use extra launch args")
+
+    # ── 驱动健康辅助 ────────────────────────────────────
+
+    @staticmethod
+    def _is_driver_pipe_broken(error: Exception) -> bool:
+        """检测错误是否表明 Playwright driver 管道已断裂，需要重启。
+
+        当 Chrome 尝试启动但进程崩溃（如 profile 被锁定），Playwright 的 pipe
+        通信会被切断。此时 ``_is_driver_dead()`` 可能因为只检查缓存属性而返回
+        False，但实际通信已不可用。
+        """
+        return "connection closed while reading from the driver" in str(error).lower()
+
+    @staticmethod
+    def _is_chrome_process_running() -> bool:
+        """检测是否有 Chrome 主进程正在运行。"""
+        try:
+            if platform.system() == "Windows":
+                result = subprocess.run(
+                    ["tasklist", "/FI", "IMAGENAME eq chrome.exe", "/FO", "CSV", "/NH"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+                return '"chrome.exe"' in result.stdout.lower()
+            else:
+                result = subprocess.run(
+                    ["pgrep", "-x", "chrome"],
+                    capture_output=True,
+                    timeout=5,
+                )
+                return result.returncode == 0
+        except Exception:
+            return False
 
     # ── 公共属性 ────────────────────────────────────────
 
@@ -275,27 +450,49 @@ class BrowserManager:
                         f"[Browser] Strategy {strategy.value} failed: {e}",
                         exc_info=True,
                     )
+                    if self._is_driver_pipe_broken(e) or await self._is_driver_dead():
+                        logger.warning(
+                            "[Browser] Playwright driver died/pipe broken, "
+                            "restarting before next strategy..."
+                        )
+                        await self._cleanup_playwright()
+                        if not await self._start_playwright_driver():
+                            break
 
             if not headless:
-                logger.info("[Browser] All headed strategies failed, retrying in headless mode...")
-                for strategy in strategies:
-                    try:
-                        ok = await self._try_strategy(strategy, headless=True)
-                        if ok:
-                            self.state = BrowserState.READY
-                            self._last_successful_strategy = strategy
-                            self.visible = False
-                            logger.info(
-                                f"Browser started via {strategy.value} "
-                                f"(headless fallback, cdp={self._cdp_url})"
+                logger.info(
+                    "[Browser] All headed strategies failed, restarting driver for headless retry..."
+                )
+                await self._cleanup_playwright()
+                if not await self._start_playwright_driver():
+                    logger.error("[Browser] Cannot restart Playwright driver for headless fallback")
+                else:
+                    for strategy in strategies:
+                        try:
+                            ok = await self._try_strategy(strategy, headless=True)
+                            if ok:
+                                self.state = BrowserState.READY
+                                self._last_successful_strategy = strategy
+                                self.visible = False
+                                logger.info(
+                                    f"Browser started via {strategy.value} "
+                                    f"(headless fallback, cdp={self._cdp_url})"
+                                )
+                                return True
+                        except Exception as e:
+                            if self._is_driver_pipe_broken(e) or await self._is_driver_dead():
+                                logger.warning(
+                                    f"[Browser] Driver dead/pipe broken after "
+                                    f"{strategy.value}, restarting..."
+                                )
+                                await self._cleanup_playwright()
+                                if not await self._start_playwright_driver():
+                                    break
+                            logger.warning(
+                                f"[Browser] Headless fallback {strategy.value} also failed: {e}"
                             )
-                            return True
-                    except Exception as e:
-                        logger.debug(f"[Browser] Headless fallback {strategy.value} also failed: {e}")
 
-            logger.error(
-                f"[Browser] All strategies failed: {'; '.join(self._startup_errors)}"
-            )
+            logger.error(f"[Browser] All strategies failed: {'; '.join(self._startup_errors)}")
             self.state = BrowserState.ERROR
             await self._cleanup_playwright()
             return False
@@ -311,6 +508,14 @@ class BrowserManager:
             self.state = BrowserState.ERROR
             return False
 
+        if _IS_MAC:
+            try:
+                import playwright as _pw_pkg
+
+                _ensure_macos_executability(Path(_pw_pkg.__file__).parent / "driver")
+            except Exception:
+                pass
+
         max_attempts = 2
         last_err = ""
 
@@ -318,10 +523,11 @@ class BrowserManager:
             try:
                 pw_ctx = async_playwright()
                 self._playwright = await asyncio.wait_for(
-                    pw_ctx.start(), timeout=20,
+                    pw_ctx.start(),
+                    timeout=20,
                 )
                 return True
-            except TimeoutError:
+            except (asyncio.TimeoutError, TimeoutError):
                 last_err = f"Playwright driver 启动超时 (20s, attempt {attempt}/{max_attempts})"
                 logger.warning(f"[Browser] {last_err}")
                 await self._cleanup_playwright()
@@ -378,6 +584,30 @@ class BrowserManager:
             logger.error(f"Failed to get browser status: {e}")
             return {"is_open": True, "state": self.state.value, "error": str(e)}
 
+    async def create_isolated_context(self) -> BrowserManager:
+        """Create a lightweight isolated browser context for parallel sub-agents.
+
+        Returns a new BrowserManager-like wrapper that has its own BrowserContext
+        and Page, avoiding tab/page crosstalk between concurrent agents.
+        Only works when the main browser is READY with a _browser object that
+        supports new_context() (CDP or standard launch — NOT persistent_context).
+        """
+        if self.state != BrowserState.READY:
+            await self.ensure_ready()
+
+        if self._browser and hasattr(self._browser, "new_context"):
+            new_ctx = await self._browser.new_context()
+            new_page = await new_ctx.new_page()
+
+            isolated = _IsolatedBrowserContext(
+                parent=self,
+                context=new_ctx,
+                page=new_page,
+            )
+            return isolated
+
+        return self
+
     async def reset_state(self) -> None:
         """只清除引用不关闭资源（用于检测到浏览器被外部关闭时）。"""
         self.state = BrowserState.IDLE
@@ -402,8 +632,7 @@ class BrowserManager:
         # 如果有内置可执行文件，跳过 — 会在 _try_bundled_chromium 里用 executable_path
         if self._bundled_executable:
             logger.info(
-                f"[Browser] Will use bundled executable directly: "
-                f"{self._bundled_executable}"
+                f"[Browser] Will use bundled executable directly: {self._bundled_executable}"
             )
             return
 
@@ -411,13 +640,15 @@ class BrowserManager:
 
         if IS_FROZEN:
             import sys
+
             _meipass = getattr(sys, "_MEIPASS", None)
             if _meipass:
-                bundled = Path(_meipass) / "playwright-browsers"
-                if bundled.is_dir():
-                    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(bundled)
-                    logger.info(f"[Browser] Using bundled playwright-browsers: {bundled}")
-                    return
+                for pw_name in ("playwright-browsers", "playwright-browser"):
+                    bundled = Path(_meipass) / pw_name
+                    if bundled.is_dir():
+                        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(bundled)
+                        logger.info(f"[Browser] Using bundled {pw_name}: {bundled}")
+                        return
 
         _root = os.environ.get("SYNAPSE_ROOT", "").strip()
         _base = Path(_root) if _root else Path.home() / ".synapse"
@@ -464,7 +695,8 @@ class BrowserManager:
 
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"http://localhost:{self._cdp_port}/json/version", timeout=2.0,
+                f"http://localhost:{self._cdp_port}/json/version",
+                timeout=2.0,
             )
             if response.status_code != 200:
                 return False
@@ -472,9 +704,7 @@ class BrowserManager:
         logger.info(f"[Browser] Found Chrome at localhost:{self._cdp_port}")
 
         self._browser = await asyncio.wait_for(
-            self._playwright.chromium.connect_over_cdp(
-                f"http://localhost:{self._cdp_port}"
-            ),
+            self._playwright.chromium.connect_over_cdp(f"http://localhost:{self._cdp_port}"),
             timeout=15,
         )
 
@@ -515,6 +745,11 @@ class BrowserManager:
         else:
             if not self._chrome_user_data:
                 raise RuntimeError("Chrome user data dir not found")
+            if self._is_chrome_process_running():
+                raise RuntimeError(
+                    "Chrome is already running — user profile is locked by "
+                    "the running instance, skipping to avoid driver pipe break"
+                )
             user_data = self._chrome_user_data
             label = "user profile"
 
@@ -555,10 +790,7 @@ class BrowserManager:
 
         exe_path = Path(exe)
         if not exe_path.exists():
-            hint = (
-                f"Chromium 可执行文件不存在: {exe}\n"
-                "请运行: playwright install chromium"
-            )
+            hint = f"Chromium 可执行文件不存在: {exe}\n请运行: playwright install chromium"
             browsers_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "(default)")
             logger.error(
                 f"[Browser] Chromium preflight FAIL: {hint} "
@@ -567,7 +799,13 @@ class BrowserManager:
             return hint
 
         if platform.system() != "Windows":
-            if not os.access(exe, os.X_OK):
+            if _IS_MAC:
+                fix_root = next(
+                    (p for p in exe_path.parents if p.suffix == ".app"),
+                    exe_path.parent,
+                )
+                _ensure_macos_executability(fix_root)
+            elif not os.access(exe, os.X_OK):
                 try:
                     exe_path.chmod(exe_path.stat().st_mode | 0o755)
                     logger.info(f"[Browser] Fixed execute permission for Chromium: {exe}")
@@ -606,8 +844,7 @@ class BrowserManager:
 
         exe_label = "bundled" if exe_path else "playwright"
         logger.info(
-            f"[Browser] Launching Chromium "
-            f"(headless={effective_headless}, exe={exe_label})"
+            f"[Browser] Launching Chromium (headless={effective_headless}, exe={exe_label})"
         )
 
         last_err: Exception | None = None
@@ -619,10 +856,7 @@ class BrowserManager:
                 return True
         except Exception as e:
             last_err = e
-            logger.info(
-                f"[Browser] persistent_context failed ({e}), "
-                "trying standard launch..."
-            )
+            logger.info(f"[Browser] persistent_context failed ({e}), trying standard launch...")
             await self._close_browser_silently()
 
         # --- 策略 2: 传统 launch + new_context + new_page ---
@@ -638,7 +872,9 @@ class BrowserManager:
         raise last_err or RuntimeError("Chromium launch failed")
 
     async def _launch_persistent(
-        self, exe_path: str | None, headless: bool,
+        self,
+        exe_path: str | None,
+        headless: bool,
     ) -> bool:
         """用 launch_persistent_context 原子启动浏览器 + 页面。"""
         import tempfile
@@ -666,14 +902,13 @@ class BrowserManager:
         self._page.set_default_timeout(30000)
 
         self.visible = not headless
-        logger.info(
-            f"Browser started with Chromium persistent_context "
-            f"(visible={self.visible})"
-        )
+        logger.info(f"Browser started with Chromium persistent_context (visible={self.visible})")
         return True
 
     async def _launch_standard(
-        self, exe_path: str | None, headless: bool,
+        self,
+        exe_path: str | None,
+        headless: bool,
     ) -> bool:
         """传统 launch + new_context + new_page。"""
         launch_kwargs: dict[str, Any] = {
@@ -753,6 +988,16 @@ class BrowserManager:
         self.state = BrowserState.IDLE
         if prev == BrowserState.READY:
             logger.info("Browser stopped")
+
+    async def _is_driver_dead(self) -> bool:
+        """检测 Playwright driver 进程是否已崩溃。"""
+        if not self._playwright:
+            return True
+        try:
+            _ = self._playwright.chromium.executable_path
+            return False
+        except Exception:
+            return True
 
     async def _cleanup_playwright(self) -> None:
         if self._playwright:

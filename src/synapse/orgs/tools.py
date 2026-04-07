@@ -23,7 +23,11 @@ ORG_NODE_TOOLS: list[dict] = [
                     "description": "消息类型",
                     "default": "question",
                 },
-                "priority": {"type": "integer", "description": "优先级 0=普通 1=紧急 2=最高", "default": 0},
+                "priority": {
+                    "type": "integer",
+                    "description": "优先级 0=普通 1=紧急 2=最高",
+                    "default": 0,
+                },
             },
             "required": ["to_node", "content"],
         },
@@ -42,13 +46,19 @@ ORG_NODE_TOOLS: list[dict] = [
     },
     {
         "name": "org_delegate_task",
-        "description": "向下级分配任务。只能分配给直属下级。",
+        "description": "向直属下级分配任务。只能分配给你的直接下属，不能委派给平级同事或自己。与平级协作请用 org_send_message。",
         "input_schema": {
             "type": "object",
             "properties": {
-                "to_node": {"type": "string", "description": "目标下级节点 ID"},
+                "to_node": {
+                    "type": "string",
+                    "description": "目标直属下级的节点 ID（必须是你的直接下属）",
+                },
                 "task": {"type": "string", "description": "任务描述"},
-                "deadline": {"type": "string", "description": "截止时间（ISO 格式，可选）。AI 节点通常在分钟内完成任务，建议设置 5-30 分钟的 deadline"},
+                "deadline": {
+                    "type": "string",
+                    "description": "截止时间（ISO 格式，可选）。AI 节点通常在分钟内完成任务，建议设置 5-30 分钟的 deadline",
+                },
                 "priority": {"type": "integer", "default": 0},
             },
             "required": ["to_node", "task"],
@@ -73,7 +83,11 @@ ORG_NODE_TOOLS: list[dict] = [
             "type": "object",
             "properties": {
                 "content": {"type": "string", "description": "广播内容"},
-                "scope": {"type": "string", "enum": ["department", "organization"], "default": "department"},
+                "scope": {
+                    "type": "string",
+                    "enum": ["department", "organization"],
+                    "default": "department",
+                },
             },
             "required": ["content"],
         },
@@ -284,13 +298,30 @@ ORG_NODE_TOOLS: list[dict] = [
             "type": "object",
             "properties": {
                 "name": {"type": "string", "description": "任务名称（如 '巡检服务器'）"},
-                "schedule_type": {"type": "string", "enum": ["cron", "interval", "once"], "default": "interval"},
-                "cron": {"type": "string", "description": "cron 表达式（schedule_type=cron 时必填）"},
-                "interval_s": {"type": "integer", "description": "间隔秒数（schedule_type=interval 时必填）"},
-                "run_at": {"type": "string", "description": "执行时间 ISO 格式（schedule_type=once 时必填）"},
+                "schedule_type": {
+                    "type": "string",
+                    "enum": ["cron", "interval", "once"],
+                    "default": "interval",
+                },
+                "cron": {
+                    "type": "string",
+                    "description": "cron 表达式（schedule_type=cron 时必填）",
+                },
+                "interval_s": {
+                    "type": "integer",
+                    "description": "间隔秒数（schedule_type=interval 时必填）",
+                },
+                "run_at": {
+                    "type": "string",
+                    "description": "执行时间 ISO 格式（schedule_type=once 时必填）",
+                },
                 "prompt": {"type": "string", "description": "触发时执行的指令"},
                 "report_to": {"type": "string", "description": "汇报对象节点 ID（可选）"},
-                "report_condition": {"type": "string", "enum": ["always", "on_issue", "never"], "default": "on_issue"},
+                "report_condition": {
+                    "type": "string",
+                    "enum": ["always", "on_issue", "never"],
+                    "default": "on_issue",
+                },
             },
             "required": ["name", "prompt"],
         },
@@ -308,12 +339,20 @@ ORG_NODE_TOOLS: list[dict] = [
             "properties": {
                 "target_node_id": {"type": "string", "description": "目标下级节点 ID"},
                 "name": {"type": "string", "description": "任务名称"},
-                "schedule_type": {"type": "string", "enum": ["cron", "interval", "once"], "default": "interval"},
+                "schedule_type": {
+                    "type": "string",
+                    "enum": ["cron", "interval", "once"],
+                    "default": "interval",
+                },
                 "cron": {"type": "string", "description": "cron 表达式"},
                 "interval_s": {"type": "integer", "description": "间隔秒数"},
                 "prompt": {"type": "string", "description": "触发时执行的指令"},
                 "report_to": {"type": "string", "description": "汇报对象（默认为自己）"},
-                "report_condition": {"type": "string", "enum": ["always", "on_issue", "never"], "default": "on_issue"},
+                "report_condition": {
+                    "type": "string",
+                    "enum": ["always", "on_issue", "never"],
+                    "default": "on_issue",
+                },
             },
             "required": ["target_node_id", "name", "prompt"],
         },
@@ -321,16 +360,22 @@ ORG_NODE_TOOLS: list[dict] = [
     # ── 任务交付与验收 ──
     {
         "name": "org_submit_deliverable",
-        "description": "提交任务交付物给委派人，等待验收。附上工作成果说明。",
+        "description": "提交任务交付物给委派人，等待验收。to_node 可省略，系统将自动提交给你的直属上级。",
         "input_schema": {
             "type": "object",
             "properties": {
-                "to_node": {"type": "string", "description": "委派人节点 ID（即给你分配任务的人）"},
-                "task_chain_id": {"type": "string", "description": "任务链 ID（从收到的任务消息中获取）"},
+                "to_node": {
+                    "type": "string",
+                    "description": "委派人节点 ID（可省略，系统自动提交给直属上级）",
+                },
+                "task_chain_id": {
+                    "type": "string",
+                    "description": "任务链 ID（从收到的任务消息中获取）",
+                },
                 "deliverable": {"type": "string", "description": "交付内容/成果说明"},
                 "summary": {"type": "string", "description": "工作过程简述"},
             },
-            "required": ["to_node", "deliverable"],
+            "required": ["deliverable"],
         },
     },
     {
@@ -366,7 +411,10 @@ ORG_NODE_TOOLS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "filename": {"type": "string", "description": "制度文件名（如 workflow-deploy.md）"},
+                "filename": {
+                    "type": "string",
+                    "description": "制度文件名（如 workflow-deploy.md）",
+                },
                 "title": {"type": "string", "description": "制度标题"},
                 "content": {"type": "string", "description": "制度内容（Markdown 格式）"},
                 "reason": {"type": "string", "description": "提议原因"},
@@ -384,7 +432,7 @@ ORG_NODE_TOOLS: list[dict] = [
                 "tools": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "申请的工具类目或具体工具名列表（如 [\"research\", \"planning\"]）",
+                    "description": '申请的工具类目或具体工具名列表（如 ["research", "planning"]）',
                 },
                 "reason": {"type": "string", "description": "申请原因，说明为什么需要这些工具"},
             },
@@ -421,6 +469,157 @@ ORG_NODE_TOOLS: list[dict] = [
                 },
             },
             "required": ["node_id", "tools"],
+        },
+    },
+    # ── 像素形象 ──
+    {
+        "name": "org_set_appearance",
+        "description": "设置自己的像素形象。可以直接指定各项参数，也可以用自然语言描述想要的形象。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "description": "形象描述，如'戴眼镜的瘦高程序员，蓝色头发'",
+                },
+                "body_type": {"type": "string", "enum": ["slim", "average", "stocky"]},
+                "skin_tone": {"type": "integer", "minimum": 0, "maximum": 5},
+                "hair_style": {"type": "integer", "minimum": 0, "maximum": 5},
+                "hair_color": {"type": "string", "description": "十六进制颜色如 #FF6B6B"},
+                "outfit_color": {"type": "string"},
+                "accessory": {
+                    "type": "string",
+                    "enum": [
+                        "none",
+                        "glasses",
+                        "headphones",
+                        "hardhat",
+                        "beret",
+                        "crown",
+                        "tie",
+                        "mask",
+                    ],
+                },
+            },
+        },
+    },
+    # ── 项目任务进度与查询 ──
+    {
+        "name": "org_report_progress",
+        "description": "汇报当前任务进度（进度百分比、步骤摘要、执行日志）",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_chain_id": {"type": "string", "description": "任务链 ID"},
+                "progress_pct": {
+                    "type": "integer",
+                    "description": "进度百分比 0-100",
+                    "default": 0,
+                },
+                "summary": {"type": "string", "description": "进度摘要"},
+                "log_entry": {"type": "string", "description": "追加到执行日志的条目"},
+            },
+            "required": ["task_chain_id"],
+        },
+    },
+    {
+        "name": "org_get_task_progress",
+        "description": "获取指定任务的进度详情（计划步骤、执行日志、进度百分比）",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_chain_id": {"type": "string", "description": "任务链 ID"},
+                "task_id": {"type": "string", "description": "项目任务 ID（二选一）"},
+            },
+        },
+    },
+    {
+        "name": "org_list_my_tasks",
+        "description": "列出分配给自己的项目任务",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": ["todo", "in_progress", "delivered", "accepted", "rejected", "blocked"],
+                    "description": "按状态过滤",
+                },
+                "limit": {"type": "integer", "default": 10, "description": "返回条数"},
+            },
+        },
+    },
+    {
+        "name": "org_list_delegated_tasks",
+        "description": "列出自己委派给他人的任务",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": ["todo", "in_progress", "delivered", "accepted", "rejected", "blocked"],
+                    "description": "按状态过滤",
+                },
+                "limit": {"type": "integer", "default": 10, "description": "返回条数"},
+            },
+        },
+    },
+    {
+        "name": "org_list_project_tasks",
+        "description": "列出指定项目的所有任务",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string", "description": "项目 ID"},
+                "status": {
+                    "type": "string",
+                    "enum": ["todo", "in_progress", "delivered", "accepted", "rejected", "blocked"],
+                    "description": "按状态过滤",
+                },
+                "limit": {"type": "integer", "default": 20, "description": "返回条数"},
+            },
+            "required": ["project_id"],
+        },
+    },
+    {
+        "name": "org_update_project_task",
+        "description": "更新项目任务（进度、状态、计划步骤、执行日志）",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "string", "description": "项目任务 ID"},
+                "task_chain_id": {"type": "string", "description": "任务链 ID（二选一）"},
+                "progress_pct": {"type": "integer", "description": "进度百分比 0-100"},
+                "status": {
+                    "type": "string",
+                    "enum": ["todo", "in_progress", "delivered", "accepted", "rejected", "blocked"],
+                },
+                "plan_steps": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "计划步骤",
+                },
+                "execution_log": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "执行日志（追加）",
+                },
+            },
+        },
+    },
+    {
+        "name": "org_create_project_task",
+        "description": "在项目中创建新任务",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string", "description": "项目 ID"},
+                "title": {"type": "string", "description": "任务标题"},
+                "description": {"type": "string", "description": "任务描述"},
+                "assignee_node_id": {"type": "string", "description": "执行人节点 ID"},
+                "parent_task_id": {"type": "string", "description": "父任务 ID（子任务时）"},
+                "chain_id": {"type": "string", "description": "任务链 ID（关联委派）"},
+            },
+            "required": ["project_id", "title"],
         },
     },
 ]

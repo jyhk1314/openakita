@@ -25,9 +25,31 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .types import normalize_tags
+
 logger = logging.getLogger(__name__)
 
 _SCHEMA_VERSION = 2
+
+# Process-level singleton registry: same db_path → same MemoryStorage instance
+_instance_registry: dict[str, MemoryStorage] = {}
+_instance_lock = threading.Lock()
+
+
+def get_shared_storage(db_path: str | Path) -> MemoryStorage:
+    """Get or create a process-level shared MemoryStorage for the given db_path."""
+    key = str(Path(db_path).resolve())
+    with _instance_lock:
+        inst = _instance_registry.get(key)
+        if inst is not None and inst._conn is not None:
+            return inst
+        inst = MemoryStorage(db_path, _register=False)
+        _instance_registry[key] = inst
+        return inst
+
+
+def _is_db_locked(e: Exception) -> bool:
+    return isinstance(e, sqlite3.OperationalError) and "locked" in str(e).lower()
 
 
 class MemoryStorage:
@@ -35,20 +57,24 @@ class MemoryStorage:
     统一记忆存储管理器 (v2)
 
     Usage:
-        storage = MemoryStorage(db_path="data/memory/synapse.db")
+        storage = MemoryStorage(db_path="data/memory/openakita.db")
         storage.save_memory(memory_dict)
         results = storage.search_fts("代码风格")
     """
 
-    _BUSY_TIMEOUT_MS = 5000
+    _BUSY_TIMEOUT_MS = 30_000
 
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(self, db_path: str | Path, *, _register: bool = True) -> None:
         self._db_path = Path(db_path)
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn: sqlite3.Connection | None = None
         self._write_lock = threading.RLock()
         self._lock = self._write_lock  # backward compat alias
         self._init_db()
+        if _register:
+            key = str(self._db_path.resolve())
+            with _instance_lock:
+                _instance_registry.setdefault(key, self)
 
     # ======================================================================
     # Initialization & Migration
@@ -58,6 +84,7 @@ class MemoryStorage:
         self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
+        self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.execute(f"PRAGMA busy_timeout={self._BUSY_TIMEOUT_MS}")
 
         try:
@@ -77,9 +104,7 @@ class MemoryStorage:
             self._conn.execute(
                 "CREATE TABLE IF NOT EXISTS _schema_meta (key TEXT PRIMARY KEY, value TEXT)"
             )
-            cur = self._conn.execute(
-                "SELECT value FROM _schema_meta WHERE key = 'version'"
-            )
+            cur = self._conn.execute("SELECT value FROM _schema_meta WHERE key = 'version'")
             row = cur.fetchone()
             return int(row[0]) if row else 0
         except Exception:
@@ -187,6 +212,13 @@ class MemoryStorage:
             except sqlite3.OperationalError:
                 pass  # 列已存在
         c.execute("CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(scope, scope_owner)")
+
+        # v4: 多 Agent 记忆隔离预留 — agent_id 标识记忆归属
+        try:
+            c.execute("ALTER TABLE memories ADD COLUMN agent_id TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
+        c.execute("CREATE INDEX IF NOT EXISTS idx_memories_agent ON memories(agent_id)")
 
         # --- FTS5 full-text index ---
         try:
@@ -335,7 +367,9 @@ class MemoryStorage:
         c.execute("CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_memories_priority ON memories(priority)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at)")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance_score)")
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance_score)"
+        )
         c.execute("CREATE INDEX IF NOT EXISTS idx_memories_subject ON memories(subject)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_memories_episode ON memories(source_episode_id)")
 
@@ -354,9 +388,13 @@ class MemoryStorage:
         # extraction_queue
         c.execute("CREATE INDEX IF NOT EXISTS idx_eq_status ON extraction_queue(status)")
         try:
-            c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_eq_session_turn ON extraction_queue(session_id, turn_index)")
+            c.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_eq_session_turn ON extraction_queue(session_id, turn_index)"
+            )
         except sqlite3.IntegrityError:
-            logger.warning("[MemoryStorage] extraction_queue has duplicate (session_id, turn_index), deduplicating...")
+            logger.warning(
+                "[MemoryStorage] extraction_queue has duplicate (session_id, turn_index), deduplicating..."
+            )
             c.execute("""
                 DELETE FROM extraction_queue
                 WHERE id NOT IN (
@@ -364,7 +402,9 @@ class MemoryStorage:
                     GROUP BY session_id, turn_index
                 )
             """)
-            c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_eq_session_turn ON extraction_queue(session_id, turn_index)")
+            c.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_eq_session_turn ON extraction_queue(session_id, turn_index)"
+            )
         except sqlite3.OperationalError:
             pass
 
@@ -454,8 +494,8 @@ class MemoryStorage:
                      access_count, tags, created_at, updated_at, expires_at, metadata,
                      subject, predicate, confidence, decay_rate,
                      last_accessed_at, superseded_by, source_episode_id,
-                     scope, scope_owner)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     scope, scope_owner, agent_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         memory.get("id", ""),
@@ -465,7 +505,7 @@ class MemoryStorage:
                         memory.get("source", ""),
                         memory.get("importance_score", 0.5),
                         memory.get("access_count", 0),
-                        json.dumps(memory.get("tags", []), ensure_ascii=False),
+                        json.dumps(normalize_tags(memory.get("tags")), ensure_ascii=False),
                         memory.get("created_at", now),
                         now,
                         memory.get("expires_at"),
@@ -479,10 +519,13 @@ class MemoryStorage:
                         memory.get("source_episode_id"),
                         memory.get("scope", "global"),
                         memory.get("scope_owner", ""),
+                        memory.get("agent_id", ""),
                     ),
                 )
                 self._conn.commit()
             except Exception as e:
+                if _is_db_locked(e):
+                    raise
                 logger.error(f"Failed to save memory to SQLite: {e}")
 
     def save_memories_batch(self, memories: list[dict]) -> None:
@@ -498,8 +541,8 @@ class MemoryStorage:
                      access_count, tags, created_at, updated_at, expires_at, metadata,
                      subject, predicate, confidence, decay_rate,
                      last_accessed_at, superseded_by, source_episode_id,
-                     scope, scope_owner)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     scope, scope_owner, agent_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         (
@@ -510,7 +553,7 @@ class MemoryStorage:
                             m.get("source", ""),
                             m.get("importance_score", 0.5),
                             m.get("access_count", 0),
-                            json.dumps(m.get("tags", []), ensure_ascii=False),
+                            json.dumps(normalize_tags(m.get("tags")), ensure_ascii=False),
                             m.get("created_at", now),
                             now,
                             m.get("expires_at"),
@@ -524,6 +567,7 @@ class MemoryStorage:
                             m.get("source_episode_id"),
                             m.get("scope", "global"),
                             m.get("scope_owner", ""),
+                            m.get("agent_id", ""),
                         )
                         for m in memories
                     ],
@@ -531,11 +575,11 @@ class MemoryStorage:
                 self._conn.commit()
                 logger.debug(f"Batch saved {len(memories)} memories to SQLite")
             except Exception as e:
+                if _is_db_locked(e):
+                    raise
                 logger.error(f"Failed to batch save memories: {e}")
 
-    def load_all(
-        self, scope: str = "global", scope_owner: str = ""
-    ) -> list[dict]:
+    def load_all(self, scope: str = "global", scope_owner: str = "") -> list[dict]:
         if not self._conn:
             return []
         try:
@@ -555,9 +599,7 @@ class MemoryStorage:
         if not self._conn:
             return None
         try:
-            cursor = self._conn.execute(
-                "SELECT * FROM memories WHERE id = ?", (memory_id,)
-            )
+            cursor = self._conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,))
             rows = self._rows_to_dicts(cursor)
             return rows[0] if rows else None
         except Exception as e:
@@ -573,6 +615,8 @@ class MemoryStorage:
                 self._conn.commit()
                 return True
             except Exception as e:
+                if _is_db_locked(e):
+                    raise
                 logger.error(f"Failed to delete memory {memory_id}: {e}")
                 return False
 
@@ -581,18 +625,31 @@ class MemoryStorage:
         if not self._conn or not updates:
             return False
         allowed = {
-            "content", "type", "priority", "source", "importance_score",
-            "access_count", "tags", "subject", "predicate", "confidence",
-            "decay_rate", "last_accessed_at", "superseded_by",
-            "source_episode_id", "updated_at", "metadata",
-            "scope", "scope_owner",
+            "content",
+            "type",
+            "priority",
+            "source",
+            "importance_score",
+            "access_count",
+            "tags",
+            "subject",
+            "predicate",
+            "confidence",
+            "decay_rate",
+            "last_accessed_at",
+            "superseded_by",
+            "source_episode_id",
+            "updated_at",
+            "metadata",
+            "scope",
+            "scope_owner",
         }
         filtered = {k: v for k, v in updates.items() if k in allowed}
         if not filtered:
             return False
 
-        if "tags" in filtered and isinstance(filtered["tags"], list):
-            filtered["tags"] = json.dumps(filtered["tags"], ensure_ascii=False)
+        if "tags" in filtered:
+            filtered["tags"] = json.dumps(normalize_tags(filtered["tags"]), ensure_ascii=False)
         if "metadata" in filtered and isinstance(filtered["metadata"], dict):
             filtered["metadata"] = json.dumps(filtered["metadata"], ensure_ascii=False)
 
@@ -602,12 +659,12 @@ class MemoryStorage:
 
         with self._lock:
             try:
-                self._conn.execute(
-                    f"UPDATE memories SET {set_clause} WHERE id = ?", values
-                )
+                self._conn.execute(f"UPDATE memories SET {set_clause} WHERE id = ?", values)
                 self._conn.commit()
                 return True
             except Exception as e:
+                if _is_db_locked(e):
+                    raise
                 logger.error(f"Failed to update memory {memory_id}: {e}")
                 return False
 
@@ -688,9 +745,7 @@ class MemoryStorage:
                 conditions.append("(scope_owner IS NULL OR scope_owner = ?)")
                 params.append(scope_owner)
             where = " AND ".join(conditions) if conditions else "1=1"
-            cur = self._conn.execute(
-                f"SELECT COUNT(*) FROM memories WHERE {where}", params
-            )
+            cur = self._conn.execute(f"SELECT COUNT(*) FROM memories WHERE {where}", params)
             return cur.fetchone()[0]
         except Exception:
             return 0
@@ -699,26 +754,44 @@ class MemoryStorage:
     # FTS5 Search
     # ======================================================================
 
-    def search_fts(self, query: str, limit: int = 10) -> list[dict]:
+    def search_fts(
+        self,
+        query: str,
+        limit: int = 10,
+        scope: str | None = None,
+        scope_owner: str | None = None,
+    ) -> list[dict]:
         """Full-text search using FTS5 with BM25 ranking, with LIKE fallback for CJK.
 
-        TODO: Add scope filtering. FTS5 virtual tables don't support easy
-        column-based filtering; post-filter or JOIN with scope columns needed.
+        Args:
+            scope: If provided, restrict results to this scope (e.g. 'global').
+            scope_owner: If provided, restrict results to this scope_owner.
         """
         if not self._conn or not query.strip():
             return []
+
+        scope_clauses: list[str] = []
+        scope_params: list[Any] = []
+        if scope is not None:
+            scope_clauses.append("(m.scope IS NULL OR m.scope = ?)")
+            scope_params.append(scope)
+        if scope_owner is not None:
+            scope_clauses.append("(m.scope_owner IS NULL OR m.scope_owner = ?)")
+            scope_params.append(scope_owner)
+        scope_where = (" AND " + " AND ".join(scope_clauses)) if scope_clauses else ""
+
         try:
             safe_query = self._sanitize_fts_query(query)
             cursor = self._conn.execute(
-                """
+                f"""
                 SELECT m.*, bm25(memories_fts) AS rank
                 FROM memories_fts fts
                 JOIN memories m ON m.rowid = fts.rowid
-                WHERE memories_fts MATCH ?
+                WHERE memories_fts MATCH ?{scope_where}
                 ORDER BY rank
                 LIMIT ?
                 """,
-                (safe_query, limit),
+                [safe_query] + scope_params + [limit],
             )
             results = self._rows_to_dicts(cursor)
             if results:
@@ -731,11 +804,19 @@ class MemoryStorage:
             keywords = query.strip().split()
             if not keywords:
                 return []
-            conditions = " OR ".join(["content LIKE ?"] * len(keywords))
-            params = [f"%{kw}%" for kw in keywords] + [limit]
+            like_conditions = " OR ".join(["content LIKE ?"] * len(keywords))
+            like_params: list[Any] = [f"%{kw}%" for kw in keywords]
+            where = f"({like_conditions})"
+            if scope is not None:
+                where += " AND (scope IS NULL OR scope = ?)"
+                like_params.append(scope)
+            if scope_owner is not None:
+                where += " AND (scope_owner IS NULL OR scope_owner = ?)"
+                like_params.append(scope_owner)
+            like_params.append(limit)
             cursor = self._conn.execute(
-                f"SELECT * FROM memories WHERE {conditions} LIMIT ?",
-                params,
+                f"SELECT * FROM memories WHERE {where} LIMIT ?",
+                like_params,
             )
             return self._rows_to_dicts(cursor)
         except Exception as e:
@@ -793,7 +874,7 @@ class MemoryStorage:
                         json.dumps(episode.get("entities", []), ensure_ascii=False),
                         json.dumps(episode.get("tools_used", []), ensure_ascii=False),
                         json.dumps(episode.get("linked_memory_ids", []), ensure_ascii=False),
-                        json.dumps(episode.get("tags", []), ensure_ascii=False),
+                        json.dumps(normalize_tags(episode.get("tags")), ensure_ascii=False),
                         episode.get("importance_score", 0.5),
                         episode.get("access_count", 0),
                         episode.get("source", "session_end"),
@@ -801,6 +882,8 @@ class MemoryStorage:
                 )
                 self._conn.commit()
             except Exception as e:
+                if _is_db_locked(e):
+                    raise
                 logger.error(f"Failed to save episode: {e}")
 
     def get_episode(self, episode_id: str) -> dict | None:
@@ -808,7 +891,10 @@ class MemoryStorage:
             return None
         try:
             cur = self._conn.execute("SELECT * FROM episodes WHERE id = ?", (episode_id,))
-            rows = self._rows_to_dicts(cur, json_fields=["action_nodes", "entities", "tools_used", "linked_memory_ids", "tags"])
+            rows = self._rows_to_dicts(
+                cur,
+                json_fields=["action_nodes", "entities", "tools_used", "linked_memory_ids", "tags"],
+            )
             return rows[0] if rows else None
         except Exception as e:
             logger.error(f"Failed to get episode {episode_id}: {e}")
@@ -854,7 +940,10 @@ class MemoryStorage:
                 f"SELECT * FROM episodes WHERE {where} ORDER BY started_at DESC LIMIT ?",
                 params,
             )
-            return self._rows_to_dicts(cur, json_fields=["action_nodes", "entities", "tools_used", "linked_memory_ids", "tags"])
+            return self._rows_to_dicts(
+                cur,
+                json_fields=["action_nodes", "entities", "tools_used", "linked_memory_ids", "tags"],
+            )
         except Exception as e:
             logger.error(f"Failed to search episodes: {e}")
             return []
@@ -864,9 +953,15 @@ class MemoryStorage:
         if not self._conn or not updates:
             return False
         allowed = {
-            "summary", "goal", "outcome", "importance_score",
-            "access_count", "linked_memory_ids", "tags",
-            "entities", "tools_used",
+            "summary",
+            "goal",
+            "outcome",
+            "importance_score",
+            "access_count",
+            "linked_memory_ids",
+            "tags",
+            "entities",
+            "tools_used",
         }
         filtered = {k: v for k, v in updates.items() if k in allowed}
         if not filtered:
@@ -882,12 +977,12 @@ class MemoryStorage:
 
         with self._lock:
             try:
-                self._conn.execute(
-                    f"UPDATE episodes SET {set_clause} WHERE id = ?", values
-                )
+                self._conn.execute(f"UPDATE episodes SET {set_clause} WHERE id = ?", values)
                 self._conn.commit()
                 return True
             except Exception as e:
+                if _is_db_locked(e):
+                    raise
                 logger.error(f"Failed to update episode {episode_id}: {e}")
                 return False
 
@@ -904,6 +999,8 @@ class MemoryStorage:
                 self._conn.commit()
                 return cur.rowcount
             except Exception as e:
+                if _is_db_locked(e):
+                    raise
                 logger.error(f"Failed to link turns to episode: {e}")
                 return 0
 
@@ -915,10 +1012,10 @@ class MemoryStorage:
         if not self._conn:
             return None
         try:
-            cur = self._conn.execute(
-                "SELECT * FROM scratchpad WHERE user_id = ?", (user_id,)
+            cur = self._conn.execute("SELECT * FROM scratchpad WHERE user_id = ?", (user_id,))
+            rows = self._rows_to_dicts(
+                cur, json_fields=["active_projects", "open_questions", "next_steps"]
             )
-            rows = self._rows_to_dicts(cur, json_fields=["active_projects", "open_questions", "next_steps"])
             return rows[0] if rows else None
         except Exception as e:
             logger.error(f"Failed to get scratchpad: {e}")
@@ -948,6 +1045,8 @@ class MemoryStorage:
                 )
                 self._conn.commit()
             except Exception as e:
+                if _is_db_locked(e):
+                    raise
                 logger.error(f"Failed to save scratchpad: {e}")
 
     # ======================================================================
@@ -992,6 +1091,8 @@ class MemoryStorage:
                 )
                 self._conn.commit()
             except Exception as e:
+                if _is_db_locked(e):
+                    raise
                 logger.error(f"Failed to save turn: {e}")
 
     def get_unextracted_turns(self, limit: int = 100) -> list[dict]:
@@ -1022,6 +1123,8 @@ class MemoryStorage:
                 )
                 self._conn.commit()
             except Exception as e:
+                if _is_db_locked(e):
+                    raise
                 logger.error(f"Failed to mark turns extracted: {e}")
 
     def get_session_turns(self, session_id: str) -> list[dict]:
@@ -1070,6 +1173,68 @@ class MemoryStorage:
             logger.warning(f"Failed to get recent turns for {session_id}: {e}")
             return []
 
+    def list_turns(
+        self,
+        session_id: str,
+        limit: int = 50,
+        offset: int = 0,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> tuple[list[dict], int]:
+        """Paginated query for conversation_turns. Returns (rows, total).
+
+        Optional date_from / date_to (ISO date strings, e.g. '2026-03-19')
+        restrict results by the timestamp column.
+        """
+        if not self._conn:
+            return [], 0
+        with self._lock:
+            try:
+                where = "session_id = ?"
+                params: list = [session_id]
+                if date_from:
+                    where += " AND timestamp >= ?"
+                    params.append(date_from)
+                if date_to:
+                    where += " AND timestamp <= ?"
+                    params.append(date_to + "T23:59:59.999999")
+                total_row = self._conn.execute(
+                    f"SELECT COUNT(*) FROM conversation_turns WHERE {where}",
+                    params,
+                ).fetchone()
+                total = total_row[0] if total_row else 0
+                cur = self._conn.execute(
+                    "SELECT id, session_id, turn_index, role, content, "
+                    "tool_calls, tool_results, timestamp, token_estimate "
+                    f"FROM conversation_turns WHERE {where} "
+                    "ORDER BY turn_index ASC LIMIT ? OFFSET ?",
+                    params + [limit, offset],
+                )
+                rows = self._rows_to_dicts(cur, json_fields=["tool_calls", "tool_results"])
+                return rows, total
+            except Exception as e:
+                logger.warning(f"Failed to list turns for {session_id}: {e}")
+                return [], 0
+
+    def delete_turns(self, turn_ids: list[int]) -> int:
+        """Delete specific conversation_turns by their rowid."""
+        if not self._conn or not turn_ids:
+            return 0
+        with self._lock:
+            try:
+                placeholders = ",".join("?" for _ in turn_ids)
+                cur = self._conn.execute(
+                    f"DELETE FROM conversation_turns WHERE id IN ({placeholders})",
+                    turn_ids,
+                )
+                self._conn.commit()
+                return cur.rowcount
+            except Exception as e:
+                if _is_db_locked(e):
+                    raise
+                logger.warning(f"Failed to delete turns {turn_ids}: {e}")
+                return 0
+
     def delete_turns_for_session(self, session_id: str) -> int:
         """删除指定 session 的所有 conversation_turns 记录（用于上下文重置）"""
         if not self._conn:
@@ -1086,6 +1251,8 @@ class MemoryStorage:
                     logger.info(f"Deleted {deleted} conversation turns for session {session_id}")
                 return deleted
             except Exception as e:
+                if _is_db_locked(e):
+                    raise
                 logger.warning(f"Failed to delete turns for {session_id}: {e}")
                 return 0
 
@@ -1160,6 +1327,8 @@ class MemoryStorage:
                 )
                 self._conn.commit()
             except Exception as e:
+                if _is_db_locked(e):
+                    raise
                 logger.error(f"Failed to enqueue extraction: {e}")
 
     def _recover_stuck_extractions(self, stuck_timeout_minutes: int = 30) -> int:
@@ -1176,9 +1345,13 @@ class MemoryStorage:
             self._conn.commit()
             recovered = cur.rowcount
             if recovered:
-                logger.warning(f"[ExtractionQueue] Recovered {recovered} stuck items (>{stuck_timeout_minutes}m)")
+                logger.warning(
+                    f"[ExtractionQueue] Recovered {recovered} stuck items (>{stuck_timeout_minutes}m)"
+                )
             return recovered
         except Exception as e:
+            if _is_db_locked(e):
+                raise
             logger.error(f"Failed to recover stuck extractions: {e}")
             return 0
 
@@ -1209,6 +1382,8 @@ class MemoryStorage:
                     self._conn.commit()
                 return rows
             except Exception as e:
+                if _is_db_locked(e):
+                    raise
                 logger.error(f"Failed to dequeue extraction: {e}")
                 return []
 
@@ -1224,6 +1399,8 @@ class MemoryStorage:
                 )
                 self._conn.commit()
             except Exception as e:
+                if _is_db_locked(e):
+                    raise
                 logger.error(f"Failed to complete extraction {queue_id}: {e}")
 
     # ======================================================================
@@ -1260,6 +1437,8 @@ class MemoryStorage:
                 )
                 self._conn.commit()
             except Exception as e:
+                if _is_db_locked(e):
+                    raise
                 logger.error(f"Failed to cache embedding: {e}")
 
     # ======================================================================
@@ -1269,9 +1448,7 @@ class MemoryStorage:
     def save_attachment(self, data: dict) -> None:
         if not self._conn:
             return
-        tags_val = data.get("tags", [])
-        if isinstance(tags_val, list):
-            tags_val = json.dumps(tags_val, ensure_ascii=False)
+        tags_val = json.dumps(normalize_tags(data.get("tags")), ensure_ascii=False)
         linked_val = data.get("linked_memory_ids", [])
         if isinstance(linked_val, list):
             linked_val = json.dumps(linked_val, ensure_ascii=False)
@@ -1306,15 +1483,15 @@ class MemoryStorage:
                 )
                 self._conn.commit()
             except Exception as e:
+                if _is_db_locked(e):
+                    raise
                 logger.error(f"Failed to save attachment {data.get('id')}: {e}")
 
     def get_attachment(self, attachment_id: str) -> dict | None:
         if not self._conn:
             return None
         try:
-            cursor = self._conn.execute(
-                "SELECT * FROM attachments WHERE id = ?", (attachment_id,)
-            )
+            cursor = self._conn.execute("SELECT * FROM attachments WHERE id = ?", (attachment_id,))
             rows = self._rows_to_dicts(cursor, json_fields=["linked_memory_ids"])
             return rows[0] if rows else None
         except Exception as e:
@@ -1386,6 +1563,8 @@ class MemoryStorage:
                 self._conn.commit()
                 return True
             except Exception as e:
+                if _is_db_locked(e):
+                    raise
                 logger.error(f"Failed to delete attachment {attachment_id}: {e}")
                 return False
 
@@ -1449,6 +1628,8 @@ class MemoryStorage:
                     logger.info(f"Cleaned up {count} expired memories")
                 return count
             except Exception as e:
+                if _is_db_locked(e):
+                    raise
                 logger.error(f"Failed to cleanup expired memories: {e}")
                 return 0
 
@@ -1457,6 +1638,10 @@ class MemoryStorage:
             if self._conn:
                 self._conn.close()
                 self._conn = None
+        key = str(self._db_path.resolve())
+        with _instance_lock:
+            if _instance_registry.get(key) is self:
+                del _instance_registry[key]
 
     # ======================================================================
     # Helpers
@@ -1479,5 +1664,7 @@ class MemoryStorage:
                         d[jf] = json.loads(d[jf])
                     except (json.JSONDecodeError, TypeError):
                         pass
+            if "tags" in d:
+                d["tags"] = normalize_tags(d["tags"])
             results.append(d)
         return results

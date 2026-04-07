@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
-from .models import MemoryScope, MemoryType, OrgMemoryEntry, _new_id, _now_iso
+from .models import MemoryScope, MemoryType, OrgMemoryEntry
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +33,8 @@ class OrgBlackboard:
     def clear(self) -> None:
         """Remove all blackboard/memory data (used during org reset)."""
         import shutil
-        logger.warning(
-            f"[Blackboard] Clearing ALL memory for org {self._org_id}"
-        )
+
+        logger.warning(f"[Blackboard] Clearing ALL memory for org {self._org_id}")
         if self._memory_dir.exists():
             shutil.rmtree(self._memory_dir, ignore_errors=True)
             self._memory_dir.mkdir(parents=True, exist_ok=True)
@@ -45,9 +44,7 @@ class OrgBlackboard:
     # ------------------------------------------------------------------
 
     def read_org(self, limit: int = 20, tag: str | None = None) -> list[OrgMemoryEntry]:
-        return self._read_scope(
-            self._memory_dir / "blackboard.jsonl", limit=limit, tag=tag
-        )
+        return self._read_scope(self._memory_dir / "blackboard.jsonl", limit=limit, tag=tag)
 
     def read_department(
         self, dept_name: str, limit: int = 20, tag: str | None = None
@@ -124,8 +121,7 @@ class OrgBlackboard:
         )
         self._append(p, entry, MAX_DEPT_MEMORIES)
         logger.info(
-            f"[Blackboard] write_dept dept={dept_name} by={source_node} "
-            f"content={content[:80]!r}"
+            f"[Blackboard] write_dept dept={dept_name} by={source_node} content={content[:80]!r}"
         )
         return entry
 
@@ -150,9 +146,7 @@ class OrgBlackboard:
         p = self._memory_dir / "nodes" / f"{node_id}.jsonl"
         p.parent.mkdir(parents=True, exist_ok=True)
         self._append(p, entry, MAX_NODE_MEMORIES)
-        logger.info(
-            f"[Blackboard] write_node node={node_id} content={content[:80]!r}"
-        )
+        logger.info(f"[Blackboard] write_node node={node_id} content={content[:80]!r}")
         return entry
 
     # ------------------------------------------------------------------
@@ -267,6 +261,16 @@ class OrgBlackboard:
     # Internal
     # ------------------------------------------------------------------
 
+    def _is_expired(self, entry: OrgMemoryEntry) -> bool:
+        if not entry.ttl_hours:
+            return False
+        try:
+            created = datetime.fromisoformat(entry.created_at.replace("Z", "+00:00"))
+            expiry = created + timedelta(hours=entry.ttl_hours)
+            return datetime.now(created.tzinfo) > expiry
+        except (ValueError, TypeError):
+            return False
+
     def _read_scope(
         self, path: Path, limit: int = 20, tag: str | None = None
     ) -> list[OrgMemoryEntry]:
@@ -279,6 +283,8 @@ class OrgBlackboard:
                     continue
                 e = OrgMemoryEntry.from_dict(json.loads(line))
                 if tag and tag not in e.tags:
+                    continue
+                if self._is_expired(e):
                     continue
                 entries.append(e)
         except Exception as exc:
@@ -316,25 +322,33 @@ class OrgBlackboard:
         self._evict_if_needed(path, max_entries)
 
     def _evict_if_needed(self, path: Path, max_entries: int) -> None:
-        """Remove least important entries if over capacity."""
+        """Remove expired and least important entries if over capacity."""
         if not path.is_file():
             return
         lines = [ln for ln in path.read_text(encoding="utf-8").strip().split("\n") if ln.strip()]
-        if len(lines) <= max_entries:
-            return
 
-        entries_with_line: list[tuple[float, str]] = []
+        live_entries: list[tuple[float, str]] = []
+        expired_count = 0
         for line in lines:
             try:
                 d = json.loads(line)
-                imp = d.get("importance", 0.5)
-                entries_with_line.append((imp, line))
+                entry = OrgMemoryEntry.from_dict(d)
+                if self._is_expired(entry):
+                    expired_count += 1
+                    continue
+                live_entries.append((d.get("importance", 0.5), line))
             except Exception:
                 continue
 
-        entries_with_line.sort(key=lambda x: x[0], reverse=True)
-        kept = entries_with_line[:max_entries]
-        evicted_count = len(entries_with_line) - len(kept)
+        if expired_count > 0:
+            logger.info(f"[Blackboard] Removed {expired_count} expired entries from {path.name}")
+
+        if len(live_entries) <= max_entries and expired_count == 0:
+            return
+
+        live_entries.sort(key=lambda x: x[0], reverse=True)
+        kept = live_entries[:max_entries]
+        evicted_count = len(live_entries) - len(kept)
         if evicted_count > 0:
             logger.warning(
                 f"[Blackboard] Evicted {evicted_count} low-importance entries "

@@ -14,38 +14,164 @@ import asyncio
 import contextlib
 import json
 import logging
-import shutil
+import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# 尝试导入官方 MCP SDK
+# anyio 连接断开相关异常（MCP SDK 底层依赖 anyio）
+_CONNECTION_ERRORS: tuple[type[BaseException], ...] = (ConnectionError, EOFError, OSError)
 try:
-    from mcp import ClientSession, StdioServerParameters
-    from mcp.client.stdio import stdio_client
+    import anyio
 
-    MCP_SDK_AVAILABLE = True
-except ImportError:
-    MCP_SDK_AVAILABLE = False
-    logger.warning("MCP SDK not installed. Run: pip install mcp")
-
-# 尝试导入 Streamable HTTP 客户端（MCP SDK >= 1.2.0）
-MCP_HTTP_AVAILABLE = False
-try:
-    from mcp.client.streamable_http import streamablehttp_client
-
-    MCP_HTTP_AVAILABLE = True
+    _CONNECTION_ERRORS = (
+        anyio.ClosedResourceError,
+        anyio.BrokenResourceError,
+        anyio.EndOfStream,
+        ConnectionError,
+        EOFError,
+    )
 except ImportError:
     pass
 
-# 尝试导入 SSE 客户端（兼容旧版 MCP 服务器）
-MCP_SSE_AVAILABLE = False
-try:
-    from mcp.client.sse import sse_client
+# ── MCP SDK 导入（支持懒加载重试 + 自动安装） ──
 
-    MCP_SSE_AVAILABLE = True
+MCP_SDK_AVAILABLE = False
+MCP_HTTP_AVAILABLE = False
+MCP_SSE_AVAILABLE = False
+_mcp_import_attempted = False
+_mcp_auto_install_attempted = False
+
+
+def _try_import_mcp() -> bool:
+    """尝试导入 MCP SDK，更新全局可用性标志。成功返回 True。"""
+    global MCP_SDK_AVAILABLE, MCP_HTTP_AVAILABLE, MCP_SSE_AVAILABLE, _mcp_import_attempted
+    _mcp_import_attempted = True
+
+    try:
+        from mcp import ClientSession, StdioServerParameters  # noqa: F401
+        from mcp.client.stdio import stdio_client  # noqa: F401
+
+        MCP_SDK_AVAILABLE = True
+    except ImportError:
+        MCP_SDK_AVAILABLE = False
+        logger.warning("MCP SDK not installed. Run: pip install mcp")
+        return False
+
+    try:
+        from mcp.client.streamable_http import streamablehttp_client  # noqa: F401
+
+        MCP_HTTP_AVAILABLE = True
+    except ImportError:
+        pass
+
+    try:
+        from mcp.client.sse import sse_client  # noqa: F401
+
+        MCP_SSE_AVAILABLE = True
+    except ImportError:
+        pass
+
+    return True
+
+
+def _auto_install_mcp() -> bool:
+    """尝试自动安装 MCP SDK，返回是否成功。"""
+    global _mcp_auto_install_attempted
+    if _mcp_auto_install_attempted:
+        return False
+    _mcp_auto_install_attempted = True
+
+    logger.info("[MCP] MCP SDK not found, attempting auto-install...")
+    try:
+        import subprocess
+
+        exe = sys.executable
+        mirrors = [
+            ("pypi", [exe, "-m", "pip", "install", "mcp", "--quiet"]),
+            (
+                "tuna",
+                [
+                    exe,
+                    "-m",
+                    "pip",
+                    "install",
+                    "mcp",
+                    "--quiet",
+                    "-i",
+                    "https://pypi.tuna.tsinghua.edu.cn/simple/",
+                ],
+            ),
+            (
+                "aliyun",
+                [
+                    exe,
+                    "-m",
+                    "pip",
+                    "install",
+                    "mcp",
+                    "--quiet",
+                    "-i",
+                    "https://mirrors.aliyun.com/pypi/simple/",
+                ],
+            ),
+        ]
+        for label, cmd in mirrors:
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                if result.returncode == 0:
+                    logger.info("[MCP] Auto-installed MCP SDK via %s", label)
+                    return _try_import_mcp()
+            except Exception as e:
+                logger.debug("[MCP] Install via %s failed: %s", label, e)
+                continue
+        logger.warning("[MCP] Auto-install failed for all mirrors")
+        return False
+    except Exception as e:
+        logger.warning("[MCP] Auto-install error: %s", e)
+        return False
+
+
+def ensure_mcp_sdk() -> bool:
+    """确保 MCP SDK 可用。首次调用时导入，失败则尝试自动安装。"""
+    if MCP_SDK_AVAILABLE:
+        return True
+    if not _mcp_import_attempted:
+        if _try_import_mcp():
+            return True
+    if not _mcp_auto_install_attempted:
+        return _auto_install_mcp()
+    return False
+
+
+# 首次导入尝试
+_try_import_mcp()
+
+# 保持向后兼容的 try/except 占位
+try:
+    if MCP_SDK_AVAILABLE:
+        from mcp import ClientSession, StdioServerParameters  # noqa: F811
+        from mcp.client.stdio import stdio_client  # noqa: F811
+except ImportError:
+    pass
+
+try:
+    if MCP_HTTP_AVAILABLE:
+        from mcp.client.streamable_http import streamablehttp_client  # noqa: F811
+except ImportError:
+    pass
+
+try:
+    if MCP_SSE_AVAILABLE:
+        from mcp.client.sse import sse_client  # noqa: F811
 except ImportError:
     pass
 
@@ -92,6 +218,7 @@ class MCPServerConfig:
     description: str = ""
     transport: str = "stdio"  # "stdio" | "streamable_http" | "sse"
     url: str = ""  # streamable_http / sse 模式使用
+    headers: dict[str, str] = field(default_factory=dict)
     cwd: str = ""  # stdio 模式的工作目录（为空则继承父进程）
 
 
@@ -102,6 +229,7 @@ class MCPCallResult:
     success: bool
     data: Any = None
     error: str | None = None
+    reconnected: bool = False
 
 
 @dataclass
@@ -172,6 +300,7 @@ class MCPClient:
                     description=server_data.get("description", ""),
                     transport=transport,
                     url=server_data.get("url", ""),
+                    headers=server_data.get("headers", {}),
                 )
                 self.add_server(config)
 
@@ -195,9 +324,16 @@ class MCPClient:
             MCPConnectResult 包含成功状态、错误详情、发现的工具数
         """
         if not MCP_SDK_AVAILABLE:
-            msg = "MCP SDK 未安装，请运行: pip install mcp"
-            logger.error(msg)
-            return MCPConnectResult(success=False, error=msg)
+            if not ensure_mcp_sdk():
+                msg = (
+                    "MCP SDK 未安装且自动安装失败。\n"
+                    "请在 Synapse 的 Python 环境中手动安装:\n"
+                    f"  {sys.executable} -m pip install mcp\n"
+                    "安装后重启 Synapse 即可生效。"
+                )
+                logger.error(msg)
+                return MCPConnectResult(success=False, error=msg)
+            logger.info("[MCP] SDK became available after lazy install, re-importing...")
 
         if server_name not in self._servers:
             msg = f"服务器未配置: {server_name}"
@@ -211,12 +347,13 @@ class MCPClient:
         config = self._servers[server_name]
 
         # stdio 模式预检查命令是否存在
+        # ``python -m synapse.*`` 会在 _connect_stdio 中被适配为当前运行环境，
+        # 避免误用系统 Python 导致内置模块不可导入。
         if config.transport == "stdio" and config.command:
-            if not self._resolve_command(config):
-                msg = (
-                    f"启动命令 '{config.command}' 未找到。"
-                    f"请确认已安装并在 PATH 中可访问。"
-                )
+            if not self._adapt_synapse_module_command(config) and not self._resolve_command(
+                config
+            ):
+                msg = f"启动命令 '{config.command}' 未找到。请确认已安装并在 PATH 中可访问。"
                 logger.error(f"MCP connect pre-check failed for {server_name}: {msg}")
                 return MCPConnectResult(success=False, error=msg)
 
@@ -236,6 +373,8 @@ class MCPClient:
     @staticmethod
     def _resolve_command(config: MCPServerConfig) -> str | None:
         """在子进程实际使用的 PATH / cwd 下查找命令，避免误判 'not found'。"""
+        from ..utils.path_helper import which_command
+
         cmd = config.command
 
         # 1) 相对路径 + cwd：直接在目标 cwd 下判断文件是否存在
@@ -244,12 +383,12 @@ class MCPClient:
             if candidate.is_file():
                 return str(candidate.resolve())
 
-        # 2) 用子进程的 env.PATH 查找（用户可能通过 env 配置了自定义 PATH）
+        # 2) 用子进程的 env.PATH 查找（含 macOS login shell PATH 回退）
         search_path = None
         if config.env:
             search_path = config.env.get("PATH") or config.env.get("Path")
 
-        found = shutil.which(cmd, path=search_path)
+        found = which_command(cmd, extra_path=search_path)
         if found:
             return found
 
@@ -261,6 +400,44 @@ class MCPClient:
 
         return None
 
+    @staticmethod
+    def _adapt_synapse_module_command(
+        config: MCPServerConfig,
+    ) -> tuple[str, list[str]] | None:
+        """将 ``python -m synapse.*`` 适配为当前 Synapse 运行环境。
+
+        - 打包环境: 使用 ``sys.executable run-mcp-module <module>``，
+          让冻结主程序自身作为 MCP 服务器宿主，避免裸解释器无法导入内置模块。
+        - 开发环境: 使用当前虚拟环境的 Python 解释器，而不是 PATH 里的系统 Python，
+          避免 ``python -m synapse.*`` 落到错误环境中。
+
+        Returns:
+            (command, args) 如果需要适配；否则 None。
+        """
+        from ..runtime_env import IS_FROZEN, get_python_executable
+
+        if not (
+            config.command in ("python", "python3")
+            and len(config.args) >= 2
+            and config.args[0] == "-m"
+            and config.args[1].startswith("synapse.")
+        ):
+            return None
+
+        if IS_FROZEN:
+            return (sys.executable, ["run-mcp-module", config.args[1], *config.args[2:]])
+
+        py = get_python_executable() or sys.executable
+        py_path = Path(py)
+        if py_path.name.lower() not in ("python.exe", "python3.exe", "python", "python3"):
+            for candidate_name in ("python.exe", "python3.exe", "python", "python3"):
+                candidate = py_path.with_name(candidate_name)
+                if candidate.exists():
+                    py = str(candidate)
+                    break
+
+        return (py, ["-m", config.args[1], *config.args[2:]])
+
     _CONNECT_TIMEOUT: int = 30
     _CALL_TIMEOUT: int = 60
 
@@ -268,6 +445,7 @@ class MCPClient:
         """从配置加载超时参数（settings → 环境变量 → 默认值）"""
         try:
             from ..config import settings
+
             self._CONNECT_TIMEOUT = settings.mcp_connect_timeout
             self._CALL_TIMEOUT = settings.mcp_timeout
         except Exception:
@@ -275,20 +453,53 @@ class MCPClient:
 
     async def _connect_stdio(self, server_name: str, config: MCPServerConfig) -> MCPConnectResult:
         """通过 stdio 连接到 MCP 服务器"""
-        # 连接前二次解析：如果 args 中有相对路径且 cwd 已知，尝试解析
-        args = list(config.args)
-        if config.cwd:
-            cwd_path = Path(config.cwd)
-            for i, arg in enumerate(args):
-                if not arg.startswith("-") and not Path(arg).is_absolute():
-                    candidate = cwd_path / arg
-                    if candidate.is_file():
-                        args[i] = str(candidate.resolve())
+        adapted = self._adapt_synapse_module_command(config)
+        if adapted:
+            command, args = adapted
+            logger.info(
+                "Adapted MCP command for %s: %s %s",
+                server_name,
+                command,
+                " ".join(args),
+            )
+        else:
+            command = config.command
+            args = list(config.args)
+            # 连接前二次解析：如果 args 中有相对路径且 cwd 已知，尝试解析
+            if config.cwd:
+                cwd_path = Path(config.cwd)
+                for i, arg in enumerate(args):
+                    if not arg.startswith("-") and not Path(arg).is_absolute():
+                        candidate = cwd_path / arg
+                        if candidate.is_file():
+                            args[i] = str(candidate.resolve())
+
+        # macOS GUI 应用的 PATH 不含 Homebrew/NVM/Volta 等用户工具路径，
+        # 需要通过 login shell 获取完整 PATH 传递给 MCP 子进程
+        from ..utils.path_helper import get_macos_enriched_env
+
+        subprocess_env: dict | None = dict(config.env) if config.env else None
+        subprocess_env = get_macos_enriched_env(subprocess_env)
+
+        # Windows PyInstaller: _internal/ 目录下的 python.exe 是裸解释器,
+        # 会影响外部脚本的 python 命令解析 — 从 PATH 中移除
+        if sys.platform == "win32" and getattr(sys, "frozen", False):
+            if subprocess_env is None:
+                subprocess_env = dict(os.environ)
+            internal_dir = str(Path(sys.executable).parent / "_internal")
+            for path_key in ("PATH", "Path"):
+                if path_key in subprocess_env:
+                    subprocess_env[path_key] = os.pathsep.join(
+                        p
+                        for p in subprocess_env[path_key].split(os.pathsep)
+                        if not p.startswith(internal_dir)
+                    )
+                    break
 
         server_params = StdioServerParameters(
-            command=config.command,
+            command=command,
             args=args,
-            env=config.env or None,
+            env=subprocess_env,
             cwd=config.cwd or None,
         )
 
@@ -297,12 +508,14 @@ class MCPClient:
         try:
             stdio_cm = stdio_client(server_params)
             read, write = await asyncio.wait_for(
-                stdio_cm.__aenter__(), timeout=self._CONNECT_TIMEOUT,
+                stdio_cm.__aenter__(),
+                timeout=self._CONNECT_TIMEOUT,
             )
 
             client_cm = ClientSession(read, write)
             client = await asyncio.wait_for(
-                client_cm.__aenter__(), timeout=self._CONNECT_TIMEOUT,
+                client_cm.__aenter__(),
+                timeout=self._CONNECT_TIMEOUT,
             )
             await asyncio.wait_for(client.initialize(), timeout=self._CONNECT_TIMEOUT)
 
@@ -320,24 +533,33 @@ class MCPClient:
             tool_count = len(self.list_tools(server_name))
             logger.info(f"Connected to MCP server via stdio: {server_name} ({tool_count} tools)")
             return MCPConnectResult(success=True, tool_count=tool_count)
-        except asyncio.TimeoutError:
-            msg = f"连接超时（{self._CONNECT_TIMEOUT}s）。命令: {config.command} {' '.join(config.args)}"
-            logger.error(f"Timeout connecting to {server_name} via stdio")
+        except (asyncio.TimeoutError, TimeoutError):
+            stderr_hint = self._try_capture_stdio_stderr(stdio_cm)
+            msg = (
+                f"连接超时（{self._CONNECT_TIMEOUT}s）。"
+                f"命令: {command} {' '.join(args)}{stderr_hint}"
+            )
+            logger.error("Timeout connecting to %s via stdio%s", server_name, stderr_hint)
             await self._cleanup_cms(client_cm, stdio_cm)
             return MCPConnectResult(success=False, error=msg)
         except FileNotFoundError:
-            msg = f"启动命令未找到: '{config.command}'。请确认已安装。"
-            logger.error(f"Command not found for {server_name}: {config.command}")
+            msg = f"启动命令未找到: '{command}'。请确认已安装。"
+            logger.error(f"Command not found for {server_name}: {command}")
             await self._cleanup_cms(client_cm, stdio_cm)
             return MCPConnectResult(success=False, error=msg)
         except BaseException as e:
-            msg = f"stdio 连接失败: {type(e).__name__}: {e}"
+            stderr_hint = self._try_capture_stdio_stderr(stdio_cm)
+            msg = f"stdio 连接失败: {type(e).__name__}: {e}{stderr_hint}"
             logger.error(f"Failed to connect to {server_name} via stdio: {e}")
             await self._cleanup_cms(client_cm, stdio_cm)
             return MCPConnectResult(success=False, error=msg)
 
-    async def _connect_streamable_http(self, server_name: str, config: MCPServerConfig) -> MCPConnectResult:
+    async def _connect_streamable_http(
+        self, server_name: str, config: MCPServerConfig
+    ) -> MCPConnectResult:
         """通过 Streamable HTTP 连接到 MCP 服务器"""
+        if not MCP_HTTP_AVAILABLE:
+            ensure_mcp_sdk()
         if not MCP_HTTP_AVAILABLE:
             msg = "Streamable HTTP 传输不可用，请升级 MCP SDK: pip install 'mcp>=1.2.0'"
             logger.error(msg)
@@ -350,15 +572,27 @@ class MCPClient:
 
         http_cm = None
         client_cm = None
+        _managed_http_client = None
         try:
-            http_cm = streamablehttp_client(url=config.url)
+            kwargs: dict[str, Any] = {"url": config.url}
+            if config.headers:
+                import httpx as _httpx
+
+                _managed_http_client = _httpx.AsyncClient(
+                    headers=config.headers,
+                    timeout=_httpx.Timeout(self._CONNECT_TIMEOUT),
+                )
+                kwargs["http_client"] = _managed_http_client
+            http_cm = streamablehttp_client(**kwargs)
             read, write, _ = await asyncio.wait_for(
-                http_cm.__aenter__(), timeout=self._CONNECT_TIMEOUT,
+                http_cm.__aenter__(),
+                timeout=self._CONNECT_TIMEOUT,
             )
 
             client_cm = ClientSession(read, write)
             client = await asyncio.wait_for(
-                client_cm.__aenter__(), timeout=self._CONNECT_TIMEOUT,
+                client_cm.__aenter__(),
+                timeout=self._CONNECT_TIMEOUT,
             )
             await asyncio.wait_for(client.initialize(), timeout=self._CONNECT_TIMEOUT)
 
@@ -372,23 +606,32 @@ class MCPClient:
                 "transport": "streamable_http",
                 "_client_cm": client_cm,
                 "_http_cm": http_cm,
+                "_http_client": _managed_http_client,
             }
             tool_count = len(self.list_tools(server_name))
-            logger.info(f"Connected to MCP server via streamable HTTP: {server_name} ({config.url}, {tool_count} tools)")
+            logger.info(
+                f"Connected to MCP server via streamable HTTP: {server_name} ({config.url}, {tool_count} tools)"
+            )
             return MCPConnectResult(success=True, tool_count=tool_count)
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, TimeoutError):
             msg = f"HTTP 连接超时（{self._CONNECT_TIMEOUT}s）。URL: {config.url}"
             logger.error(f"Timeout connecting to {server_name} via streamable HTTP")
             await self._cleanup_cms(client_cm, http_cm)
+            if _managed_http_client:
+                await _managed_http_client.aclose()
             return MCPConnectResult(success=False, error=msg)
         except BaseException as e:
             msg = f"HTTP 连接失败: {type(e).__name__}: {e}"
             logger.error(f"Failed to connect to {server_name} via streamable HTTP: {e}")
             await self._cleanup_cms(client_cm, http_cm)
+            if _managed_http_client:
+                await _managed_http_client.aclose()
             return MCPConnectResult(success=False, error=msg)
 
     async def _connect_sse(self, server_name: str, config: MCPServerConfig) -> MCPConnectResult:
         """通过 SSE (Server-Sent Events) 连接到 MCP 服务器"""
+        if not MCP_SSE_AVAILABLE:
+            ensure_mcp_sdk()
         if not MCP_SSE_AVAILABLE:
             msg = "SSE 传输不可用，请升级 MCP SDK: pip install 'mcp>=1.2.0'"
             logger.error(msg)
@@ -402,14 +645,16 @@ class MCPClient:
         sse_cm = None
         client_cm = None
         try:
-            sse_cm = sse_client(url=config.url)
+            sse_cm = sse_client(url=config.url, headers=config.headers or None)
             read, write = await asyncio.wait_for(
-                sse_cm.__aenter__(), timeout=self._CONNECT_TIMEOUT,
+                sse_cm.__aenter__(),
+                timeout=self._CONNECT_TIMEOUT,
             )
 
             client_cm = ClientSession(read, write)
             client = await asyncio.wait_for(
-                client_cm.__aenter__(), timeout=self._CONNECT_TIMEOUT,
+                client_cm.__aenter__(),
+                timeout=self._CONNECT_TIMEOUT,
             )
             await asyncio.wait_for(client.initialize(), timeout=self._CONNECT_TIMEOUT)
 
@@ -425,9 +670,11 @@ class MCPClient:
                 "_sse_cm": sse_cm,
             }
             tool_count = len(self.list_tools(server_name))
-            logger.info(f"Connected to MCP server via SSE: {server_name} ({config.url}, {tool_count} tools)")
+            logger.info(
+                f"Connected to MCP server via SSE: {server_name} ({config.url}, {tool_count} tools)"
+            )
             return MCPConnectResult(success=True, tool_count=tool_count)
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, TimeoutError):
             msg = f"SSE 连接超时（{self._CONNECT_TIMEOUT}s）。URL: {config.url}"
             logger.error(f"Timeout connecting to {server_name} via SSE")
             await self._cleanup_cms(client_cm, sse_cm)
@@ -448,60 +695,6 @@ class MCPClient:
                 await cm.__aexit__(None, None, None)
             except BaseException:
                 pass
-
-    async def _connect_sse(self, server_name: str, config: MCPServerConfig) -> bool:
-        """通过 SSE (Server-Sent Events) 连接到 MCP 服务器"""
-        if not MCP_SSE_AVAILABLE:
-            logger.error(
-                f"SSE transport not available for {server_name}. "
-                "Upgrade MCP SDK: pip install 'mcp>=1.2.0'"
-            )
-            return False
-
-        if not config.url:
-            logger.error(f"No URL configured for SSE server: {server_name}")
-            return False
-
-        sse_cm = None
-        client_cm = None
-        try:
-            sse_cm = sse_client(url=config.url)
-            read, write = await asyncio.wait_for(
-                sse_cm.__aenter__(), timeout=self._CONNECT_TIMEOUT,
-            )
-
-            client_cm = ClientSession(read, write)
-            client = await asyncio.wait_for(
-                client_cm.__aenter__(), timeout=self._CONNECT_TIMEOUT,
-            )
-            await asyncio.wait_for(client.initialize(), timeout=self._CONNECT_TIMEOUT)
-
-            await asyncio.wait_for(
-                self._discover_capabilities(server_name, client),
-                timeout=self._CONNECT_TIMEOUT,
-            )
-
-            self._connections[server_name] = {
-                "client": client,
-                "transport": "sse",
-                "_client_cm": client_cm,
-                "_sse_cm": sse_cm,
-            }
-            logger.info(f"Connected to MCP server via SSE: {server_name} ({config.url})")
-            return True
-        except BaseException as e:
-            logger.error(f"Failed to connect to {server_name} via SSE: {e}")
-            try:
-                if client_cm:
-                    await client_cm.__aexit__(None, None, None)
-            except Exception:
-                pass
-            try:
-                if sse_cm:
-                    await sse_cm.__aexit__(None, None, None)
-            except Exception:
-                pass
-            return False
 
     async def _discover_capabilities(self, server_name: str, client: Any) -> None:
         """发现 MCP 服务器的能力（工具、资源、提示词）"""
@@ -564,14 +757,16 @@ class MCPClient:
             )
             try:
                 await asyncio.wait_for(asyncio.shield(task), timeout=8)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
+            except (TimeoutError, asyncio.CancelledError):
                 logger.debug(
-                    "MCP cleanup for %s timed out or was cancelled", server_name,
+                    "MCP cleanup for %s timed out or was cancelled",
+                    server_name,
                 )
             except BaseException:
                 logger.debug(
                     "MCP cleanup for %s raised unexpected error (ignored)",
-                    server_name, exc_info=True,
+                    server_name,
+                    exc_info=True,
                 )
             finally:
                 if task.done() and not task.cancelled():
@@ -618,7 +813,7 @@ class MCPClient:
                         wait_coro = proc.wait()
                         if asyncio.iscoroutine(wait_coro):
                             await asyncio.wait_for(wait_coro, timeout=2)
-                    except (asyncio.TimeoutError, ProcessLookupError):
+                    except (TimeoutError, ProcessLookupError):
                         with contextlib.suppress(Exception):
                             if hasattr(proc, "kill"):
                                 proc.kill()
@@ -626,6 +821,42 @@ class MCPClient:
                         pass
         except Exception:
             pass
+
+    @staticmethod
+    def _try_capture_stdio_stderr(stdio_cm: Any) -> str:
+        """Try to read stderr from the stdio subprocess for diagnostic hints."""
+        if stdio_cm is None:
+            return ""
+        try:
+            frame = getattr(stdio_cm, "ag_frame", None)
+            if frame is None:
+                return ""
+            proc = frame.f_locals.get("process")
+            if proc is None or not hasattr(proc, "stderr") or proc.stderr is None:
+                return ""
+            stderr_pipe = proc.stderr
+            # Non-blocking read of available bytes
+            if hasattr(stderr_pipe, "_buffer"):
+                data = bytes(stderr_pipe._buffer)
+            elif hasattr(stderr_pipe, "read"):
+                import asyncio
+
+                try:
+                    data = (
+                        stderr_pipe.read(2048)
+                        if not asyncio.iscoroutinefunction(getattr(stderr_pipe, "read", None))
+                        else b""
+                    )
+                except Exception:
+                    data = b""
+            else:
+                return ""
+            if data:
+                text = data.decode("utf-8", errors="replace").strip()[:500]
+                return f"\n子进程 stderr: {text}"
+        except Exception:
+            pass
+        return ""
 
     @staticmethod
     async def _isolated_cm_cleanup(server_name: str, conn: dict) -> None:
@@ -640,13 +871,88 @@ class MCPClient:
                 continue
             try:
                 await asyncio.wait_for(
-                    cm.__aexit__(None, None, None), timeout=5,
+                    cm.__aexit__(None, None, None),
+                    timeout=5,
                 )
             except BaseException:
                 logger.debug(
                     "MCP %s cleanup failed for %s (ignored)",
-                    cm_key, server_name, exc_info=True,
+                    cm_key,
+                    server_name,
+                    exc_info=True,
                 )
+        http_client = conn.get("_http_client")
+        if http_client is not None:
+            try:
+                await http_client.aclose()
+            except BaseException:
+                pass
+
+    @staticmethod
+    def _extract_content(items: list) -> list:
+        """从 MCP 响应中提取所有 content 块的文本/数据表示。"""
+        content = []
+        for item in items:
+            if hasattr(item, "text"):
+                content.append(item.text)
+            elif hasattr(item, "data"):
+                content.append(item.data)
+            elif hasattr(item, "resource"):
+                content.append(f"[resource: {getattr(item.resource, 'uri', item.resource)}]")
+            else:
+                content.append(str(item))
+        return content
+
+    @staticmethod
+    def _is_connection_error(exc: BaseException) -> bool:
+        """判断异常是否表示底层连接已断开（服务端关闭 / 管道断裂等）"""
+        if isinstance(exc, _CONNECTION_ERRORS):
+            return True
+        name = type(exc).__name__
+        if name in ("ClosedResourceError", "BrokenResourceError", "EndOfStream"):
+            return True
+        return False
+
+    async def _reconnect(self, server_name: str) -> bool:
+        """清理死连接并重新建立连接，成功返回 True"""
+        logger.info("Attempting to reconnect MCP server: %s", server_name)
+
+        old_conn = self._connections.pop(server_name, None)
+        if old_conn:
+            if old_conn.get("transport") == "stdio":
+                await self._terminate_stdio_subprocess(old_conn.get("_stdio_cm"))
+            task = asyncio.create_task(
+                self._isolated_cm_cleanup(server_name, old_conn),
+                name=f"mcp-reconnect-cleanup-{server_name}",
+            )
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=5)
+            except BaseException:
+                if not task.done():
+                    task.cancel()
+                    with contextlib.suppress(BaseException):
+                        await task
+
+        if server_name not in self._servers:
+            return False
+
+        # 先清理旧的工具/资源/提示词注册，让 _discover_capabilities 从干净状态写入。
+        # 如果重连失败，这些条目本来也不可用（连接已死）。
+        prefix = f"{server_name}:"
+        self._tools = {k: v for k, v in self._tools.items() if not k.startswith(prefix)}
+        self._resources = {k: v for k, v in self._resources.items() if not k.startswith(prefix)}
+        self._prompts = {k: v for k, v in self._prompts.items() if not k.startswith(prefix)}
+
+        result = await self.connect(server_name)
+        if result.success:
+            logger.info(
+                "Reconnected to MCP server: %s (%d tools)",
+                server_name,
+                result.tool_count,
+            )
+        else:
+            logger.warning("Reconnect failed for %s: %s", server_name, result.error)
+        return result.success
 
     async def call_tool(
         self,
@@ -666,10 +972,13 @@ class MCPClient:
             MCPCallResult
         """
         if not MCP_SDK_AVAILABLE:
-            return MCPCallResult(
-                success=False,
-                error="MCP SDK not available. Install with: pip install mcp",
-            )
+            if not ensure_mcp_sdk():
+                return MCPCallResult(
+                    success=False,
+                    error=(
+                        f"MCP SDK 未安装且自动安装失败。请运行: {sys.executable} -m pip install mcp"
+                    ),
+                )
 
         if server_name not in self._connections:
             return MCPCallResult(
@@ -684,35 +993,70 @@ class MCPClient:
                 error=f"Tool not found: {tool_name}",
             )
 
-        try:
-            conn = self._connections[server_name]
-            client = conn.get("client") if isinstance(conn, dict) else conn
-            if client is None:
-                return MCPCallResult(success=False, error=f"Invalid connection for server: {server_name}")
+        did_reconnect = False
+        for attempt in range(2):
+            try:
+                conn = self._connections.get(server_name)
+                if conn is None:
+                    return MCPCallResult(
+                        success=False,
+                        error=f"Not connected to server: {server_name}",
+                    )
+                client = conn.get("client") if isinstance(conn, dict) else conn
+                if client is None:
+                    return MCPCallResult(
+                        success=False,
+                        error=f"Invalid connection for server: {server_name}",
+                    )
 
-            result = await asyncio.wait_for(
-                client.call_tool(tool_name, arguments),
-                timeout=self._CALL_TIMEOUT,
-            )
+                result = await asyncio.wait_for(
+                    client.call_tool(tool_name, arguments),
+                    timeout=self._CALL_TIMEOUT,
+                )
 
-            content = []
-            for item in result.content:
-                if hasattr(item, "text"):
-                    content.append(item.text)
-                elif hasattr(item, "data"):
-                    content.append(item.data)
+                content = self._extract_content(result.content)
 
-            return MCPCallResult(
-                success=True,
-                data=content[0] if len(content) == 1 else content,
-            )
+                if getattr(result, "isError", False):
+                    error_text = "\n".join(str(c) for c in content) if content else "Unknown error"
+                    logger.warning(
+                        "MCP tool %s:%s returned isError=true: %s",
+                        server_name,
+                        tool_name,
+                        error_text[:500],
+                    )
+                    return MCPCallResult(
+                        success=False,
+                        error=error_text,
+                        reconnected=did_reconnect,
+                    )
 
-        except BaseException as e:
-            logger.error(f"MCP tool call failed ({server_name}:{tool_name}): {type(e).__name__}: {e}")
-            return MCPCallResult(
-                success=False,
-                error=f"{type(e).__name__}: {e}",
-            )
+                return MCPCallResult(
+                    success=True,
+                    data=content[0] if len(content) == 1 else content,
+                    reconnected=did_reconnect,
+                )
+
+            except BaseException as e:
+                if attempt == 0 and self._is_connection_error(e):
+                    logger.warning(
+                        "MCP connection lost for %s:%s (%s), reconnecting…",
+                        server_name,
+                        tool_name,
+                        type(e).__name__,
+                    )
+                    if await self._reconnect(server_name):
+                        did_reconnect = True
+                        continue
+                logger.error(
+                    "MCP tool call failed (%s:%s): %s: %s",
+                    server_name,
+                    tool_name,
+                    type(e).__name__,
+                    e,
+                )
+                return MCPCallResult(success=False, error=f"{type(e).__name__}: {e}")
+
+        return MCPCallResult(success=False, error="Unexpected: retry loop exhausted")
 
     async def read_resource(
         self,
@@ -735,30 +1079,56 @@ class MCPClient:
         if server_name not in self._connections:
             return MCPCallResult(success=False, error=f"Not connected: {server_name}")
 
-        try:
-            conn = self._connections[server_name]
-            client = conn.get("client") if isinstance(conn, dict) else conn
-            if client is None:
-                return MCPCallResult(success=False, error=f"Invalid connection for server: {server_name}")
-            result = await asyncio.wait_for(
-                client.read_resource(uri), timeout=self._CALL_TIMEOUT,
-            )
+        for attempt in range(2):
+            try:
+                conn = self._connections.get(server_name)
+                if conn is None:
+                    return MCPCallResult(
+                        success=False,
+                        error=f"Not connected: {server_name}",
+                    )
+                client = conn.get("client") if isinstance(conn, dict) else conn
+                if client is None:
+                    return MCPCallResult(
+                        success=False,
+                        error=f"Invalid connection for server: {server_name}",
+                    )
+                result = await asyncio.wait_for(
+                    client.read_resource(uri),
+                    timeout=self._CALL_TIMEOUT,
+                )
 
-            content = []
-            for item in result.contents:
-                if hasattr(item, "text"):
-                    content.append(item.text)
-                elif hasattr(item, "blob"):
-                    content.append(item.blob)
+                content = []
+                for item in result.contents:
+                    if hasattr(item, "text"):
+                        content.append(item.text)
+                    elif hasattr(item, "blob"):
+                        content.append(item.blob)
 
-            return MCPCallResult(
-                success=True,
-                data=content[0] if len(content) == 1 else content,
-            )
+                return MCPCallResult(
+                    success=True,
+                    data=content[0] if len(content) == 1 else content,
+                )
 
-        except BaseException as e:
-            logger.error(f"MCP read_resource failed ({server_name}:{uri}): {type(e).__name__}: {e}")
-            return MCPCallResult(success=False, error=f"{type(e).__name__}: {e}")
+            except BaseException as e:
+                if attempt == 0 and self._is_connection_error(e):
+                    logger.warning(
+                        "MCP connection lost for %s (read_resource %s), reconnecting…",
+                        server_name,
+                        uri,
+                    )
+                    if await self._reconnect(server_name):
+                        continue
+                logger.error(
+                    "MCP read_resource failed (%s:%s): %s: %s",
+                    server_name,
+                    uri,
+                    type(e).__name__,
+                    e,
+                )
+                return MCPCallResult(success=False, error=f"{type(e).__name__}: {e}")
+
+        return MCPCallResult(success=False, error="Unexpected: retry loop exhausted")
 
     async def get_prompt(
         self,
@@ -783,32 +1153,93 @@ class MCPClient:
         if server_name not in self._connections:
             return MCPCallResult(success=False, error=f"Not connected: {server_name}")
 
-        try:
-            conn = self._connections[server_name]
-            client = conn.get("client") if isinstance(conn, dict) else conn
-            if client is None:
-                return MCPCallResult(success=False, error=f"Invalid connection for server: {server_name}")
-            result = await asyncio.wait_for(
-                client.get_prompt(prompt_name, arguments or {}),
-                timeout=self._CALL_TIMEOUT,
-            )
-
-            messages = []
-            for msg in result.messages:
-                messages.append(
-                    {
-                        "role": msg.role,
-                        "content": msg.content.text
-                        if hasattr(msg.content, "text")
-                        else str(msg.content),
-                    }
+        for attempt in range(2):
+            try:
+                conn = self._connections.get(server_name)
+                if conn is None:
+                    return MCPCallResult(
+                        success=False,
+                        error=f"Not connected: {server_name}",
+                    )
+                client = conn.get("client") if isinstance(conn, dict) else conn
+                if client is None:
+                    return MCPCallResult(
+                        success=False,
+                        error=f"Invalid connection for server: {server_name}",
+                    )
+                result = await asyncio.wait_for(
+                    client.get_prompt(prompt_name, arguments or {}),
+                    timeout=self._CALL_TIMEOUT,
                 )
 
-            return MCPCallResult(success=True, data=messages)
+                messages = []
+                for msg in result.messages:
+                    messages.append(
+                        {
+                            "role": msg.role,
+                            "content": msg.content.text
+                            if hasattr(msg.content, "text")
+                            else str(msg.content),
+                        }
+                    )
 
-        except BaseException as e:
-            logger.error(f"MCP get_prompt failed ({server_name}:{prompt_name}): {type(e).__name__}: {e}")
-            return MCPCallResult(success=False, error=f"{type(e).__name__}: {e}")
+                return MCPCallResult(success=True, data=messages)
+
+            except BaseException as e:
+                if attempt == 0 and self._is_connection_error(e):
+                    logger.warning(
+                        "MCP connection lost for %s (get_prompt %s), reconnecting…",
+                        server_name,
+                        prompt_name,
+                    )
+                    if await self._reconnect(server_name):
+                        continue
+                logger.error(
+                    "MCP get_prompt failed (%s:%s): %s: %s",
+                    server_name,
+                    prompt_name,
+                    type(e).__name__,
+                    e,
+                )
+                return MCPCallResult(success=False, error=f"{type(e).__name__}: {e}")
+
+        return MCPCallResult(success=False, error="Unexpected: retry loop exhausted")
+
+    # ==================== 公共状态查询 / 管理 ====================
+
+    def has_server(self, name: str) -> bool:
+        """检查服务器是否已配置"""
+        return name in self._servers
+
+    def is_connected(self, name: str) -> bool:
+        """检查服务器是否已连接"""
+        return name in self._connections
+
+    def get_server_config(self, name: str) -> MCPServerConfig | None:
+        """获取服务器配置（只读）"""
+        return self._servers.get(name)
+
+    def remove_server(self, name: str) -> None:
+        """移除服务器配置及其关联的工具/资源/提示词（不断开连接，需先调 disconnect）"""
+        self._servers.pop(name, None)
+        self._connections.pop(name, None)
+        prefix = f"{name}:"
+        self._tools = {k: v for k, v in self._tools.items() if not k.startswith(prefix)}
+        self._resources = {k: v for k, v in self._resources.items() if not k.startswith(prefix)}
+        self._prompts = {k: v for k, v in self._prompts.items() if not k.startswith(prefix)}
+
+    async def reset(self) -> None:
+        """断开所有连接并清空全部状态（用于重载配置）"""
+        for name in list(self._connections):
+            try:
+                await self.disconnect(name)
+            except Exception as e:
+                logger.warning("Failed to disconnect %s during reset: %s", name, e)
+        self._servers.clear()
+        self._connections.clear()
+        self._tools.clear()
+        self._resources.clear()
+        self._prompts.clear()
 
     def list_servers(self) -> list[str]:
         """列出所有配置的服务器"""

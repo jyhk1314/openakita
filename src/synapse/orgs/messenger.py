@@ -12,25 +12,32 @@ import json
 import logging
 import time
 from collections import defaultdict
+from collections.abc import Callable, Coroutine
 from pathlib import Path
-from typing import Any, Callable, Coroutine
+from typing import Any
 
 from .models import (
-    EdgeType,
     MsgType,
     NodeStatus,
-    OrgEdge,
-    OrgMessage,
-    OrgNode,
     Organization,
-    _new_id,
-    _now_iso,
+    OrgMessage,
 )
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MSG_TTL = 300
+TASK_MSG_TTL = 1800  # 30 min — deliverables / results must survive long orchestration rounds
 DEADLOCK_CHECK_INTERVAL = 30
+
+_TASK_MSG_TYPES = frozenset(
+    {
+        "task_assign",
+        "task_result",
+        "task_delivered",
+        "task_accepted",
+        "task_rejected",
+    }
+)
 
 
 class NodeMailbox:
@@ -41,30 +48,54 @@ class NodeMailbox:
         self._queue: asyncio.PriorityQueue = asyncio.PriorityQueue(maxsize=max_size)
         self._paused = False
         self._seq = 0
+        self._frozen_buffer: list = []
+        self._dispatched = 0
 
     async def put(self, msg: OrgMessage) -> None:
-        if self._paused:
-            logger.debug(f"Mailbox {self.node_id} is paused, dropping msg {msg.id}")
-            return
         priority = -(int(msg.priority) if msg.priority else 0)
         self._seq += 1
-        await self._queue.put((priority, msg.created_at, self._seq, msg))
+        item = (priority, msg.created_at, self._seq, msg)
+        if self._paused:
+            self._frozen_buffer.append(item)
+            logger.debug(f"Mailbox {self.node_id} is paused, buffering msg {msg.id}")
+            return
+        await self._queue.put(item)
 
     async def get(self, timeout: float = 60.0) -> OrgMessage | None:
         try:
             _, _, _, msg = await asyncio.wait_for(self._queue.get(), timeout=timeout)
             return msg
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, TimeoutError):
             return None
+
+    def mark_dispatched(self) -> None:
+        """Mark one message as dispatched to handler for processing."""
+        self._dispatched += 1
 
     def pause(self) -> None:
         self._paused = True
 
     def resume(self) -> None:
         self._paused = False
+        restored = 0
+        while self._frozen_buffer:
+            item = self._frozen_buffer.pop(0)
+            self._queue.put_nowait(item)
+            restored += 1
+        if restored:
+            logger.debug(f"Mailbox {self.node_id} resumed, restored {restored} buffered messages")
+
+    @property
+    def frozen_buffer_count(self) -> int:
+        return len(self._frozen_buffer)
 
     @property
     def pending_count(self) -> int:
+        return max(0, self._queue.qsize() - self._dispatched)
+
+    @property
+    def total_received(self) -> int:
+        """Total messages ever received (queue + dispatched)."""
         return self._queue.qsize()
 
     @property
@@ -182,11 +213,17 @@ class OrgMessenger:
                 expired_ids = []
                 for msg_id, msg in list(self._pending_messages.items()):
                     try:
-                        from datetime import datetime, timezone
+                        from datetime import datetime
+
                         sent_ts = datetime.fromisoformat(msg.created_at).timestamp()
                     except Exception:
                         continue
-                    ttl = msg.metadata.get("ttl", DEFAULT_MSG_TTL)
+                    default_ttl = (
+                        TASK_MSG_TTL
+                        if getattr(msg, "msg_type", None) and msg.msg_type.value in _TASK_MSG_TYPES
+                        else DEFAULT_MSG_TTL
+                    )
+                    ttl = msg.metadata.get("ttl", default_ttl)
                     if now - sent_ts > ttl and msg.status in ("sent", "delivered"):
                         msg.status = "expired"
                         expired_ids.append(msg_id)
@@ -199,10 +236,23 @@ class OrgMessenger:
     def set_deadlock_handler(self, handler: Callable[[list[list[str]]], Any]) -> None:
         self._on_deadlock = handler
 
-    def register_handler(
-        self, node_id: str, handler: Callable[[OrgMessage], Coroutine]
-    ) -> None:
+    def register_handler(self, node_id: str, handler: Callable[[OrgMessage], Coroutine]) -> None:
         self._message_handlers[node_id] = handler
+
+    def register_node(
+        self, node_id: str, handler: Callable[[OrgMessage], Coroutine] | None = None
+    ) -> None:
+        if node_id not in self._mailboxes:
+            self._mailboxes[node_id] = NodeMailbox(node_id)
+        if handler is not None:
+            self._message_handlers[node_id] = handler
+
+    def unregister_node(self, node_id: str) -> None:
+        self._mailboxes.pop(node_id, None)
+        self._message_handlers.pop(node_id, None)
+        affinities_to_remove = [k for k, v in self._task_affinity.items() if v == node_id]
+        for k in affinities_to_remove:
+            self._task_affinity.pop(k, None)
 
     # ------------------------------------------------------------------
     # Send
@@ -225,10 +275,7 @@ class OrgMessenger:
         target = self._org.get_node(msg.to_node)
         if target is None:
             avail = ", ".join(f"{n.id}({n.role_title})" for n in self._org.nodes[:20])
-            logger.warning(
-                f"[Messenger] Target node not found: {msg.to_node}. "
-                f"Available: {avail}"
-            )
+            logger.warning(f"[Messenger] Target node not found: {msg.to_node}. Available: {avail}")
             return False
 
         if target.status == NodeStatus.FROZEN:
@@ -262,15 +309,10 @@ class OrgMessenger:
         if msg.to_node in self._message_handlers:
             try:
                 await self._message_handlers[msg.to_node](msg)
+                if mailbox and not mailbox.is_paused:
+                    mailbox.mark_dispatched()
             except Exception as e:
                 logger.error(f"[Messenger] Handler error for {msg.to_node}: {e}")
-            finally:
-                if mailbox:
-                    try:
-                        mailbox._queue.get_nowait()
-                        mailbox._queue.task_done()
-                    except Exception:
-                        pass
 
         return True
 
@@ -319,7 +361,10 @@ class OrgMessenger:
         return msg
 
     async def escalate(
-        self, from_node: str, content: str, priority: int = 1,
+        self,
+        from_node: str,
+        content: str,
+        priority: int = 1,
         metadata: dict | None = None,
     ) -> OrgMessage | None:
         parent = self._org.get_parent(from_node)
@@ -349,11 +394,14 @@ class OrgMessenger:
             sender = self._org.get_node(msg.from_node)
             if sender:
                 targets = [
-                    n.id for n in self._org.nodes
+                    n.id
+                    for n in self._org.nodes
                     if n.department == sender.department and n.id != msg.from_node
                 ]
         else:
             targets = [n.id for n in self._org.nodes if n.id != msg.from_node]
+
+        trigger_handler = msg.msg_type in (MsgType.TASK_ASSIGN, MsgType.TASK_RESULT)
 
         for nid in targets:
             copy = OrgMessage(
@@ -363,23 +411,18 @@ class OrgMessenger:
                 msg_type=msg.msg_type,
                 content=msg.content,
                 priority=msg.priority,
-                metadata=msg.metadata,
+                metadata=dict(msg.metadata) if msg.metadata else {},
             )
             mailbox = self._mailboxes.get(nid)
             if mailbox:
                 await mailbox.put(copy)
-            if nid in self._message_handlers:
+            if trigger_handler and nid in self._message_handlers:
                 try:
                     await self._message_handlers[nid](copy)
+                    if mailbox:
+                        mailbox.mark_dispatched()
                 except Exception as e:
                     logger.error(f"[Messenger] Broadcast handler error for {nid}: {e}")
-                finally:
-                    if mailbox:
-                        try:
-                            mailbox._queue.get_nowait()
-                            mailbox._queue.task_done()
-                        except Exception:
-                            pass
 
         self._log_message(msg)
         return True

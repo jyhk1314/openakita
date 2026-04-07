@@ -17,9 +17,8 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
-from .models import EdgeType, OrgNode, Organization
+from .models import EdgeType, Organization, OrgNode
 
 logger = logging.getLogger(__name__)
 
@@ -51,10 +50,7 @@ class OrgIdentity:
         level = 3
         if role:
             if self._read_file(node_identity_dir / "AGENT.md"):
-                if self._read_file(node_identity_dir / "SOUL.md"):
-                    level = 3
-                else:
-                    level = 2
+                level = 3 if self._read_file(node_identity_dir / "SOUL.md") else 2
             else:
                 level = 1
         else:
@@ -69,14 +65,25 @@ class OrgIdentity:
         return ResolvedIdentity(soul=soul, agent=agent, role=role, level=level)
 
     def build_org_context_prompt(
-        self, node: OrgNode, org: Organization, identity: ResolvedIdentity,
+        self,
+        node: OrgNode,
+        org: Organization,
+        identity: ResolvedIdentity,
         blackboard_summary: str = "",
         dept_summary: str = "",
         node_summary: str = "",
         pending_messages: str = "",
         policy_index: str = "",
+        project_tasks_summary: str = "",
     ) -> str:
-        """Build the full organization context prompt for a node agent."""
+        """Build the full organization context prompt for a node agent.
+
+        Does NOT include identity.soul or identity.agent — those contain
+        generic solo-agent philosophies (Ralph Wiggum "never give up",
+        "solve everything yourself") that directly conflict with the
+        organizational delegation model.  A minimal identity declaration
+        is generated instead.
+        """
         parent = org.get_parent(node.id)
         children = org.get_children(node.id)
 
@@ -86,27 +93,38 @@ class OrgIdentity:
                 if e.source == node.id:
                     peer = org.get_node(e.target)
                     if peer:
-                        connected_peers.append(f"{peer.role_title}({peer.department})")
+                        connected_peers.append(f"**{peer.role_title}** (id: `{peer.id}`)")
                 elif e.target == node.id:
                     peer = org.get_node(e.source)
                     if peer:
-                        connected_peers.append(f"{peer.role_title}({peer.department})")
+                        connected_peers.append(f"**{peer.role_title}** (id: `{peer.id}`)")
 
         org_chart = self._build_brief_org_chart(org)
 
         parts: list[str] = []
 
-        if identity.soul:
-            parts.append(identity.soul)
-        if identity.agent:
-            parts.append(identity.agent)
+        # Compact identity declaration (replaces full SOUL.md + AGENT.md)
+        parts.append(
+            f"# Synapse 组织 Agent\n\n"
+            f"你是「{org.name}」中的 **{node.role_title}**。"
+            f"你是 AI Agent，由 Synapse 驱动。\n\n"
+            f"## 核心原则\n"
+            f"- 诚实：不编造信息，不确定时明确说明\n"
+            f"- 安全：不执行可能造成伤害的操作\n"
+            f"- 协作：你是组织的一员，通过团队协作完成目标，而非单打独斗"
+        )
 
-        parts.append(f"## 你的组织角色\n"
-                     f"你在「{org.name}」中担任 **{node.role_title}**（{node.department}）。\n"
-                     f"{identity.role}")
+        # Role description
+        dept_label = f"（{node.department}）" if node.department else ""
+        role_section = (
+            f"## 你的组织角色\n你在「{org.name}」中担任 **{node.role_title}**{dept_label}。"
+        )
+        if identity.role:
+            role_section += f"\n{identity.role}"
+        parts.append(role_section)
 
         if org.core_business:
-            is_root = (node.level == 0 or not parent)
+            is_root = node.level == 0 or not parent
             persona_label = org.user_persona.label if org.user_persona else "负责人"
             biz_section = f"## 核心业务\n{org.core_business}"
             if is_root:
@@ -136,19 +154,35 @@ class OrgIdentity:
             "- 一个任务完成后立即开始下一个，保持连续工作节奏"
         )
 
-        parts.append(f"## 组织架构概览\n{org_chart}\n"
-                     f"需要详情时用 org_get_org_chart 查看完整架构，不确定找谁时用 org_find_colleague 搜索。")
+        parts.append(
+            f"## 组织架构概览\n{org_chart}\n"
+            f"需要详情时用 org_get_org_chart 查看完整架构，不确定找谁时用 org_find_colleague 搜索。"
+        )
 
+        # Relationships with enhanced delegation guidance
         rel_parts = []
         persona = org.user_persona
         if parent:
-            rel_parts.append(f"- 直属上级：{parent.role_title}({parent.department})")
+            rel_parts.append(f"- 直属上级：**{parent.role_title}** (id: `{parent.id}`)")
         elif persona and persona.label:
             desc = f"（{persona.description}）" if persona.description else "（用户）"
             rel_parts.append(f"- 直属上级：{persona.label}{desc}")
         if children:
-            child_str = ", ".join(f"{c.role_title}" for c in children)
-            rel_parts.append(f"- 直属下级：{child_str}")
+            child_lines = []
+            for c in children:
+                goal_hint = f" — {c.role_goal}" if c.role_goal else ""
+                child_lines.append(f"  - **{c.role_title}** (id: `{c.id}`){goal_hint}")
+            rel_parts.append("- 直属下级：\n" + "\n".join(child_lines))
+            rel_parts.append(
+                "\n**重要：你是管理者。收到复杂任务时，首先拆解并用 org_delegate_task 委派给合适的下属，"
+                "而非自己动手执行。只有简单协调沟通才自己处理。**"
+            )
+        else:
+            rel_parts.append(
+                "\n你是执行者（没有下属）。收到任务后**自己完成**，"
+                "完成后用 org_submit_deliverable 提交交付物。"
+                "需要同事协助时，用 org_send_message 与他们沟通（不要用 org_delegate_task，那是给有下属的管理者用的）。"
+            )
         if connected_peers:
             rel_parts.append(f"- 协作伙伴：{', '.join(connected_peers)}")
         if rel_parts:
@@ -173,9 +207,20 @@ class OrgIdentity:
         if policy_index:
             parts.append(f"制度索引：\n{policy_index}")
 
+        delivery_flow = (
+            "任务交付流程：\n"
+            "1. 收到任务后开始工作\n"
+            "2. 完成后用 **org_submit_deliverable** 提交交付物（to_node 可省略，系统自动提交给直属上级）\n"
+            "3. 委派人用 org_accept_deliverable（通过）或 org_reject_deliverable（打回）验收\n"
+            "4. 被打回时根据反馈修改后重新提交\n"
+            "5. 验收通过后任务完结\n\n"
+            "缺少工具时，用 org_request_tools 向上级申请。"
+        )
+
         has_external = bool(node.external_tools)
         if has_external:
-            from .tool_categories import expand_tool_categories, TOOL_CATEGORIES
+            from .tool_categories import TOOL_CATEGORIES, expand_tool_categories
+
             ext_names = expand_tool_categories(node.external_tools)
             cat_labels = [c for c in node.external_tools if c in TOOL_CATEGORIES]
             ext_desc = "、".join(cat_labels) if cat_labels else "、".join(sorted(ext_names)[:5])
@@ -187,33 +232,25 @@ class OrgIdentity:
                 "- 外部工具得到的重要结果，用 org_write_blackboard 写入黑板共享给同事\n"
                 "- 优先通过直接连线关系沟通（上下级、协作伙伴）\n"
                 "- 非必要不跨级沟通\n"
-                "- 回复要简洁，1-3 句话概括行动和结果即可\n\n"
-                "任务交付流程：\n"
-                "1. 收到任务（org_delegate_task）后开始工作\n"
-                "2. 完成后用 **org_submit_deliverable** 提交交付物给委派人\n"
-                "3. 委派人用 org_accept_deliverable（通过）或 org_reject_deliverable（打回）验收\n"
-                "4. 被打回时根据反馈修改后重新提交\n"
-                "5. 验收通过后任务完结\n\n"
-                "缺少工具时，用 org_request_tools 向上级申请。"
+                "- 回复要简洁，1-3 句话概括行动和结果即可\n\n" + delivery_flow
             )
         else:
             parts.append(
                 "## 组织工具与行为约束\n"
-                "你**只能**使用 org_* 系列工具。不要调用 create_plan、write_file、read_file、"
+                "你**只能**使用 org_* 系列工具。不要调用 write_file、read_file、"
                 "run_shell、call_mcp_tool 等非组织工具，它们不可用。\n"
                 "协作规则：\n"
                 "- 优先通过直接连线关系沟通（上下级、协作伙伴）\n"
                 "- 非必要不跨级沟通\n"
                 "- 重要决策和方案写入 org_write_blackboard，写之前先 org_read_blackboard 检查避免重复\n"
-                "- 回复要简洁，1-3 句话概括行动和结果即可\n\n"
-                "任务交付流程：\n"
-                "1. 收到任务（org_delegate_task）后开始工作\n"
-                "2. 完成后用 **org_submit_deliverable** 提交交付物给委派人\n"
-                "3. 委派人用 org_accept_deliverable（通过）或 org_reject_deliverable（打回）验收\n"
-                "4. 被打回时根据反馈修改后重新提交\n"
-                "5. 验收通过后任务完结\n\n"
-                "缺少工具时，用 org_request_tools 向上级申请。"
+                "- 回复要简洁，1-3 句话概括行动和结果即可\n\n" + delivery_flow
             )
+
+        if getattr(org, "operation_mode", "") == "command" and not project_tasks_summary:
+            project_tasks_summary = self._get_project_tasks_summary(org, node)
+
+        if project_tasks_summary:
+            parts.append(f"## 当前分配给你的项目任务\n{project_tasks_summary}")
 
         if blackboard_summary:
             parts.append(f"## 当前组织简报\n{blackboard_summary}")
@@ -241,28 +278,33 @@ class OrgIdentity:
     # ------------------------------------------------------------------
 
     def _build_brief_org_chart(self, org: Organization) -> str:
-        """Build a compact org chart for prompt injection (~200-400 tokens)."""
+        """Build a compact org chart for prompt injection (~200-500 tokens).
+
+        Format includes node IDs so agents can reference colleagues directly.
+        """
         departments: dict[str, list[OrgNode]] = {}
         roots: list[OrgNode] = []
+        root_ids: set[str] = set()
         for n in org.nodes:
             if n.level == 0:
                 roots.append(n)
+                root_ids.add(n.id)
             dept = n.department or "未分配"
             departments.setdefault(dept, []).append(n)
 
         lines: list[str] = []
         for root in roots:
-            lines.append(f"- {root.role_title} -- {root.role_goal[:30] if root.role_goal else ''}")
-            for dept_name, members in sorted(departments.items()):
-                dept_members = [m for m in members if m.id != root.id]
-                if not dept_members:
-                    continue
-                member_str = ", ".join(
-                    f"{m.role_title}" for m in dept_members[:6]
-                )
-                if len(dept_members) > 6:
-                    member_str += f" 等{len(dept_members)}人"
-                lines.append(f"  - {dept_name}: {member_str}")
+            goal = f" -- {root.role_goal[:30]}" if root.role_goal else ""
+            lines.append(f"- {root.role_title}(`{root.id}`){goal}")
+
+        for dept_name, members in sorted(departments.items()):
+            dept_members = [m for m in members if m.id not in root_ids]
+            if not dept_members:
+                continue
+            member_str = ", ".join(f"{m.role_title}(`{m.id}`)" for m in dept_members[:6])
+            if len(dept_members) > 6:
+                member_str += f" 等{len(dept_members)}人"
+            lines.append(f"  - {dept_name}: {member_str}")
 
         return "\n".join(lines) if lines else "(组织架构为空)"
 
@@ -282,15 +324,16 @@ class OrgIdentity:
     def _get_profile_prompt(self, profile_id: str) -> str | None:
         try:
             from synapse.main import _orchestrator
+
             if _orchestrator and hasattr(_orchestrator, "_profile_store"):
                 profile = _orchestrator._profile_store.get(profile_id)
                 return profile.custom_prompt if profile else None
         except (ImportError, AttributeError):
             pass
         try:
-            from synapse.agents.profile import ProfileStore
-            from synapse.config import settings
-            store = ProfileStore(settings.data_dir / "agents")
+            from synapse.agents.profile import get_profile_store
+
+            store = get_profile_store()
             profile = store.get(profile_id)
             return profile.custom_prompt if profile else None
         except Exception:
@@ -303,6 +346,33 @@ class OrgIdentity:
         if node.role_backstory:
             parts.append(f"背景：{node.role_backstory}。")
         return "".join(parts)
+
+    def _get_project_tasks_summary(self, org: Organization, node: OrgNode) -> str:
+        """Get summary of project tasks assigned to this node (for command mode)."""
+        if getattr(org, "operation_mode", "") != "command":
+            return ""
+        try:
+            from synapse.orgs.project_store import ProjectStore
+
+            store = ProjectStore(self._org_dir)
+            tasks = store.all_tasks(
+                assignee=node.id,
+                status=None,
+            )
+            in_progress = [t for t in tasks if t.get("status") == "in_progress"]
+            todo = [t for t in tasks if t.get("status") == "todo"]
+            if not in_progress and not todo:
+                return "(暂无分配给你的项目任务)"
+            lines: list[str] = []
+            for t in (in_progress + todo)[:5]:
+                title = t.get("title", "")[:60]
+                status = t.get("status", "")
+                pct = t.get("progress_pct", 0)
+                proj = t.get("project_name", "")
+                lines.append(f"- [{status}] {title} ({proj}) {pct}%")
+            return "\n".join(lines) if lines else "(暂无)"
+        except Exception:
+            return ""
 
     @staticmethod
     def _read_file(path: Path) -> str | None:

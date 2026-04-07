@@ -25,31 +25,59 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # 黑名单: 不允许通过聊天修改的字段
 # ---------------------------------------------------------------------------
-_READONLY_FIELDS = frozenset({
-    "project_root",
-    "database_path",
-    "session_storage_path",
-    "log_dir",
-    "log_file_prefix",
-})
+_READONLY_FIELDS = frozenset(
+    {
+        "project_root",
+        "database_path",
+        "session_storage_path",
+        "log_dir",
+        "log_file_prefix",
+    }
+)
 
 # ---------------------------------------------------------------------------
 # 需重启才能生效的字段
 # ---------------------------------------------------------------------------
-_RESTART_REQUIRED_FIELDS = frozenset({
-    "telegram_enabled", "telegram_bot_token", "telegram_webhook_url",
-    "telegram_pairing_code", "telegram_require_pairing", "telegram_proxy",
-    "feishu_enabled", "feishu_app_id", "feishu_app_secret",
-    "wework_enabled", "wework_corp_id", "wework_token", "wework_encoding_aes_key",
-    "wework_callback_port", "wework_callback_host",
-    "dingtalk_enabled", "dingtalk_client_id", "dingtalk_client_secret",
-    "onebot_enabled", "onebot_ws_url", "onebot_access_token",
-    "qqbot_enabled", "qqbot_app_id", "qqbot_app_secret", "qqbot_sandbox",
-    "qqbot_mode", "qqbot_webhook_port", "qqbot_webhook_path",
-    "orchestration_enabled", "orchestration_mode",
-    "orchestration_bus_address", "orchestration_pub_address",
-    "embedding_model", "embedding_device",
-})
+_RESTART_REQUIRED_FIELDS = frozenset(
+    {
+        "telegram_enabled",
+        "telegram_bot_token",
+        "telegram_webhook_url",
+        "telegram_pairing_code",
+        "telegram_require_pairing",
+        "telegram_proxy",
+        "feishu_enabled",
+        "feishu_app_id",
+        "feishu_app_secret",
+        "wework_enabled",
+        "wework_corp_id",
+        "wework_token",
+        "wework_encoding_aes_key",
+        "wework_callback_port",
+        "wework_callback_host",
+        "dingtalk_enabled",
+        "dingtalk_client_id",
+        "dingtalk_client_secret",
+        "onebot_enabled",
+        "onebot_ws_url",
+        "onebot_access_token",
+        "qqbot_enabled",
+        "qqbot_app_id",
+        "qqbot_app_secret",
+        "qqbot_sandbox",
+        "qqbot_mode",
+        "qqbot_webhook_port",
+        "qqbot_webhook_path",
+        "wechat_enabled",
+        "wechat_token",
+        "orchestration_enabled",
+        "orchestration_mode",
+        "orchestration_bus_address",
+        "orchestration_pub_address",
+        "embedding_model",
+        "embedding_device",
+    }
+)
 
 # ---------------------------------------------------------------------------
 # 敏感字段模式
@@ -61,9 +89,18 @@ _SENSITIVE_PATTERN = re.compile(r"(api_key|secret|token|password)", re.IGNORECAS
 # ---------------------------------------------------------------------------
 _CATEGORY_RULES: list[tuple[tuple[str, ...], str]] = [
     (("anthropic_", "default_model", "max_tokens"), "LLM"),
-    (("kimi_", "dashscope_", "minimax_", "openrouter_"), "LLM/备用端点"),
-    (("agent_name", "max_iterations", "auto_confirm", "force_tool_call",
-      "tool_max_parallel", "allow_parallel", "selfcheck_"), "Agent"),
+    (("dashscope_",), "LLM/DashScope"),
+    (
+        (
+            "agent_name",
+            "max_iterations",
+            "force_tool_call",
+            "tool_max_parallel",
+            "allow_parallel",
+            "selfcheck_",
+        ),
+        "Agent",
+    ),
     (("thinking_",), "Agent/思考模式"),
     (("im_chain_push",), "IM/思维链推送"),
     (("progress_timeout", "hard_timeout"), "Agent/超时"),
@@ -80,6 +117,7 @@ _CATEGORY_RULES: list[tuple[tuple[str, ...], str]] = [
     (("dingtalk_",), "IM/钉钉"),
     (("onebot_",), "IM/OneBot"),
     (("qqbot_",), "IM/QQ"),
+    (("wechat_",), "IM/微信"),
     (("session_",), "会话"),
     (("scheduler_",), "定时任务"),
     (("orchestration_",), "多Agent协同"),
@@ -129,6 +167,17 @@ def _mask_value(value: Any) -> str:
     return "***"
 
 
+def _unique_env_key(base: str, used: set[str]) -> str:
+    """Return *base* if unused, otherwise append _2, _3, … until unique."""
+    if not base or base not in used:
+        return base
+    for i in range(2, 100):
+        candidate = f"{base}_{i}"
+        if candidate not in used:
+            return candidate
+    return f"{base}_{int(__import__('time').time())}"
+
+
 def _update_env_content(existing: str, entries: dict[str, str]) -> str:
     """合并 entries 到现有 .env 内容（保留注释和顺序）"""
     lines = existing.splitlines()
@@ -161,6 +210,21 @@ def _update_env_content(existing: str, entries: dict[str, str]) -> str:
     return "\n".join(new_lines) + "\n"
 
 
+def _check_cli_anything_path() -> str | None:
+    """Return path of first cli-anything-* executable found, or None."""
+    path_dirs = os.environ.get("PATH", "").split(os.pathsep)
+    for d in path_dirs:
+        try:
+            if not os.path.isdir(d):
+                continue
+            for entry in os.listdir(d):
+                if entry.lower().startswith("cli-anything-"):
+                    return os.path.join(d, entry)
+        except OSError:
+            continue
+    return None
+
+
 class ConfigHandler:
     """系统配置处理器"""
 
@@ -188,8 +252,14 @@ class ConfigHandler:
                 return self._set_ui(params)
             elif action == "manage_provider":
                 return self._manage_provider(params)
+            elif action == "extensions":
+                return self._extensions(params)
             else:
-                return f"未知的 action: {action}。支持: discover, get, set, add_endpoint, remove_endpoint, test_endpoint, set_ui, manage_provider"
+                return (
+                    f"未知的 action: {action}。支持: discover, get, set, "
+                    "add_endpoint, remove_endpoint, test_endpoint, set_ui, "
+                    "manage_provider, extensions"
+                )
         except Exception as e:
             logger.error(f"[ConfigHandler] action={action} failed: {e}", exc_info=True)
             return f"配置操作失败: {type(e).__name__}: {e}"
@@ -222,7 +292,9 @@ class ConfigHandler:
                     default_val = "(dynamic)"
 
             sensitive = _is_sensitive(field_name)
-            display_current = _mask_value(current_val) if sensitive and current_val else str(current_val)
+            display_current = (
+                _mask_value(current_val) if sensitive and current_val else str(current_val)
+            )
             display_default = str(default_val)
 
             annotation = field_info.annotation
@@ -244,10 +316,12 @@ class ConfigHandler:
 
         if not grouped:
             if category_filter:
-                return f"未找到分类 \"{category_filter}\" 的配置项。调用 action=discover 不带 category 可查看所有分类。"
+                return f'未找到分类 "{category_filter}" 的配置项。调用 action=discover 不带 category 可查看所有分类。'
             return "未发现可配置项。"
 
-        lines = [f"## 可配置项（共 {sum(len(v) for v in grouped.values())} 项，{len(grouped)} 个分类）\n"]
+        lines = [
+            f"## 可配置项（共 {sum(len(v) for v in grouped.values())} 项，{len(grouped)} 个分类）\n"
+        ]
         for cat in sorted(grouped.keys()):
             items = grouped[cat]
             modified_count = sum(1 for it in items if it["is_modified"])
@@ -302,9 +376,7 @@ class ConfigHandler:
             val = getattr(settings, field_name, None)
             if _is_sensitive(field_name) and val:
                 val = _mask_value(val)
-            grouped.setdefault(cat, []).append(
-                f"- `{field_name.upper()}` = {val}"
-            )
+            grouped.setdefault(cat, []).append(f"- `{field_name.upper()}` = {val}")
 
         # 追加 LLM 端点概览（当查看 LLM 分类或无过滤时）
         if not category_filter or "LLM" in category_filter:
@@ -315,7 +387,9 @@ class ConfigHandler:
         if not grouped:
             return "未找到匹配的配置项。"
 
-        parts.append("## 当前配置" + (f" (分类: {category_filter})" if category_filter else "") + "\n")
+        parts.append(
+            "## 当前配置" + (f" (分类: {category_filter})" if category_filter else "") + "\n"
+        )
         for cat in sorted(grouped.keys()):
             parts.append(f"### {cat}")
             parts.extend(grouped[cat])
@@ -327,6 +401,7 @@ class ConfigHandler:
         """格式化 LLM 端点摘要"""
         try:
             from ...llm.config import load_endpoints_config
+
             endpoints, compiler_eps, stt_eps, _ = load_endpoints_config()
         except Exception:
             return ["- ⚠️ 无法读取端点配置"]
@@ -358,7 +433,7 @@ class ConfigHandler:
 
         updates = params.get("updates")
         if not updates or not isinstance(updates, dict):
-            return "❌ updates 参数缺失或格式错误，应为 {\"KEY\": \"value\"} 字典"
+            return '❌ updates 参数缺失或格式错误，应为 {"KEY": "value"} 字典'
 
         # 项目根目录
         project_root = Path(settings.project_root)
@@ -424,13 +499,22 @@ class ConfigHandler:
                 elif key in os.environ:
                     del os.environ[key]
 
-            # 热重载 settings
+            # 热重载 settings（reload 已跳过 _PERSISTABLE_KEYS 字段）
             changed_fields = settings.reload()
-            logger.info(f"[ConfigHandler] set: updated {len(env_entries)} entries, reloaded fields: {changed_fields}")
+            logger.info(
+                f"[ConfigHandler] set: updated {len(env_entries)} entries, reloaded fields: {changed_fields}"
+            )
+
+            # 双重保险：恢复运行时持久化字段（防止旧版 reload 或异常路径覆盖）
+            try:
+                runtime_state.load()
+            except Exception as e:
+                logger.warning(f"[ConfigHandler] runtime_state.load failed: {e}")
 
             # 持久化 runtime_state（如果修改了可持久化的字段）
             try:
                 from ...config import _PERSISTABLE_KEYS
+
                 if any(k.lower() in _PERSISTABLE_KEYS for k in env_entries):
                     runtime_state.save()
             except Exception as e:
@@ -448,7 +532,26 @@ class ConfigHandler:
 
         return "\n".join(result_lines)
 
-    def _validate_value(self, field_name: str, field_info: Any, value: Any) -> tuple[Any, str | None]:
+    _INT_CONSTRAINTS: dict[str, tuple[int | None, int | None, str]] = {
+        "max_iterations": (15, 10000, "最大迭代次数范围 15~10000，推荐 100~300"),
+        "progress_timeout_seconds": (60, None, "无进展超时最小 60 秒"),
+        "tool_max_parallel": (1, 32, "并行工具数范围 1~32"),
+    }
+
+    def _check_int_constraints(self, field_name: str, value: int) -> str | None:
+        spec = self._INT_CONSTRAINTS.get(field_name)
+        if not spec:
+            return None
+        lo, hi, msg = spec
+        if lo is not None and value < lo:
+            return f"值 {value} 过小。{msg}"
+        if hi is not None and value > hi:
+            return f"值 {value} 过大。{msg}"
+        return None
+
+    def _validate_value(
+        self, field_name: str, field_info: Any, value: Any
+    ) -> tuple[Any, str | None]:
         """校验配置值的类型和合法性。返回 (validated_value, error_or_None)"""
         annotation = field_info.annotation
 
@@ -459,10 +562,13 @@ class ConfigHandler:
         # 处理 int
         if annotation is int:
             try:
-                int(value)
-                return int(value), None
+                v = int(value)
             except (ValueError, TypeError):
                 return None, f"需要整数，但收到: {value}"
+            constraint_err = self._check_int_constraints(field_name, v)
+            if constraint_err:
+                return None, constraint_err
+            return v, None
 
         # 处理 bool
         if annotation is bool:
@@ -503,10 +609,8 @@ class ConfigHandler:
 
         target = (params.get("target") or "main").strip()
 
-        # 从 provider registry 获取默认值
         api_type = endpoint_data.get("api_type", "")
         base_url = endpoint_data.get("base_url", "")
-        api_key_env_suggestion = ""
 
         if not api_type or not base_url:
             defaults = self._get_provider_defaults(provider)
@@ -515,84 +619,56 @@ class ConfigHandler:
                     api_type = defaults.get("api_type", "openai")
                 if not base_url:
                     base_url = defaults.get("base_url", "")
-                api_key_env_suggestion = defaults.get("api_key_env", "")
 
         if not api_type:
             api_type = "openai"
         if not base_url:
             return f"❌ 无法推断 {provider} 的 API 地址，请手动提供 base_url"
 
-        # 处理 API Key: 存入 .env
         api_key = endpoint_data.get("api_key", "").strip()
-        api_key_env = ""
-        if api_key:
-            env_var_name = api_key_env_suggestion or f"{provider.upper()}_API_KEY"
-            api_key_env = env_var_name
 
-            from ...config import settings
-            project_root = Path(settings.project_root)
-            env_path = project_root / ".env"
-            existing = env_path.read_text(encoding="utf-8", errors="replace") if env_path.exists() else ""
-            new_content = _update_env_content(existing, {env_var_name: api_key})
-            env_path.write_text(new_content, encoding="utf-8")
-            os.environ[env_var_name] = api_key
-            logger.info(f"[ConfigHandler] Stored API key in .env as {env_var_name}")
-        else:
-            api_key_env = endpoint_data.get("api_key_env") or api_key_env_suggestion
+        endpoint_type_map = {"compiler": "compiler_endpoints", "stt": "stt_endpoints"}
+        endpoint_type = endpoint_type_map.get(target, "endpoints")
 
-        # 构建 EndpointConfig
-        from ...llm.config import load_endpoints_config, save_endpoints_config
-        from ...llm.types import EndpointConfig
+        ep_dict = {
+            "name": name,
+            "provider": provider,
+            "api_type": api_type,
+            "base_url": base_url,
+            "model": model,
+            "priority": int(endpoint_data.get("priority", 10)),
+            "max_tokens": int(endpoint_data.get("max_tokens", 0)),
+            "context_window": int(endpoint_data.get("context_window", 200000)),
+            "timeout": int(endpoint_data.get("timeout", 180)),
+        }
+        if endpoint_data.get("capabilities"):
+            ep_dict["capabilities"] = endpoint_data["capabilities"]
+        if endpoint_data.get("api_key_env"):
+            ep_dict["api_key_env"] = endpoint_data["api_key_env"]
 
-        new_ep = EndpointConfig(
-            name=name,
-            provider=provider,
-            api_type=api_type,
-            base_url=base_url,
-            api_key_env=api_key_env or None,
-            model=model,
-            priority=int(endpoint_data.get("priority", 10)),
-            max_tokens=int(endpoint_data.get("max_tokens", 0)),
-            context_window=int(endpoint_data.get("context_window", 200000)),
-            timeout=int(endpoint_data.get("timeout", 180)),
-            capabilities=endpoint_data.get("capabilities"),
-        )
+        from ...config import settings
+        from ...llm.endpoint_manager import EndpointManager
 
-        # 加载现有端点
-        endpoints, compiler_eps, stt_eps, ep_settings = load_endpoints_config()
+        mgr = EndpointManager(Path(settings.project_root))
+        try:
+            result = mgr.save_endpoint(
+                endpoint=ep_dict,
+                api_key=api_key or None,
+                endpoint_type=endpoint_type,
+            )
+        except ValueError as e:
+            return f"❌ {e}"
 
-        # 选择目标列表
-        if target == "compiler":
-            target_list = compiler_eps
-        elif target == "stt":
-            target_list = stt_eps
-        else:
-            target_list = endpoints
-
-        # 检查重名
-        for existing_ep in target_list:
-            if existing_ep.name == name:
-                return f"❌ 端点 \"{name}\" 已存在，请使用其他名称或先删除旧端点"
-
-        target_list.append(new_ep)
-
-        # 保存
-        save_endpoints_config(
-            endpoints, ep_settings,
-            compiler_endpoints=compiler_eps,
-            stt_endpoints=stt_eps,
-        )
-
-        # 热重载 LLM client
         reload_info = self._reload_llm_client()
 
+        api_key_env = result.get("api_key_env", "")
         key_info = f"API Key 已存入 .env ({api_key_env})" if api_key_env else "未配置 API Key"
         return (
             f"✅ 已添加 LLM 端点:\n"
             f"- 名称: {name}\n"
             f"- 服务商: {provider} | 协议: {api_type}\n"
             f"- API 地址: {base_url}\n"
-            f"- 模型: {model} | 优先级: {new_ep.priority}\n"
+            f"- 模型: {model} | 优先级: {ep_dict['priority']}\n"
             f"- {key_info}\n"
             f"- 目标: {target}\n"
             f"- {reload_info}"
@@ -608,40 +684,22 @@ class ConfigHandler:
 
         target = (params.get("target") or "main").strip()
 
-        from ...llm.config import load_endpoints_config, save_endpoints_config
+        endpoint_type_map = {"compiler": "compiler_endpoints", "stt": "stt_endpoints"}
+        endpoint_type = endpoint_type_map.get(target, "endpoints")
 
-        endpoints, compiler_eps, stt_eps, ep_settings = load_endpoints_config()
+        from ...config import settings
+        from ...llm.endpoint_manager import EndpointManager
 
-        if target == "compiler":
-            target_list = compiler_eps
-        elif target == "stt":
-            target_list = stt_eps
-        else:
-            target_list = endpoints
+        mgr = EndpointManager(Path(settings.project_root))
+        removed = mgr.delete_endpoint(endpoint_name, endpoint_type=endpoint_type)
 
-        original_len = len(target_list)
-        filtered = [ep for ep in target_list if ep.name != endpoint_name]
-
-        if len(filtered) == original_len:
-            available = ", ".join(ep.name for ep in target_list) or "(无)"
-            return f"❌ 未找到端点 \"{endpoint_name}\"。当前 {target} 端点: {available}"
-
-        # 更新对应列表
-        if target == "compiler":
-            compiler_eps = filtered
-        elif target == "stt":
-            stt_eps = filtered
-        else:
-            endpoints = filtered
-
-        save_endpoints_config(
-            endpoints, ep_settings,
-            compiler_endpoints=compiler_eps,
-            stt_endpoints=stt_eps,
-        )
+        if removed is None:
+            all_eps = mgr.list_endpoints(endpoint_type)
+            available = ", ".join(e.get("name", "") for e in all_eps) or "(无)"
+            return f'❌ 未找到端点 "{endpoint_name}"。当前 {target} 端点: {available}'
 
         reload_info = self._reload_llm_client()
-        return f"✅ 已删除端点 \"{endpoint_name}\" ({target})。{reload_info}"
+        return f'✅ 已删除端点 "{endpoint_name}" ({target})。{reload_info}'
 
     # ------------------------------------------------------------------
     # test_endpoint: 测试连通性
@@ -664,27 +722,30 @@ class ConfigHandler:
 
         if not target_ep:
             available = ", ".join(ep.name for ep in all_eps) or "(无)"
-            return f"❌ 未找到端点 \"{endpoint_name}\"。可用端点: {available}"
+            return f'❌ 未找到端点 "{endpoint_name}"。可用端点: {available}'
 
         api_key = target_ep.get_api_key()
         if not api_key:
             return (
-                f"❌ 端点 \"{endpoint_name}\" 未配置 API Key。\n"
+                f'❌ 端点 "{endpoint_name}" 未配置 API Key。\n'
                 f"请设置环境变量 {target_ep.api_key_env or '(未指定)'} 或在端点配置中提供 api_key。"
             )
 
         import httpx
 
         # 尝试 list models 请求
+        from synapse.llm.types import normalize_base_url
+
         headers = {"Authorization": f"Bearer {api_key}"}
+        _base = normalize_base_url(target_ep.base_url)
         if target_ep.api_type == "anthropic":
             headers = {
                 "x-api-key": api_key,
                 "anthropic-version": "2023-06-01",
             }
-            test_url = target_ep.base_url.rstrip("/") + "/v1/models"
+            test_url = _base + "/v1/models"
         else:
-            test_url = target_ep.base_url.rstrip("/") + "/models"
+            test_url = _base + "/models"
 
         t0 = time.time()
         try:
@@ -694,7 +755,7 @@ class ConfigHandler:
 
                 if resp.status_code < 400:
                     return (
-                        f"✅ 端点 \"{endpoint_name}\" 连通正常\n"
+                        f'✅ 端点 "{endpoint_name}" 连通正常\n'
                         f"- 状态码: {resp.status_code}\n"
                         f"- 延迟: {elapsed_ms}ms\n"
                         f"- 服务商: {target_ep.provider} | 模型: {target_ep.model}"
@@ -702,17 +763,17 @@ class ConfigHandler:
                 else:
                     body_preview = (resp.text or "")[:300]
                     return (
-                        f"⚠️ 端点 \"{endpoint_name}\" 返回错误\n"
+                        f'⚠️ 端点 "{endpoint_name}" 返回错误\n'
                         f"- 状态码: {resp.status_code}\n"
                         f"- 延迟: {elapsed_ms}ms\n"
                         f"- 响应: {body_preview}"
                     )
         except httpx.ConnectError as e:
-            return f"❌ 端点 \"{endpoint_name}\" 连接失败: 无法连接到 {target_ep.base_url}\n{e}"
+            return f'❌ 端点 "{endpoint_name}" 连接失败: 无法连接到 {target_ep.base_url}\n{e}'
         except httpx.TimeoutException:
-            return f"❌ 端点 \"{endpoint_name}\" 请求超时 (15s)"
+            return f'❌ 端点 "{endpoint_name}" 请求超时 (15s)'
         except Exception as e:
-            return f"❌ 端点 \"{endpoint_name}\" 测试失败: {type(e).__name__}: {e}"
+            return f'❌ 端点 "{endpoint_name}" 测试失败: {type(e).__name__}: {e}'
 
     # ------------------------------------------------------------------
     # set_ui: 设置 UI 偏好
@@ -814,7 +875,9 @@ class ConfigHandler:
 
         slug = entry["slug"].strip()
         if not self._PROVIDER_SLUG_PATTERN.match(slug):
-            return f"slug 格式无效: '{slug}'（只允许小写字母、数字、连字符、下划线，不能以符号开头）"
+            return (
+                f"slug 格式无效: '{slug}'（只允许小写字母、数字、连字符、下划线，不能以符号开头）"
+            )
 
         api_type = entry["api_type"].strip()
         if api_type not in self._PROVIDER_VALID_API_TYPES:
@@ -858,8 +921,11 @@ class ConfigHandler:
             "api_key_env_suggestion": (provider_data.get("api_key_env_suggestion") or "").strip(),
             "supports_model_list": provider_data.get("supports_model_list", True),
             "supports_capability_api": provider_data.get("supports_capability_api", False),
-            "registry_class": provider_data.get("registry_class") or (
-                "AnthropicRegistry" if provider_data["api_type"].strip() == "anthropic" else "OpenAIRegistry"
+            "registry_class": provider_data.get("registry_class")
+            or (
+                "AnthropicRegistry"
+                if provider_data["api_type"].strip() == "anthropic"
+                else "OpenAIRegistry"
             ),
             "requires_api_key": provider_data.get("requires_api_key", True),
             "is_local": provider_data.get("is_local", False),
@@ -981,6 +1047,7 @@ class ConfigHandler:
         """从 provider registry 获取默认配置"""
         try:
             from ...llm.registries import list_providers
+
             for p in list_providers():
                 if p.slug == provider_slug:
                     return {
@@ -992,6 +1059,98 @@ class ConfigHandler:
         except Exception as e:
             logger.warning(f"[ConfigHandler] Failed to load provider registry: {e}")
         return None
+
+    # ------------------------------------------------------------------
+    # extensions: 外部扩展模块管理
+    # ------------------------------------------------------------------
+
+    _EXTENSIONS = [
+        {
+            "id": "opencli",
+            "name": "OpenCLI",
+            "description": "将网站和 Electron 应用转化为 CLI 命令，复用 Chrome 登录态",
+            "category": "Web",
+            "check": lambda: __import__("shutil").which("opencli"),
+            "install": "npm install -g opencli",
+            "upgrade": "npm update -g opencli",
+            "setup": "opencli setup",
+            "homepage": "https://github.com/anthropics/opencli",
+            "license": "MIT",
+            "thanks": "Anthropic / Jack Wener",
+        },
+        {
+            "id": "cli-anything",
+            "name": "CLI-Anything",
+            "description": "为桌面软件（GIMP、Blender、LibreOffice 等）自动生成 CLI 接口",
+            "category": "Desktop",
+            "check": lambda: _check_cli_anything_path(),
+            "install": "pip install cli-anything-gimp  # 按需替换为目标软件",
+            "upgrade": "pip install --upgrade cli-anything-<app>",
+            "setup": None,
+            "homepage": "https://github.com/HKUDS/CLI-Anything",
+            "license": "MIT",
+            "thanks": "HKU Data Science Lab (HKUDS)",
+        },
+    ]
+
+    def _extensions(self, params: dict) -> str:
+        operation = (params.get("operation") or "status").strip()
+
+        if operation == "status":
+            return self._ext_status()
+        elif operation == "credits":
+            return self._ext_credits()
+        else:
+            return (
+                "❌ extensions 支持的 operation:\n"
+                "- `status`: 查看所有外部扩展模块状态、安装/升级命令\n"
+                "- `credits`: 查看致谢信息"
+            )
+
+    def _ext_status(self) -> str:
+        lines = ["## 外部扩展模块\n"]
+        lines.append(
+            "以下模块为可选外部工具，安装后 Synapse 自动检测并启用。\n"
+            "无需重启，下次对话即生效。\n"
+        )
+
+        for ext in self._EXTENSIONS:
+            path = ext["check"]()
+            installed = path is not None
+            icon = "✅" if installed else "⬜"
+            lines.append(f"### {icon} {ext['name']} ({ext['category']})")
+            lines.append(f"{ext['description']}")
+            lines.append(
+                f"- 状态: {'**已安装**' if installed else '未安装'}"
+                + (f" (`{path}`)" if installed else "")
+            )
+            lines.append(f"- 安装: `{ext['install']}`")
+            lines.append(f"- 升级: `{ext['upgrade']}`")
+            if ext.get("setup"):
+                lines.append(f"- 首次配置: `{ext['setup']}`")
+            lines.append(f"- 主页: {ext['homepage']}")
+            lines.append("")
+
+        lines.append("---")
+        lines.append("*安装后无需修改 Synapse 配置，系统启动时自动检测 PATH。*")
+        return "\n".join(lines)
+
+    def _ext_credits(self) -> str:
+        lines = ["## 致谢 — 外部扩展模块\n"]
+        lines.append("Synapse 的工具调用和浏览器访问能力得益于以下开源项目：\n")
+
+        for ext in self._EXTENSIONS:
+            lines.append(f"### {ext['name']}")
+            lines.append(f"- {ext['description']}")
+            lines.append(f"- 作者: **{ext['thanks']}**")
+            lines.append(f"- 许可: {ext['license']}")
+            lines.append(f"- 项目: {ext['homepage']}")
+            lines.append("")
+
+        lines.append(
+            "感谢这些项目的贡献者们，让 AI Agent 能够更可靠地与真实世界的网站和桌面软件交互。"
+        )
+        return "\n".join(lines)
 
     def _reload_llm_client(self) -> str:
         """热重载 LLM client，返回结果描述"""

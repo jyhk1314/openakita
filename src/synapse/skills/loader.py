@@ -18,6 +18,7 @@ _CURRENT_PLATFORM = sys.platform  # "win32", "darwin", "linux"
 
 logger = logging.getLogger(__name__)
 
+
 def _resolve_user_workspace_skills() -> Path:
     """动态解析当前用户工作区的技能目录。
 
@@ -26,9 +27,11 @@ def _resolve_user_workspace_skills() -> Path:
     """
     try:
         from ..config import settings
+
         return settings.skills_path
     except Exception:
         import os
+
         root = os.environ.get("SYNAPSE_ROOT", "").strip()
         if root:
             return Path(root) / "workspaces" / "default" / "skills"
@@ -58,14 +61,7 @@ SKILL_DIRECTORIES = [
     # 用户工作区（运行时根据当前工作区动态解析）
     "__user_workspace__",
     # 项目级别（开发模式下仍可扫描）
-    ".cursor/skills",
-    ".claude/skills",
-    ".codex/skills",
     "skills",
-    # 用户级别 (全局，兼容其他产品的技能)
-    "~/.cursor/skills",
-    "~/.claude/skills",
-    "~/.codex/skills",
 ]
 
 # 系统技能目录（优先加载）
@@ -75,62 +71,102 @@ SYSTEM_SKILL_DIRECTORIES = [
 
 # 打包时默认不启用的外部技能（新安装 / 无 data/skills.json 时生效）。
 # 用户通过前端面板手动勾选后会创建 skills.json，之后以用户选择为准。
-DEFAULT_DISABLED_SKILLS: frozenset[str] = frozenset({
-    "synapse/skills@algorithmic-art",
-    "synapse/skills@apify-scraper",
-    "jimliu/baoyu-skills@baoyu-article-illustrator",
-    "jimliu/baoyu-skills@baoyu-comic",
-    "jimliu/baoyu-skills@baoyu-cover-image",
-    "jimliu/baoyu-skills@baoyu-format-markdown",
-    "jimliu/baoyu-skills@baoyu-image-gen",
-    "jimliu/baoyu-skills@baoyu-infographic",
-    "jimliu/baoyu-skills@baoyu-slide-deck",
-    "jimliu/baoyu-skills@baoyu-url-to-markdown",
-    "synapse/skills@bilibili-watcher",
-    "synapse/skills@brand-guidelines",
-    "synapse/skills@changelog-generator",
-    "synapse/skills@chinese-novelist",
-    "synapse/skills@chinese-writing",
-    "synapse/skills@code-reviewer",
-    "synapse/skills@douyin-tool",
-    "synapse/skills@frontend-design",
-    "synapse/skills@github-automation",
-    "synapse/skills@gmail-automation",
-    "synapse/skills@google-calendar-automation",
-    "synapse/skills@image-understander",
-    "synapse/skills@internal-comms",
-    "synapse/skills@knowledge-capture",
-    "synapse/skills@moltbook",
-    "synapse/skills@notebooklm",
-    "synapse/skills@obsidian-skills",
-    "synapse/skills@ppt-creator",
-    "synapse/skills@pretty-mermaid",
-    "synapse/skills@slack-gif-creator",
-    "synapse/skills@summarizer",
-    "obra/superpowers@brainstorming",
-    "obra/superpowers@dispatching-parallel-agents",
-    "obra/superpowers@executing-plans",
-    "obra/superpowers@finishing-a-development-branch",
-    "obra/superpowers@receiving-code-review",
-    "obra/superpowers@requesting-code-review",
-    "obra/superpowers@subagent-driven-development",
-    "obra/superpowers@systematic-debugging",
-    "obra/superpowers@test-driven-development",
-    "obra/superpowers@using-git-worktrees",
-    "obra/superpowers@using-superpowers",
-    "obra/superpowers@verification-before-completion",
-    "obra/superpowers@writing-plans",
-    "obra/superpowers@writing-skills",
-    "synapse/skills@theme-factory",
-    "synapse/skills@todoist-task",
-    "synapse/skills@translate-pdf",
-    "synapse/skills@video-downloader",
-    "synapse/skills@webapp-testing",
-    "synapse/skills@wechat-article",
-    "synapse/skills@xiaohongshu-creator",
-    "synapse/skills@youtube-summarizer",
-    "synapse/skills@yuque-skills",
-})
+DEFAULT_DISABLED_SKILLS: frozenset[str] = frozenset(
+    {
+        "synapse/skills@algorithmic-art",
+        "synapse/skills@apify-scraper",
+        "jimliu/baoyu-skills@baoyu-article-illustrator",
+        "jimliu/baoyu-skills@baoyu-comic",
+        "jimliu/baoyu-skills@baoyu-cover-image",
+        "jimliu/baoyu-skills@baoyu-format-markdown",
+        "jimliu/baoyu-skills@baoyu-image-gen",
+        "jimliu/baoyu-skills@baoyu-infographic",
+        "jimliu/baoyu-skills@baoyu-slide-deck",
+        "jimliu/baoyu-skills@baoyu-url-to-markdown",
+        "synapse/skills@bilibili-watcher",
+        "synapse/skills@brand-guidelines",
+        "synapse/skills@changelog-generator",
+        "synapse/skills@chinese-novelist",
+        "synapse/skills@chinese-writing",
+        "synapse/skills@code-reviewer",
+        "synapse/skills@douyin-tool",
+        "synapse/skills@frontend-design",
+        "synapse/skills@github-automation",
+        "synapse/skills@gmail-automation",
+        "synapse/skills@google-calendar-automation",
+        "synapse/skills@image-understander",
+        "synapse/skills@internal-comms",
+        "synapse/skills@knowledge-capture",
+        "synapse/skills@moltbook",
+        "synapse/skills@notebooklm",
+        "synapse/skills@obsidian-skills",
+        "synapse/skills@ppt-creator",
+        "synapse/skills@pretty-mermaid",
+        "synapse/skills@slack-gif-creator",
+        "synapse/skills@summarizer",
+        "obra/superpowers@brainstorming",
+        "obra/superpowers@dispatching-parallel-agents",
+        "obra/superpowers@executing-plans",
+        "obra/superpowers@finishing-a-development-branch",
+        "obra/superpowers@receiving-code-review",
+        "obra/superpowers@requesting-code-review",
+        "obra/superpowers@subagent-driven-development",
+        "obra/superpowers@systematic-debugging",
+        "obra/superpowers@test-driven-development",
+        "obra/superpowers@using-git-worktrees",
+        "obra/superpowers@using-superpowers",
+        "obra/superpowers@verification-before-completion",
+        "obra/superpowers@writing-plans",
+        "obra/superpowers@writing-skills",
+        "synapse/skills@theme-factory",
+        "synapse/skills@todoist-task",
+        "synapse/skills@translate-pdf",
+        "synapse/skills@video-downloader",
+        "synapse/skills@webapp-testing",
+        "synapse/skills@wechat-article",
+        "synapse/skills@xiaohongshu-creator",
+        "synapse/skills@youtube-summarizer",
+        "synapse/skills@yuque-skills",
+        # IM 办公 CLI
+        "synapse/skills@feishu-cli",
+        "synapse/skills@wecom-cli",
+        "synapse/skills@dingtalk-cli",
+        # AI 视频生成
+        "synapse/skills@seedance-video",
+        # 出行与地图
+        "synapse/skills@amap-maps",
+        "synapse/skills@fliggy-travel",
+        "synapse/skills@didi-ride",
+        # 腾讯生态
+        "synapse/skills@qq-channel",
+        "synapse/skills@tencent-meeting",
+        "synapse/skills@tencent-survey",
+        "synapse/skills@tencent-news",
+        "synapse/skills@tencent-ima",
+        # 百度系 Skills
+        "synapse/skills@baidu-search",
+        "synapse/skills@baidu-netdisk",
+        "synapse/skills@baidu-baike",
+        "synapse/skills@baidu-maps",
+        "synapse/skills@baidu-scholar",
+        "synapse/skills@miaoda-app-builder",
+        "synapse/skills@baidu-paddleocr-doc",
+        "synapse/skills@baidu-paddleocr-text",
+        "synapse/skills@baidu-deep-research",
+        "synapse/skills@baidu-ecommerce",
+        "synapse/skills@baidu-marketing",
+        "synapse/skills@baidu-picture-book",
+        "synapse/skills@baidu-ppt-gen",
+        "synapse/skills@baidu-video-notes",
+        "synapse/skills@baidu-yijian",
+        "synapse/skills@baidu-famou",
+        "synapse/skills@xiaodu-control",
+        # 电商工具
+        "synapse/skills@taobaoke-tool",
+        # 网易云音乐
+        "synapse/skills@netease-music",
+    }
+)
 
 
 class SkillLoader:
@@ -203,6 +239,55 @@ class SkillLoader:
         for skill_dir in directories:
             loaded += self.load_from_directory(skill_dir)
 
+        loaded += self._load_cli_anything_skills()
+
+        return loaded
+
+    def _load_cli_anything_skills(self) -> int:
+        """Discover and load SKILL.md files from pip-installed cli-anything-* packages.
+
+        CLI-Anything generates SKILL.md alongside each CLI harness. When installed
+        via pip, these live under the package's site-packages directory (e.g.
+        ``cli_anything/gimp/SKILL.md``). This method scans for them so that
+        ``pip install cli-anything-gimp`` makes the skill auto-discoverable.
+        """
+        loaded = 0
+        try:
+            import importlib.metadata as importlib_metadata
+        except ImportError:
+            return 0
+
+        try:
+            distributions = list(importlib_metadata.distributions())
+        except Exception:
+            return 0
+
+        for dist in distributions:
+            name = (dist.metadata.get("Name") or "").lower()
+            if not name.startswith("cli-anything-"):
+                continue
+
+            dist_files = dist.files
+            if not dist_files:
+                continue
+
+            for rel_path in dist_files:
+                if rel_path.name.upper() == "SKILL.MD":
+                    try:
+                        full_path = rel_path.locate()
+                        if isinstance(full_path, Path) and full_path.exists():
+                            skill_dir = full_path.parent
+                            skill = self.load_skill(skill_dir)
+                            if skill:
+                                loaded += 1
+                                logger.info(
+                                    f"Loaded cli-anything skill from pip package: {name} ({skill_dir})"
+                                )
+                    except Exception as e:
+                        logger.debug(f"Failed to load cli-anything skill from {name}: {e}")
+
+        if loaded:
+            logger.info(f"Loaded {loaded} cli-anything skills from pip packages")
         return loaded
 
     def load_from_directory(self, directory: Path) -> int:
@@ -253,7 +338,12 @@ class SkillLoader:
             return True
         return _CURRENT_PLATFORM in supported_os
 
-    def load_skill(self, skill_dir: Path) -> ParsedSkill | None:
+    def load_skill(
+        self,
+        skill_dir: Path,
+        *,
+        plugin_source: str | None = None,
+    ) -> ParsedSkill | None:
         """
         加载单个技能
 
@@ -278,17 +368,31 @@ class SkillLoader:
                 )
                 return None
 
-            # 验证
+            # 验证: hard errors block registration, warnings are logged
             errors = self.parser.validate(skill)
-            if errors:
-                for error in errors:
-                    logger.warning(f"Skill validation warning: {error}")
+            hard_errors = [e for e in (errors or []) if e.startswith("ERROR:")]
+            warnings = [e for e in (errors or []) if not e.startswith("ERROR:")]
+            for w in warnings:
+                logger.warning(f"Skill validation warning: {w}")
+            if hard_errors:
+                for e in hard_errors:
+                    logger.error(f"Skill validation error: {e}")
+                logger.error(f"Skill '{skill_dir.name}' rejected due to validation errors")
+                return None
 
-            # 注册到 registry
-            self.registry.register(skill)
-            self._loaded_skills[skill.metadata.name] = skill
+            sid = skill_dir.name
 
-            logger.info(f"Loaded skill: {skill.metadata.name}")
+            registered = self.registry.register(
+                skill,
+                skill_id=sid,
+                plugin_source=plugin_source,
+            )
+            if not registered:
+                logger.warning(f"Skill '{sid}' registration rejected (conflict)")
+                return None
+
+            self._loaded_skills[sid] = skill
+            logger.info(f"Loaded skill: {sid} (name={skill.metadata.name})")
             return skill
 
         except Exception as e:
@@ -311,11 +415,21 @@ class SkillLoader:
             if "description" in fields:
                 metadata.description_i18n[lang] = str(fields["description"])
 
-    def get_skill(self, name: str) -> ParsedSkill | None:
-        """获取已加载的技能"""
-        return self._loaded_skills.get(name)
+    def _resolve_skill(self, key: str) -> ParsedSkill | None:
+        """按 skill_id 查找，未命中时回退到 name 匹配。"""
+        skill = self._loaded_skills.get(key)
+        if skill is not None:
+            return skill
+        for s in self._loaded_skills.values():
+            if s.metadata.name == key:
+                return s
+        return None
 
-    def get_skill_body(self, name: str) -> str | None:
+    def get_skill(self, key: str) -> ParsedSkill | None:
+        """获取已加载的技能（接受 skill_id 或 name）"""
+        return self._resolve_skill(key)
+
+    def get_skill_body(self, key: str) -> str | None:
         """
         获取技能的完整指令 (body)
 
@@ -324,14 +438,12 @@ class SkillLoader:
         - 第二级: 完整指令 (body) - 激活时加载
         - 第三级: 资源文件 - 按需加载
         """
-        skill = self._loaded_skills.get(name)
+        skill = self._resolve_skill(key)
         if skill:
             return skill.body
         return None
 
-    def compute_effective_allowlist(
-        self, external_allowlist: set[str] | None
-    ) -> set[str] | None:
+    def compute_effective_allowlist(self, external_allowlist: set[str] | None) -> set[str] | None:
         """根据 skills.json 的 allowlist 和默认禁用列表，计算最终的有效 allowlist。
 
         - skills.json 存在且有 external_allowlist -> 直接使用（用户显式选择）
@@ -344,8 +456,8 @@ class SkillLoader:
             return None
 
         all_external = {
-            name
-            for name, skill in self._loaded_skills.items()
+            sid
+            for sid, skill in self._loaded_skills.items()
             if not getattr(skill.metadata, "system", False)
         }
         return all_external - DEFAULT_DISABLED_SKILLS
@@ -457,15 +569,24 @@ class SkillLoader:
 
         很多外部技能（如 Anthropic 的 xlsx、pdf 等）把脚本直接放在技能根目录
         而非 scripts/ 子目录，因此需要双重查找。
+
+        安全: 解析后的路径必须仍在技能目录内，防止 ``../`` 穿越。
         """
-        if skill.scripts_dir:
-            candidate = skill.scripts_dir / script_name
+        for base in (skill.scripts_dir, skill.skill_dir):
+            if base is None:
+                continue
+            candidate = (base / script_name).resolve()
+            try:
+                candidate.relative_to(skill.skill_dir.resolve())
+            except ValueError:
+                logger.warning(
+                    "Script path traversal blocked: %s resolves outside skill dir %s",
+                    script_name,
+                    skill.skill_dir,
+                )
+                return None
             if candidate.exists():
                 return candidate
-        # Fallback: 技能根目录
-        candidate = skill.skill_dir / script_name
-        if candidate.exists():
-            return candidate
         return None
 
     def run_script(
@@ -487,7 +608,7 @@ class SkillLoader:
         Returns:
             (成功, 输出) 元组
         """
-        skill = self._loaded_skills.get(name)
+        skill = self._resolve_skill(name)
         if not skill:
             return False, f"Skill not found: {name}"
 
@@ -498,7 +619,7 @@ class SkillLoader:
                 return False, (
                     f"Script not found: {script_name}\n"
                     f"Available scripts: {', '.join(available)}\n"
-                    f"Use one of the available scripts, or use get_skill_info(\"{name}\") "
+                    f'Use one of the available scripts, or use get_skill_info("{name}") '
                     f"to check usage instructions."
                 )
             else:
@@ -506,7 +627,7 @@ class SkillLoader:
                     f"Script not found: {script_name}\n"
                     f"This skill has NO executable scripts — it is an instruction-only skill.\n"
                     f"DO NOT retry run_skill_script for this skill.\n"
-                    f"Instead: use get_skill_info(\"{name}\") to read the skill instructions, "
+                    f'Instead: use get_skill_info("{name}") to read the skill instructions, '
                     f"then write Python code and execute it via run_shell."
                 )
 
@@ -516,6 +637,7 @@ class SkillLoader:
         if script_path.suffix == ".py":
             # PyInstaller 兼容: 使用 runtime_env 获取正确的 Python 解释器
             from synapse.runtime_env import get_python_executable
+
             py = get_python_executable()
             if not py:
                 return False, "Python 解释器不可用，无法执行脚本"
@@ -525,9 +647,12 @@ class SkillLoader:
             if not bash_path:
                 # Windows 上尝试 Git Bash 的常见路径
                 if sys.platform == "win32":
+                    import os as _os
+
+                    _sd = _os.environ.get("SYSTEMDRIVE", "C:")
                     for candidate in [
-                        r"C:\Program Files\Git\bin\bash.exe",
-                        r"C:\Program Files (x86)\Git\bin\bash.exe",
+                        rf"{_sd}\Program Files\Git\bin\bash.exe",
+                        rf"{_sd}\Program Files (x86)\Git\bin\bash.exe",
                     ]:
                         if Path(candidate).exists():
                             bash_path = candidate
@@ -548,25 +673,43 @@ class SkillLoader:
             extra: dict = {}
             if sys.platform == "win32":
                 extra["creationflags"] = subprocess.CREATE_NO_WINDOW
-            result = subprocess.run(
+
+            MAX_OUTPUT_BYTES = 1 * 1024 * 1024  # 1 MB
+
+            proc = subprocess.Popen(
                 cmd,
                 cwd=cwd or skill.skill_dir,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=60,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 **extra,
             )
+            try:
+                raw_stdout, raw_stderr = proc.communicate(timeout=60)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.communicate()
+                return False, "Script execution timed out"
+            except Exception as comm_err:
+                proc.kill()
+                proc.wait()
+                return False, f"Script communication failed: {comm_err}"
 
-            output = result.stdout
-            if result.stderr:
-                output += f"\nSTDERR:\n{result.stderr}"
+            truncated = False
+            stdout_bytes = raw_stdout[:MAX_OUTPUT_BYTES] if raw_stdout else b""
+            stderr_bytes = raw_stderr[:MAX_OUTPUT_BYTES] if raw_stderr else b""
+            if (raw_stdout and len(raw_stdout) > MAX_OUTPUT_BYTES) or (
+                raw_stderr and len(raw_stderr) > MAX_OUTPUT_BYTES
+            ):
+                truncated = True
 
-            return result.returncode == 0, output
+            output = stdout_bytes.decode("utf-8", errors="replace")
+            if stderr_bytes:
+                output += f"\nSTDERR:\n{stderr_bytes.decode('utf-8', errors='replace')}"
+            if truncated:
+                output += "\n\n[OUTPUT TRUNCATED — exceeded 1 MB limit]"
 
-        except subprocess.TimeoutExpired:
-            return False, "Script execution timed out"
+            return proc.returncode == 0, output
+
         except Exception as e:
             return False, f"Script execution failed: {e}"
 
@@ -575,19 +718,28 @@ class SkillLoader:
         获取技能参考文档
 
         Args:
-            name: 技能名称
+            name: 技能名称（接受 skill_id 或 display name）
             ref_name: 参考文档名称 (如 REFERENCE.md)
 
         Returns:
             文档内容或 None
         """
-        skill = self._loaded_skills.get(name)
+        skill = self._resolve_skill(name)
         if not skill or not skill.references_dir:
             return None
 
-        ref_path = skill.references_dir / ref_name
+        ref_path = (skill.references_dir / ref_name).resolve()
+        try:
+            ref_path.relative_to(skill.references_dir.resolve())
+        except ValueError:
+            logger.warning(
+                "Reference path traversal blocked: %s resolves outside references dir %s",
+                ref_name,
+                skill.references_dir,
+            )
+            return None
         if ref_path.exists():
-            return ref_path.read_text(encoding="utf-8")
+            return ref_path.read_text(encoding="utf-8", errors="replace")
 
         return None
 
@@ -607,8 +759,12 @@ class SkillLoader:
             return None
 
         skill_dir = skill.skill_dir
+        plugin_source = None
+        entry = self.registry.get(name)
+        if entry:
+            plugin_source = entry.plugin_source
         self.unload_skill(name)
-        return self.load_skill(skill_dir)
+        return self.load_skill(skill_dir, plugin_source=plugin_source)
 
     @property
     def loaded_count(self) -> int:

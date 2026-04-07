@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .search_backends import FTS5Backend, SearchBackend, create_search_backend
-from .storage import MemoryStorage
+from .storage import get_shared_storage
 from .types import (
     Attachment,
     Episode,
@@ -40,7 +40,7 @@ class UnifiedStore:
         api_key: str = "",
         api_model: str = "",
     ) -> None:
-        self.db = MemoryStorage(db_path)
+        self.db = get_shared_storage(db_path)
 
         if search_backend is not None:
             self.search = search_backend
@@ -63,19 +63,70 @@ class UnifiedStore:
     # ======================================================================
 
     def save_semantic(
-        self, memory: SemanticMemory, scope: str = "global", scope_owner: str = ""
+        self,
+        memory: SemanticMemory,
+        scope: str = "global",
+        scope_owner: str = "",
+        *,
+        skip_dedup: bool = False,
     ) -> str:
         memory.scope = scope
         memory.scope_owner = scope_owner
+
+        if not skip_dedup and memory.content and len(memory.content.strip()) > 10:
+            try:
+                dup_id = self._check_semantic_duplicate(
+                    memory.content,
+                    scope,
+                    scope_owner,
+                )
+                if dup_id:
+                    logger.debug(
+                        "[UnifiedStore] Skipping duplicate memory: new='%s…' matches existing %s",
+                        memory.content[:40],
+                        dup_id,
+                    )
+                    return dup_id
+            except Exception:
+                pass
+
         d = memory.to_dict()
         self.db.save_memory(d)
-        self.search.add(memory.id, memory.content, {
-            "type": memory.type.value,
-            "priority": memory.priority.value,
-            "importance": memory.importance_score,
-            "tags": memory.tags,
-        })
+        self.search.add(
+            memory.id,
+            memory.content,
+            {
+                "type": memory.type.value,
+                "priority": memory.priority.value,
+                "importance": memory.importance_score,
+                "tags": memory.tags,
+            },
+        )
         return memory.id
+
+    def _check_semantic_duplicate(
+        self,
+        content: str,
+        scope: str,
+        scope_owner: str,
+    ) -> str | None:
+        """Return existing memory ID if *content* is near-duplicate, else None."""
+        core = content.strip()[:100].lower()
+        hits = self.search.search(core, limit=5)
+        if not hits and self._fts5_fallback is not None:
+            hits = self._fts5_fallback.search(core, limit=5)
+        for mid, _score in hits:
+            existing = self.db.get_memory(mid)
+            if not existing:
+                continue
+            if (existing.get("scope") or "global") != scope:
+                continue
+            if (existing.get("scope_owner") or "") != scope_owner:
+                continue
+            ec = (existing.get("content") or "").strip().lower()
+            if core[:80] in ec or ec[:80] in core:
+                return mid
+        return None
 
     def update_semantic(self, memory_id: str, updates: dict) -> bool:
         ok = self.db.update_memory(memory_id, updates)
@@ -83,12 +134,16 @@ class UnifiedStore:
             self.search.delete(memory_id)
             mem = self.db.get_memory(memory_id)
             if mem:
-                self.search.add(memory_id, mem["content"], {
-                    "type": mem.get("type", "fact"),
-                    "priority": mem.get("priority", "short_term"),
-                    "importance": mem.get("importance_score", 0.5),
-                    "tags": mem.get("tags", []),
-                })
+                self.search.add(
+                    memory_id,
+                    mem["content"],
+                    {
+                        "type": mem.get("type", "fact"),
+                        "priority": mem.get("priority", "short_term"),
+                        "importance": mem.get("importance_score", 0.5),
+                        "tags": mem.get("tags", []),
+                    },
+                )
         return ok
 
     def delete_semantic(self, memory_id: str) -> bool:
@@ -101,19 +156,25 @@ class UnifiedStore:
             return
         now = datetime.now().isoformat()
         for mid in memory_ids:
-            self.db.update_memory(mid, {
-                "access_count": (self.db.get_memory(mid) or {}).get("access_count", 0) + 1,
-                "last_accessed_at": now,
-            })
+            self.db.update_memory(
+                mid,
+                {
+                    "access_count": (self.db.get_memory(mid) or {}).get("access_count", 0) + 1,
+                    "last_accessed_at": now,
+                },
+            )
 
     def get_semantic(self, memory_id: str) -> SemanticMemory | None:
         d = self.db.get_memory(memory_id)
         if d is None:
             return None
-        self.db.update_memory(memory_id, {
-            "access_count": d.get("access_count", 0) + 1,
-            "last_accessed_at": datetime.now().isoformat(),
-        })
+        self.db.update_memory(
+            memory_id,
+            {
+                "access_count": d.get("access_count", 0) + 1,
+                "last_accessed_at": datetime.now().isoformat(),
+            },
+        )
         return SemanticMemory.from_dict(d)
 
     def search_semantic(
@@ -124,21 +185,39 @@ class UnifiedStore:
         scope: str = "global",
         scope_owner: str = "",
     ) -> list[SemanticMemory]:
+        scored = self.search_semantic_scored(
+            query,
+            limit=limit,
+            filter_type=filter_type,
+            scope=scope,
+            scope_owner=scope_owner,
+        )
+        return [mem for mem, _score in scored]
+
+    def search_semantic_scored(
+        self,
+        query: str,
+        limit: int = 10,
+        filter_type: str | None = None,
+        scope: str = "global",
+        scope_owner: str = "",
+    ) -> list[tuple[SemanticMemory, float]]:
+        """Like search_semantic but also returns the raw similarity score."""
         results = self.search.search(query, limit=limit * 3, filter_type=filter_type)
         if not results and self._fts5_fallback is not None:
             results = self._fts5_fallback.search(query, limit=limit * 3, filter_type=filter_type)
 
-        memories: list[SemanticMemory] = []
-        for memory_id, _score in results:
+        scored: list[tuple[SemanticMemory, float]] = []
+        for memory_id, score in results:
             d = self.db.get_memory(memory_id)
             if d:
                 d_scope = d.get("scope") or "global"
                 d_owner = d.get("scope_owner") or ""
                 if d_scope == scope and d_owner == scope_owner:
-                    memories.append(SemanticMemory.from_dict(d))
-                    if len(memories) >= limit:
+                    scored.append((SemanticMemory.from_dict(d), float(score)))
+                    if len(scored) >= limit:
                         break
-        return memories
+        return scored
 
     def query_semantic(self, **kwargs: Any) -> list[SemanticMemory]:
         rows = self.db.query(**kwargs)  # scope/scope_owner pass through via kwargs
@@ -276,8 +355,11 @@ class UnifiedStore:
         limit: int = 20,
     ) -> list[Attachment]:
         rows = self.db.search_attachments(
-            query=query, mime_type=mime_type,
-            direction=direction, session_id=session_id, limit=limit,
+            query=query,
+            mime_type=mime_type,
+            direction=direction,
+            session_id=session_id,
+            limit=limit,
         )
         return [Attachment.from_dict(r) for r in rows]
 
@@ -292,9 +374,7 @@ class UnifiedStore:
     # Utilities
     # ======================================================================
 
-    def get_stats(
-        self, scope: str = "global", scope_owner: str = ""
-    ) -> dict:
+    def get_stats(self, scope: str = "global", scope_owner: str = "") -> dict:
         return {
             "memory_count": self.db.count(scope=scope, scope_owner=scope_owner),
             "search_backend": self.search.backend_type,

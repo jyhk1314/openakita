@@ -33,6 +33,16 @@ def ensure_utf8_stdio() -> None:
 if sys.platform == "win32":
     ensure_utf8_stdio()
 
+    # 设置 Windows 控制台代码页为 UTF-8 (等同于 chcp 65001)
+    # 防止 emoji 等字符在打印时触发 GBK 编码异常
+    try:
+        import ctypes
+
+        ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+        ctypes.windll.kernel32.SetConsoleCP(65001)
+    except Exception:
+        pass
+
 # 确保子进程也继承 UTF-8 编码设置
 os.environ.setdefault("PYTHONUTF8", "1")
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
@@ -47,15 +57,15 @@ if getattr(sys, "frozen", False):
 # 通过 subprocess 执行 `cmd /c ver` 触发阻塞（在某些环境中 cmd 子进程会卡死）。
 if sys.platform == "win32":
     import platform as _platform
+
     try:
         _wv = sys.getwindowsversion()
         _platform._uname_cache = _platform.uname_result(
-            system="Windows",
-            node=os.environ.get("COMPUTERNAME", ""),
-            release=str(_wv.major),
-            version=f"{_wv.major}.{_wv.minor}.{_wv.build}",
-            machine=os.environ.get("PROCESSOR_ARCHITECTURE", "AMD64"),
-            processor=os.environ.get("PROCESSOR_IDENTIFIER", ""),
+            "Windows",
+            os.environ.get("COMPUTERNAME", ""),
+            str(_wv.major),
+            f"{_wv.major}.{_wv.minor}.{_wv.build}",
+            os.environ.get("PROCESSOR_ARCHITECTURE", "AMD64"),
         )
     except Exception:
         pass

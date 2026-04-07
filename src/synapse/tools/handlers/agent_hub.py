@@ -4,10 +4,11 @@ Agent Hub handler — search_hub_agents, install_hub_agent, publish_agent, get_h
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from synapse.memory.types import normalize_tags
 
 if TYPE_CHECKING:
     from ...core.agent import Agent
@@ -32,6 +33,7 @@ class AgentHubHandler:
     def _get_client(self):
         if self._client is None:
             from ...hub import AgentHubClient
+
             self._client = AgentHubClient()
         return self._client
 
@@ -110,11 +112,11 @@ class AgentHubHandler:
             )
 
         from ...agents.packager import AgentInstaller
-        from ...agents.profile import ProfileStore
+        from ...agents.profile import get_profile_store
         from ...config import settings
 
-        root = Path(settings.project_root)
-        profile_store = ProfileStore(root / "data" / "agents")
+        Path(settings.project_root)
+        profile_store = get_profile_store()
         skills_dir = Path(settings.skills_path)
 
         installer = AgentInstaller(
@@ -129,13 +131,16 @@ class AgentHubHandler:
             return f"❌ 安装失败: {e}"
 
         from datetime import datetime
+
         if profile.hub_source is None:
             profile.hub_source = {}
-        profile.hub_source.update({
-            "platform": "synapse",
-            "agent_id": agent_id,
-            "installed_at": datetime.now().isoformat(),
-        })
+        profile.hub_source.update(
+            {
+                "platform": "synapse",
+                "agent_id": agent_id,
+                "installed_at": datetime.now().isoformat(),
+            }
+        )
         profile_store.save(profile)
 
         self._try_reload_skills()
@@ -155,11 +160,11 @@ class AgentHubHandler:
             return "❌ 需要指定 profile_id"
 
         from ...agents.packager import AgentPackager
-        from ...agents.profile import ProfileStore
+        from ...agents.profile import get_profile_store
         from ...config import settings
 
         root = Path(settings.project_root)
-        profile_store = ProfileStore(root / "data" / "agents")
+        profile_store = get_profile_store()
         skills_dir = Path(settings.skills_path)
         output_dir = root / "data" / "agent_packages"
 
@@ -177,7 +182,7 @@ class AgentHubHandler:
         return (
             f"📦 Agent 已打包: {package_path}\n\n"
             f"⚠️ 自动发布功能需要平台账号认证。\n"
-            f"请访问 https://synapse.ai 登录后在「我的 Agent」页面手动上传，\n"
+            f"请访问 https://openakita.ai 登录后在「我的 Agent」页面手动上传，\n"
             f"或通过 Setup Center 的 Agent Store 页面发布。"
         )
 
@@ -187,6 +192,7 @@ class AgentHubHandler:
             loader = getattr(self.agent, "skill_loader", None)
             if loader:
                 from ...config import settings
+
                 loader.load_all(settings.project_root)
                 logger.info("Skills reloaded after Hub install")
         except Exception as e:
@@ -205,7 +211,7 @@ class AgentHubHandler:
 
         a = detail.get("agent", detail)
         lines = [
-            f"📋 Agent 详情\n",
+            "📋 Agent 详情\n",
             f"**名称**: {a.get('name', '?')}",
             f"**ID**: {a.get('id', '?')}",
             f"**版本**: {a.get('latestVersion', a.get('version', '?'))}",
@@ -219,9 +225,9 @@ class AgentHubHandler:
         if a.get("description"):
             lines.append(f"\n**描述**: {a['description']}")
         if a.get("tags"):
-            lines.append(f"**标签**: {', '.join(a['tags'])}")
+            lines.append(f"**标签**: {', '.join(normalize_tags(a['tags']))}")
 
-        lines.append(f"\n使用 `install_hub_agent` 安装此 Agent。")
+        lines.append("\n使用 `install_hub_agent` 安装此 Agent。")
         return "\n".join(lines)
 
 

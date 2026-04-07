@@ -10,13 +10,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime, timezone
-from typing import Any, TYPE_CHECKING
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .runtime import OrgRuntime
 
-from .models import Organization, OrgStatus, NodeStatus, _now_iso
+from .models import NodeStatus, Organization, OrgStatus, _now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ class OrgHeartbeat:
         self._last_activity[org_id] = time.monotonic()
         self._tasks_since_review[org_id] = self._tasks_since_review.get(org_id, 0) + 1
 
-    def _recover_error_nodes(self, org: Organization) -> None:
+    async def _recover_error_nodes(self, org: Organization) -> None:
         """Reset long-stuck ERROR nodes to IDLE during heartbeat.
 
         Non-root nodes in ERROR may never be activated again, leaving them
@@ -46,13 +46,11 @@ class OrgHeartbeat:
         recovered = 0
         for node in org.nodes:
             if node.status == NodeStatus.ERROR:
-                self._runtime._set_node_status(
-                    org, node, NodeStatus.IDLE, "heartbeat_recovery"
-                )
+                self._runtime._set_node_status(org, node, NodeStatus.IDLE, "heartbeat_recovery")
                 self._runtime._agent_cache.pop(f"{org.id}:{node.id}", None)
                 recovered += 1
         if recovered:
-            self._runtime._save_org(org)
+            await self._runtime._save_org(org)
 
     def _compute_adaptive_interval(self, org: Organization) -> float:
         """Compute heartbeat interval based on recent activity level."""
@@ -76,7 +74,9 @@ class OrgHeartbeat:
         if org.heartbeat_enabled and org.id not in self._heartbeat_tasks:
             task = asyncio.create_task(self._heartbeat_loop(org))
             self._heartbeat_tasks[org.id] = task
-            logger.info(f"[Heartbeat] Started heartbeat for {org.name} (interval={org.heartbeat_interval_s}s)")
+            logger.info(
+                f"[Heartbeat] Started heartbeat for {org.name} (interval={org.heartbeat_interval_s}s)"
+            )
 
         if org.standup_enabled and org.id not in self._standup_tasks:
             task = asyncio.create_task(self._standup_loop(org))
@@ -125,7 +125,10 @@ class OrgHeartbeat:
                 await asyncio.sleep(interval)
 
                 current = self._runtime.get_org(org.id)
-                if not current or current.status not in (OrgStatus.ACTIVE, OrgStatus.RUNNING):
+                if not current:
+                    logger.info(f"[Heartbeat] Org {org.id} no longer exists, stopping heartbeat")
+                    break
+                if current.status not in (OrgStatus.ACTIVE, OrgStatus.RUNNING):
                     continue
                 if not current.heartbeat_enabled:
                     break
@@ -143,8 +146,18 @@ class OrgHeartbeat:
         roots = org.get_root_nodes()
         if not roots:
             return {"error": "No root nodes"}
+        root = roots[0]
 
-        self._recover_error_nodes(org)
+        if root.status == NodeStatus.BUSY:
+            logger.debug(f"[Heartbeat] Skipping: root {root.id} is BUSY")
+            return {"skipped": True, "reason": "root_busy"}
+
+        running = self._runtime._running_tasks.get(org.id, {})
+        if root.id in running and not running[root.id].done():
+            logger.debug(f"[Heartbeat] Skipping: root {root.id} has running task")
+            return {"skipped": True, "reason": "root_has_task"}
+
+        await self._recover_error_nodes(org)
 
         es = self._runtime.get_event_store(org.id)
         bb = self._runtime.get_blackboard(org.id)
@@ -161,54 +174,68 @@ class OrgHeartbeat:
 
         root_node = roots[0]
         has_external = bool(root_node.external_tools)
+        mode = getattr(org, "operation_mode", "command") or "command"
 
         nl = "\n"
 
-        action_guidance = (
-            "## 请按以下步骤思考和行动\n\n"
-            "1. **回顾**：查看黑板上的当前目标和进展（org_read_blackboard）\n"
-            "2. **评估**：各节点状态是否正常？有无阻塞需要干预？\n"
-            "3. **决策**：是否需要启动新任务、调整优先级、或分配调研工作？\n"
-        )
-        if has_external:
-            action_guidance += (
-                "4. **执行**：使用 org_delegate_task 分配任务给下属，"
-                "或自己使用 create_plan 制定计划、web_search 搜索信息\n"
+        if mode == "command":
+            action_guidance = (
+                "## 请按以下步骤思考和行动\n\n"
+                "1. **健康检查**：查看各节点状态，是否有 ERROR 或阻塞需要关注\n"
+                "2. **进度回顾**：查看黑板（org_read_blackboard）了解项目进展和待办\n"
+                "3. **简要汇报**：将当前项目进度和健康状况写入黑板，供负责人查阅\n"
+                "4. **等待指令**：本组织为指令模式，不主动启动新任务，等待负责人下达指令\n\n"
+                "如果一切正常，简要说明当前状态即可。"
+            )
+            review_intro = (
+                f"[健康检查] 当前时间: {_now_iso()}\n\n"
+                f"组织: {org.name}\n\n"
+                f"这是定期健康检查，请关注项目进度和节点健康状况：\n"
             )
         else:
-            action_guidance += (
-                "4. **执行**：使用 org_delegate_task 分配任务，org_broadcast 发布公告\n"
+            action_guidance = (
+                "## 请按以下步骤思考和行动\n\n"
+                "1. **回顾**：查看黑板上的当前目标和进展（org_read_blackboard）\n"
+                "2. **评估**：各节点状态是否正常？有无阻塞需要干预？\n"
+                "3. **决策**：是否需要启动新任务、调整优先级、或分配调研工作？\n"
             )
-        action_guidance += (
-            "5. **记录**：将决策和下一步行动写入黑板（org_write_blackboard）\n\n"
-            "如果一切正常且无需新行动，简要说明当前状态即可。"
-        )
+            if has_external:
+                action_guidance += (
+                    "4. **执行**：使用 org_delegate_task 分配任务给下属，"
+                    "或自己使用 create_todo 制定计划、web_search 搜索信息\n"
+                )
+            else:
+                action_guidance += (
+                    "4. **执行**：使用 org_delegate_task 分配任务，org_broadcast 发布公告\n"
+                )
+            action_guidance += (
+                "5. **记录**：将决策和下一步行动写入黑板（org_write_blackboard）\n\n"
+                "如果一切正常且无需新行动，简要说明当前状态即可。"
+            )
+
+            persona_label = org.user_persona.label if org.user_persona else "用户"
+            biz_section = ""
+            if org.core_business:
+                biz_section = f"## 核心业务目标\n{org.core_business}\n\n"
+            if org.core_business:
+                review_intro = (
+                    f"[经营复盘] 当前时间: {_now_iso()}\n\n"
+                    f"组织: {org.name}\n\n"
+                    f"{biz_section}"
+                    f"这是定期经营复盘，请回顾进展并推进下一阶段工作：\n"
+                    f"1. 先查看黑板（org_read_blackboard）了解上次的决策和进展\n"
+                    f"2. 评估各节点执行情况，识别阻塞和偏差\n"
+                    f"3. 调整策略、分配新任务、推进未完成的工作\n"
+                    f"4. 将本轮复盘结论和下一步计划写入黑板\n\n"
+                )
+            else:
+                review_intro = (
+                    f"[心跳检查] 当前时间: {_now_iso()}\n\n"
+                    f"组织: {org.name}\n"
+                    f"心跳提示: {org.heartbeat_prompt}\n\n"
+                )
 
         persona_label = org.user_persona.label if org.user_persona else "用户"
-
-        biz_section = ""
-        if org.core_business:
-            biz_section = (
-                f"## 核心业务目标\n{org.core_business}\n\n"
-            )
-
-        if org.core_business:
-            review_intro = (
-                f"[经营复盘] 当前时间: {_now_iso()}\n\n"
-                f"组织: {org.name}\n\n"
-                f"{biz_section}"
-                f"这是定期经营复盘，请回顾进展并推进下一阶段工作：\n"
-                f"1. 先查看黑板（org_read_blackboard）了解上次的决策和进展\n"
-                f"2. 评估各节点执行情况，识别阻塞和偏差\n"
-                f"3. 调整策略、分配新任务、推进未完成的工作\n"
-                f"4. 将本轮复盘结论和下一步计划写入黑板\n\n"
-            )
-        else:
-            review_intro = (
-                f"[心跳检查] 当前时间: {_now_iso()}\n\n"
-                f"组织: {org.name}\n"
-                f"心跳提示: {org.heartbeat_prompt}\n\n"
-            )
 
         prompt = (
             f"{review_intro}"
@@ -220,27 +247,43 @@ class OrgHeartbeat:
             f"重要决策和进展应主动写入黑板，以便{persona_label}在查看组织状态时了解最新情况。"
         )
 
-        es.emit("heartbeat_triggered", "system", {
-            "node_count": len(org.nodes),
-        })
-        await self._runtime._broadcast_ws("org:heartbeat_start", {
-            "org_id": org.id, "type": "heartbeat",
-            "has_core_business": bool(org.core_business),
-        })
+        es.emit(
+            "heartbeat_triggered",
+            "system",
+            {
+                "node_count": len(org.nodes),
+            },
+        )
+        await self._runtime._broadcast_ws(
+            "org:heartbeat_start",
+            {
+                "org_id": org.id,
+                "type": "heartbeat",
+                "has_core_business": bool(org.core_business),
+            },
+        )
 
         result = await self._runtime.send_command(org.id, roots[0].id, prompt)
 
-        es.emit("heartbeat_decision", roots[0].id, {
-            "result_preview": str(result.get("result", ""))[:200],
-        })
-        await self._runtime._broadcast_ws("org:heartbeat_done", {
-            "org_id": org.id, "type": "heartbeat",
-            "result_preview": str(result.get("result", ""))[:120],
-        })
+        es.emit(
+            "heartbeat_decision",
+            roots[0].id,
+            {
+                "result_preview": str(result.get("result", ""))[:200],
+            },
+        )
+        await self._runtime._broadcast_ws(
+            "org:heartbeat_done",
+            {
+                "org_id": org.id,
+                "type": "heartbeat",
+                "result_preview": str(result.get("result", ""))[:120],
+            },
+        )
 
         self._tasks_since_review[org.id] = 0
 
-        dismissed = self._runtime.get_scaler().try_reclaim_idle_clones(org.id)
+        dismissed = await self._runtime.get_scaler().try_reclaim_idle_clones(org.id)
         if dismissed:
             es.emit("clones_reclaimed", "system", {"dismissed": dismissed})
             logger.info(f"[Heartbeat] Reclaimed {len(dismissed)} idle clones")
@@ -259,20 +302,18 @@ class OrgHeartbeat:
                 await asyncio.sleep(60)
 
                 current = self._runtime.get_org(org.id)
-                if not current or current.status not in (OrgStatus.ACTIVE, OrgStatus.RUNNING):
+                if not current:
+                    logger.info(f"[Heartbeat] Org {org.id} no longer exists, stopping standup")
+                    break
+                if current.status not in (OrgStatus.ACTIVE, OrgStatus.RUNNING):
                     continue
                 if not current.standup_enabled:
                     break
 
                 tasks_done = self._tasks_since_review.get(org.id, 0)
-                all_idle = all(
-                    n.status.value == "idle" for n in current.nodes if not n.is_clone
-                )
+                all_idle = all(n.status.value == "idle" for n in current.nodes if not n.is_clone)
 
-                should_review = (
-                    tasks_done >= milestone_threshold
-                    or (all_idle and tasks_done > 0)
-                )
+                should_review = tasks_done >= milestone_threshold or (all_idle and tasks_done > 0)
 
                 if should_review:
                     logger.info(
@@ -295,13 +336,49 @@ class OrgHeartbeat:
             return {"error": "No root nodes"}
 
         es = self._runtime.get_event_store(org.id)
-        bb = self._runtime.get_blackboard(org.id)
+        self._runtime.get_blackboard(org.id)
 
+        bb = self._runtime.get_blackboard(org.id)
         node_reports = []
         for n in org.nodes:
             if n.id == roots[0].id:
                 continue
-            node_reports.append(f"- {n.role_title}({n.department}): 状态={n.status.value}")
+            parts_detail: list[str] = []
+            try:
+                recent_events = es.query(actor=n.id, limit=5)
+                if recent_events:
+                    evt_parts = []
+                    for evt in recent_events:
+                        etype = evt.get("event_type", "")
+                        data = evt.get("data", {})
+                        detail = (
+                            data.get("task", "")
+                            or data.get("content", "")
+                            or data.get("summary", "")
+                            or data.get("name", "")
+                        )
+                        if detail:
+                            evt_parts.append(f"{etype}: {detail[:50]}")
+                        else:
+                            evt_parts.append(etype)
+                    parts_detail.append("事件: " + "; ".join(evt_parts))
+            except Exception:
+                pass
+            try:
+                node_entries = bb.read_node(n.id, limit=3)
+                if node_entries:
+                    for pe in node_entries:
+                        content = pe.content if hasattr(pe, "content") else str(pe)
+                        if content:
+                            parts_detail.append(f"工作记录: {content[:80]}")
+            except Exception:
+                pass
+            messenger = self._runtime.get_messenger(org.id)
+            pending = messenger.get_pending_count(n.id) if messenger else 0
+            line = f"- {n.role_title}({n.department}): 状态={n.status.value}, 待处理={pending}"
+            if parts_detail:
+                line += "\n    " + "\n    ".join(parts_detail)
+            node_reports.append(line)
 
         nl = "\n"
         prompt = (
@@ -318,20 +395,36 @@ class OrgHeartbeat:
         )
 
         es.emit("standup_started", "system")
-        await self._runtime._broadcast_ws("org:heartbeat_start", {
-            "org_id": org.id, "type": "standup",
-        })
+        await self._runtime._broadcast_ws(
+            "org:heartbeat_start",
+            {
+                "org_id": org.id,
+                "type": "standup",
+            },
+        )
         result = await self._runtime.send_command(org.id, roots[0].id, prompt)
-        es.emit("standup_completed", "system", {
-            "result_preview": str(result.get("result", ""))[:200],
-        })
-        await self._runtime._broadcast_ws("org:heartbeat_done", {
-            "org_id": org.id, "type": "standup",
-            "result_preview": str(result.get("result", ""))[:120],
-        })
+        es.emit(
+            "standup_completed",
+            "system",
+            {
+                "result_preview": str(result.get("result", ""))[:200],
+            },
+        )
+        await self._runtime._broadcast_ws(
+            "org:heartbeat_done",
+            {
+                "org_id": org.id,
+                "type": "standup",
+                "result_preview": str(result.get("result", ""))[:120],
+            },
+        )
 
-        now = datetime.now(timezone.utc)
-        report_path = self._runtime._manager._org_dir(org.id) / "reports" / f"standup_{now.strftime('%Y-%m-%d')}.md"
+        now = datetime.now(UTC)
+        report_path = (
+            self._runtime._manager._org_dir(org.id)
+            / "reports"
+            / f"standup_{now.strftime('%Y-%m-%d')}.md"
+        )
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_content = (
             f"# 晨会纪要 {now.strftime('%Y-%m-%d %H:%M')}\n\n"

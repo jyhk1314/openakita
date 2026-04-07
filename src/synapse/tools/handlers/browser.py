@@ -1,44 +1,80 @@
 """
 浏览器处理器
 
-处理浏览器相关的系统技能：
-- browser_task: 【推荐优先使用】智能浏览器任务
+处理浏览器相关的系统技能（全部基于 Playwright）：
 - browser_open: 启动浏览器 + 状态查询
 - browser_navigate: 导航到 URL
+- browser_click: 点击页面元素
+- browser_type: 输入文本
+- browser_scroll: 滚动页面
+- browser_wait: 等待元素出现
+- browser_execute_js: 执行 JavaScript
 - browser_get_content: 获取页面内容（支持 max_length 截断）
 - browser_screenshot: 截取页面截图
+- browser_list_tabs / browser_switch_tab / browser_new_tab: 标签页管理
 - browser_close: 关闭浏览器
 - view_image: 查看/分析本地图片
 """
 
-import base64
+import asyncio
 import logging
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from ...agents.lock_manager import LockManager
 
 if TYPE_CHECKING:
     from ...core.agent import Agent
 
 logger = logging.getLogger(__name__)
 
-_IMAGE_MAX_PIXELS = 1024 * 1024  # 缩放阈值（宽×高），大于此值会缩放
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+
+# Cross-agent browser lock — shared by all BrowserHandler instances in this
+# process.  In single-agent mode the lock is never contended (zero overhead).
+# In multi-agent mode it serialises page-mutating operations so agents do not
+# overwrite each other's page navigation.
+_browser_lock_manager = LockManager()
+_BROWSER_LOCK_TIMEOUT = 300.0  # seconds
+
+# Operations that mutate page state or are long-running.
+# Read-only helpers (get_content, screenshot, status, list_tabs, wait) are
+# intentionally excluded to avoid blocking during page-mutating operations.
+_LOCKED_BROWSER_OPS = frozenset(
+    {
+        "browser_navigate",
+        "browser_click",
+        "browser_type",
+        "browser_scroll",
+        "browser_execute_js",
+        "browser_new_tab",
+        "browser_switch_tab",
+        "browser_close",
+    }
+)
 
 
 class BrowserHandler:
     """
     浏览器处理器
 
-    通过 BrowserManager / PlaywrightTools / BrowserUseRunner 路由浏览器工具调用
+    通过 BrowserManager / PlaywrightTools 路由浏览器工具调用
     """
 
     TOOLS = [
-        "browser_task",
         "browser_open",
         "browser_navigate",
+        "browser_click",
+        "browser_type",
+        "browser_scroll",
+        "browser_wait",
+        "browser_execute_js",
         "browser_get_content",
         "browser_screenshot",
+        "browser_list_tabs",
+        "browser_switch_tab",
+        "browser_new_tab",
         "browser_close",
         "view_image",
     ]
@@ -54,6 +90,7 @@ class BrowserHandler:
         has_manager = hasattr(self.agent, "browser_manager") and self.agent.browser_manager
         if not has_manager:
             from synapse.runtime_env import IS_FROZEN
+
             if IS_FROZEN:
                 return "❌ 浏览器服务未启动。请尝试重启应用，如仍有问题请查看日志排查原因。"
             else:
@@ -77,7 +114,7 @@ class BrowserHandler:
             if match:
                 actual_tool_name = match.group(1)
 
-        result = await self._dispatch(actual_tool_name, params)
+        result = await self._dispatch_with_lock(actual_tool_name, params)
 
         if result.get("success"):
             output = f"✅ {result.get('result', 'OK')}"
@@ -95,11 +132,36 @@ class BrowserHandler:
 
         return output
 
+    async def _dispatch_with_lock(self, tool_name: str, params: dict[str, Any]) -> dict:
+        """Acquire the cross-agent browser lock for page-mutating operations."""
+        if tool_name not in _LOCKED_BROWSER_OPS:
+            return await self._dispatch(tool_name, params)
+
+        holder = getattr(self.agent, "name", "") or "agent"
+        try:
+            async with _browser_lock_manager.lock(
+                "tool:browser",
+                holder=holder,
+                timeout=_BROWSER_LOCK_TIMEOUT,
+            ):
+                return await self._dispatch(tool_name, params)
+        except (asyncio.TimeoutError, TimeoutError):
+            current_holder = await _browser_lock_manager.get_holder("tool:browser")
+            logger.warning(
+                f"[Browser] Lock timeout for {tool_name} (holder={current_holder}, waiter={holder})"
+            )
+            return {
+                "success": False,
+                "error": (
+                    f"浏览器被其他 Agent 占用（{current_holder or '未知'}），"
+                    f"等待 {int(_BROWSER_LOCK_TIMEOUT)}秒后超时。请稍后重试。"
+                ),
+            }
+
     async def _dispatch(self, tool_name: str, params: dict[str, Any]) -> dict:
         """将工具调用路由到对应的组件。"""
         manager = self.agent.browser_manager
         pw = self.agent.pw_tools
-        bu = self.agent.bu_runner
 
         try:
             if tool_name == "browser_open":
@@ -118,11 +180,6 @@ class BrowserHandler:
                 return await pw.get_content(
                     selector=params.get("selector"),
                     format=params.get("format", "text"),
-                )
-            elif tool_name == "browser_task":
-                return await bu.run_task(
-                    task=params.get("task", ""),
-                    max_steps=params.get("max_steps", 15),
                 )
             elif tool_name == "browser_click":
                 return await pw.click(
@@ -233,6 +290,7 @@ class BrowserHandler:
 
             try:
                 from ..browser.chrome_finder import detect_chrome_devtools_mcp
+
                 devtools_info = detect_chrome_devtools_mcp()
                 if devtools_info["available"] and not manager.using_user_chrome:
                     result_data["hint"] = (
@@ -250,6 +308,7 @@ class BrowserHandler:
                     check_mcp_chrome_extension,
                     detect_chrome_devtools_mcp,
                 )
+
                 devtools_info = detect_chrome_devtools_mcp()
                 if devtools_info["available"]:
                     hints.append(
@@ -266,13 +325,28 @@ class BrowserHandler:
                 pass
 
             from synapse.runtime_env import IS_FROZEN
+
             if IS_FROZEN:
-                error_msg = (
-                    "无法启动浏览器。浏览器组件已内置，请尝试重启应用。"
+                chrome_running_hint = ""
+                try:
+                    from ..browser.manager import BrowserManager
+
+                    if BrowserManager._is_chrome_process_running():
+                        chrome_running_hint = (
+                            "检测到 Chrome 浏览器正在运行，这可能导致配置文件冲突。"
+                            "请尝试关闭 Chrome 后重试，或直接使用内置浏览器。"
+                        )
+                except Exception:
+                    pass
+                error_msg = "❌ 无法启动浏览器。" + (
+                    chrome_running_hint
+                    or "浏览器组件已内置，请尝试重启应用。"
                     "如仍有问题，请检查杀毒软件是否拦截 Chromium 启动。"
                 )
             else:
-                error_msg = "无法启动浏览器。请安装: pip install playwright && playwright install chromium"
+                error_msg = (
+                    "无法启动浏览器。请安装: pip install playwright && playwright install chromium"
+                )
             if hints:
                 error_msg += "\n\n" + "\n".join(hints)
 
@@ -293,6 +367,7 @@ class BrowserHandler:
         if len(output) > max_length:
             total_chars = len(output)
             from ...core.tool_executor import save_overflow
+
             overflow_path = save_overflow("browser_get_content", output)
             output = output[:max_length]
             output += (
@@ -301,11 +376,10 @@ class BrowserHandler:
                 f"完整内容已保存到: {overflow_path}\n"
                 f'使用 read_file(path="{overflow_path}", offset=1, limit=300) '
                 f"查看完整内容。\n"
-                f"也可以用 browser_get_content(selector=\"...\") 缩小查询范围。"
+                f'也可以用 browser_get_content(selector="...") 缩小查询范围。'
             )
 
         return output
-
 
     # ── view_image / screenshot 多模态支持 ────────────
 
@@ -313,6 +387,7 @@ class BrowserHandler:
         """检查当前 LLM 是否支持 vision（图片输入）。"""
         try:
             from ...llm.capabilities import get_provider_slug_from_base_url, infer_capabilities
+
             brain = getattr(self.agent, "brain", None)
             if not brain:
                 return False
@@ -329,7 +404,10 @@ class BrowserHandler:
 
     @staticmethod
     def _load_image_as_base64(path_str: str) -> tuple[str, str, int, int] | None:
-        """读取图片文件，缩放后编码为 base64。
+        """读取图片文件，压缩到安全大小后编码为 base64。
+
+        委托给 channels.media.image_prep 的共享预处理函数，
+        确保 base64 产出不超过 API payload 限制。
 
         Returns:
             (base64_data, media_type, width, height) 或 None（失败时）
@@ -340,56 +418,71 @@ class BrowserHandler:
         if p.suffix.lower() not in _IMAGE_EXTENSIONS:
             return None
 
-        try:
-            import io
+        from ...channels.media.image_prep import prepare_image_file_for_context
 
-            from PIL import Image
-
-            img = Image.open(p)
-            w, h = img.size
-
-            if w * h > _IMAGE_MAX_PIXELS:
-                ratio = (_IMAGE_MAX_PIXELS / (w * h)) ** 0.5
-                new_w, new_h = int(w * ratio), int(h * ratio)
-                img = img.resize((new_w, new_h), Image.LANCZOS)
-                w, h = new_w, new_h
-
-            if img.mode == "RGBA":
-                img = img.convert("RGB")
-
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=85)
-            b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-            return b64, "image/jpeg", w, h
-        except ImportError:
-            raw = p.read_bytes()
-            b64 = base64.b64encode(raw).decode("ascii")
-            ext = p.suffix.lower()
-            media_map = {
-                ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-                ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
-            }
-            return b64, media_map.get(ext, "image/jpeg"), 0, 0
-        except Exception as e:
-            logger.error(f"[view_image] Failed to load image {path_str}: {e}")
-            return None
+        return prepare_image_file_for_context(p)
 
     async def _handle_view_image(self, params: dict[str, Any]) -> str | list:
-        """view_image 工具处理：读取图片并返回多模态 tool result。"""
+        """view_image 工具处理：读取图片并返回多模态 tool result。支持本地路径和 HTTP(S) URL。"""
         path_str = params.get("path", "")
         question = params.get("question", "")
 
         if not path_str:
             return "❌ view_image 缺少必要参数 'path'。"
 
+        # HTTP(S) URL → 下载到临时文件后按本地文件处理
+        if path_str.startswith(("http://", "https://")):
+            loaded = await self._download_and_load_image(path_str)
+            if loaded is None:
+                return f"❌ 无法读取图片: {path_str}（文件不存在或格式不支持）"
+            b64_data, media_type, w, h = loaded
+            return await self._build_view_image_result(
+                path_str,
+                b64_data,
+                media_type,
+                w,
+                h,
+                question,
+            )
+
+        p = Path(path_str)
+        if not p.is_file():
+            return f"❌ 无法读取图片: {path_str}（文件不存在）"
+        if p.suffix.lower() not in _IMAGE_EXTENSIONS:
+            return (
+                f"❌ 不支持的图片格式: {p.suffix}\n"
+                f"支持的格式: {', '.join(sorted(_IMAGE_EXTENSIONS))}"
+            )
         loaded = self._load_image_as_base64(path_str)
         if loaded is None:
-            return f"❌ 无法读取图片: {path_str}（文件不存在或格式不支持）"
+            return (
+                f"❌ 图片过大无法嵌入上下文: {path_str}\n"
+                f"文件大小: {p.stat().st_size / 1024:.0f}KB。"
+                f"请安装 Pillow (pip install Pillow) 以启用自动压缩，"
+                f"或使用更小的图片。"
+            )
 
         b64_data, media_type, w, h = loaded
+        return await self._build_view_image_result(
+            path_str,
+            b64_data,
+            media_type,
+            w,
+            h,
+            question,
+        )
 
+    async def _build_view_image_result(
+        self,
+        path_str: str,
+        b64_data: str,
+        media_type: str,
+        w: int,
+        h: int,
+        question: str,
+    ) -> str | list:
+        """根据模型 vision 能力构建 view_image 结果。"""
         if self._model_supports_vision():
-            # 模型支持 vision → 直接嵌入图片
             content: list[dict] = [
                 {"type": "text", "text": f"✅ 已加载图片: {path_str} ({w}x{h})"},
                 {
@@ -401,12 +494,62 @@ class BrowserHandler:
                 content.append({"type": "text", "text": f"请回答: {question}"})
             return content
 
-        # 模型不支持 vision → 用 VL 模型生成文字描述
         description = await self._describe_image_with_vl(b64_data, media_type, question)
         return f"✅ 图片: {path_str} ({w}x{h})\n\n{description}"
 
+    @staticmethod
+    async def _download_and_load_image(url: str) -> tuple[str, str, int, int] | None:
+        """下载 HTTP(S) 图片到临时文件并加载为 base64。"""
+        import tempfile
+
+        try:
+            import httpx
+        except ImportError:
+            try:
+                import urllib.request
+
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                    urllib.request.urlretrieve(url, tmp.name)
+                    tmp_path = tmp.name
+            except Exception:
+                return None
+        else:
+            try:
+                async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+                    resp = await client.get(url)
+                    if resp.status_code != 200:
+                        return None
+                    content_type = resp.headers.get("content-type", "")
+                    if not content_type.startswith("image/"):
+                        return None
+                    ext = {
+                        "image/png": ".png",
+                        "image/jpeg": ".jpg",
+                        "image/gif": ".gif",
+                        "image/webp": ".webp",
+                    }.get(content_type.split(";")[0].strip(), ".png")
+                    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+                        tmp.write(resp.content)
+                        tmp_path = tmp.name
+            except Exception:
+                return None
+
+        try:
+            from ...channels.media.image_prep import prepare_image_file_for_context
+
+            result = prepare_image_file_for_context(Path(tmp_path))
+        finally:
+            try:
+                Path(tmp_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+        return result
+
     async def _describe_image_with_vl(
-        self, b64_data: str, media_type: str, question: str = "",
+        self,
+        b64_data: str,
+        media_type: str,
+        question: str = "",
     ) -> str:
         """使用 VL 模型对图片进行文字描述（当主模型不支持 vision 时的降级方案）。"""
         try:

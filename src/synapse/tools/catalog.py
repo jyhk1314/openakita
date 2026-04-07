@@ -36,8 +36,31 @@ from .definitions.base import infer_category
 logger = logging.getLogger(__name__)
 
 
-# 高频工具白名单 - 直接提供完整 schema 给 LLM API，跳过渐进式披露
-HIGH_FREQ_TOOLS = {"run_shell", "read_file", "write_file", "list_directory", "ask_user"}
+# Catalog-excluded tools — these are always loaded with full schema via LLM
+# tools parameter, so they are excluded from the textual catalog to save tokens.
+# Sorted tuple for stable iteration order (prompt cache friendly).
+CATALOG_EXCLUDED_TOOLS = tuple(
+    sorted(
+        {
+            "run_shell",
+            "read_file",
+            "write_file",
+            "edit_file",
+            "list_directory",
+            "ask_user",
+            "glob",
+            "web_search",
+            "web_fetch",
+            "delete_file",
+            "read_lints",
+            "semantic_search",
+        }
+    )
+)
+_CATALOG_EXCLUDED_SET = frozenset(CATALOG_EXCLUDED_TOOLS)
+
+# Backwards compat alias
+HIGH_FREQ_TOOLS = CATALOG_EXCLUDED_TOOLS
 
 
 class ToolCatalog:
@@ -58,6 +81,18 @@ class ToolCatalog:
     CATALOG_TEMPLATE = """
 ## Available System Tools
 
+### Tool Selection Priority
+1. **Installed skills** — check skills/ first
+2. **MCP server tools** — external integrations via MCP protocol
+3. **Shell commands** — system commands and scripts
+4. **Temporary scripts** — write_file + run_shell for one-off tasks
+5. **Search + install** — find and install new capabilities from GitHub
+6. **Create skills** — use skill-creator for permanent capabilities
+
+### Capability Extension Protocol
+Missing a capability? Search installed skills -> search web -> install or create -> continue task.
+Never tell user "I can't do this" — acquire the capability and proceed.
+
 Use `get_tool_info(tool_name)` to see full parameters before calling.
 
 {tool_list}
@@ -69,6 +104,7 @@ Use `get_tool_info(tool_name)` to see full parameters before calling.
         "File System",
         "Agent",
         "Skills",
+        "Plugin",
         "Memory",
         "Web Search",
         "Browser",
@@ -89,12 +125,27 @@ Use `get_tool_info(tool_name)` to see full parameters before calling.
     CATEGORY_DISPLAY_NAMES = {
         "Desktop": "Desktop (Windows)",
         "Skills": "Skills Management",
+        "Plugin": "Plugin Management",
         "Scheduled": "Scheduled Tasks",
         "Profile": "User Profile",
     }
 
-    TOOL_ENTRY_TEMPLATE = "- **{name}**: {description}"
-    CATEGORY_TEMPLATE = "\n### {category}\n{tools}"
+    TOOL_ENTRY_TEMPLATE = "- **{name}**: {description}"  # only used with _safe_format
+    CATEGORY_TEMPLATE = "\n### {category}\n{tools}"  # only used with _safe_format
+
+    @staticmethod
+    def _safe_format(template: str, **kwargs: str) -> str:
+        """str.format that won't crash on {/} in values."""
+        try:
+            return template.format(**kwargs)
+        except (KeyError, ValueError, IndexError) as e:
+            logger.warning(
+                "[ToolCatalog] str.format failed (template=%r, keys=%s): %s",
+                template[:60],
+                list(kwargs.keys()),
+                e,
+            )
+            return template + " " + " | ".join(f"{k}={v}" for k, v in kwargs.items())
 
     def __init__(self, tools: list[dict]):
         """
@@ -103,10 +154,37 @@ Use `get_tool_info(tool_name)` to see full parameters before calling.
         Args:
             tools: 工具定义列表，每个工具包含 name, short_description, description, input_schema
         """
-        self._tools = {t["name"]: t for t in tools}
+        nameless = [t for t in tools if not t.get("name")]
+        if nameless:
+            logger.warning(
+                "[ToolCatalog] __init__: skipped %d tool(s) without a name, keys present: %s",
+                len(nameless),
+                [list(t.keys())[:5] for t in nameless[:3]],
+            )
+        self._tools = {t["name"]: t for t in tools if t.get("name")}
+        self._tool_sources: dict[str, str] = {}
         self._cached_catalog: str | None = None
+        self._deferred_tools: set[str] = set()
 
-    def generate_catalog(self, exclude_high_freq: bool = True) -> str:
+    def set_deferred_tools(self, deferred: set[str]) -> None:
+        """Update the set of currently deferred tool names.
+
+        Invalidates the cached catalog so the next get_catalog() call
+        reflects the updated deferred annotations.
+        """
+        if deferred != self._deferred_tools:
+            self._deferred_tools = deferred
+            self._cached_catalog = None
+            logger.info(
+                "[ToolCatalog] deferred set updated: %d tools, cache invalidated",
+                len(deferred),
+            )
+
+    def generate_catalog(
+        self,
+        exclude_high_freq: bool = True,
+        deferred_tools: set[str] | None = None,
+    ) -> str:
         """
         生成工具清单（Level 1）
 
@@ -116,10 +194,14 @@ Use `get_tool_info(tool_name)` to see full parameters before calling.
         Args:
             exclude_high_freq: 是否排除高频工具（默认排除，因为它们已通过
                 LLM tools 参数直接注入完整 schema，不需要在文本清单中重复）
+            deferred_tools: 当前被 defer 的工具名集合。在 catalog 文本中标注
+                [deferred] 以告知 LLM 需先 tool_search 才能调用。
 
         Returns:
             格式化的工具清单字符串
         """
+        if deferred_tools is not None:
+            self._deferred_tools = deferred_tools
         if not self._tools:
             return "\n## Available System Tools\n\nNo system tools available.\n"
 
@@ -127,13 +209,16 @@ Use `get_tool_info(tool_name)` to see full parameters before calling.
         categories: OrderedDict[str, list[tuple[str, dict]]] = OrderedDict()
         uncategorized: list[tuple[str, dict]] = []
 
-        for name, tool in self._tools.items():
+        for name in sorted(self._tools):
+            tool = self._tools[name]
             # 高频工具已在 tools 参数中全量提供，跳过以节省 token
-            if exclude_high_freq and name in HIGH_FREQ_TOOLS:
+            if exclude_high_freq and name in _CATALOG_EXCLUDED_SET:
                 continue
             cat = tool.get("category")
             if not cat:
                 cat = infer_category(name)  # fallback 到 base.py 的推断
+            if not cat and name in self._tool_sources:
+                cat = "Plugin"
             if cat:
                 categories.setdefault(cat, []).append((name, tool))
             else:
@@ -169,7 +254,7 @@ Use `get_tool_info(tool_name)` to see full parameters before calling.
                 category_sections.append(section)
 
         tool_list = "\n".join(category_sections)
-        catalog = self.CATALOG_TEMPLATE.format(tool_list=tool_list)
+        catalog = self._safe_format(self.CATALOG_TEMPLATE, tool_list=tool_list)
         self._cached_catalog = catalog
 
         logger.info(f"Generated tool catalog with {len(self._tools)} tools")
@@ -186,19 +271,21 @@ Use `get_tool_info(tool_name)` to see full parameters before calling.
             高频工具的完整 schema 列表
         """
         schemas = []
-        for tool_name in HIGH_FREQ_TOOLS:
+        for tool_name in CATALOG_EXCLUDED_TOOLS:
             tool = self._tools.get(tool_name)
             if tool:
-                schemas.append({
-                    "name": tool["name"],
-                    "description": tool.get("description", ""),
-                    "input_schema": tool.get("input_schema", {}),
-                })
+                schemas.append(
+                    {
+                        "name": tool["name"],
+                        "description": tool.get("description", ""),
+                        "input_schema": tool.get("input_schema", {}),
+                    }
+                )
         return schemas
 
     def is_high_freq_tool(self, tool_name: str) -> bool:
         """判断是否为高频工具"""
-        return tool_name in HIGH_FREQ_TOOLS
+        return tool_name in _CATALOG_EXCLUDED_SET
 
     def _format_category_section(
         self, display_name: str, tools: list[tuple[str, dict]]
@@ -216,16 +303,24 @@ Use `get_tool_info(tool_name)` to see full parameters before calling.
         if not tools:
             return None
 
+        deferred = getattr(self, "_deferred_tools", set())
+
         entries = []
         for name, tool in tools:
             desc = tool.get("short_description") or self._get_short_description(
                 tool.get("description", "")
             )
-            entry = self.TOOL_ENTRY_TEMPLATE.format(name=name, description=desc)
+            if name in deferred:
+                desc = f"[deferred] {desc}"
+            source = self._tool_sources.get(name, "")
+            suffix = f" _(from {source})_" if source else ""
+            entry = (
+                self._safe_format(self.TOOL_ENTRY_TEMPLATE, name=name, description=desc) + suffix
+            )
             entries.append(entry)
 
-        return self.CATEGORY_TEMPLATE.format(
-            category=display_name, tools="\n".join(entries)
+        return self._safe_format(
+            self.CATEGORY_TEMPLATE, category=display_name, tools="\n".join(entries)
         )
 
     def _get_short_description(self, description: str) -> str:
@@ -249,19 +344,41 @@ Use `get_tool_info(tool_name)` to see full parameters before calling.
 
         return first_line
 
-    def get_catalog(self, refresh: bool = False, exclude_high_freq: bool = True) -> str:
+    def get_tool_groups(self) -> dict[str, set[str]]:
+        """Auto-build tool groups from each tool's category field. No hardcoded mapping needed."""
+        groups: dict[str, set[str]] = {}
+        for name, tool in self._tools.items():
+            cat = tool.get("category")
+            if not cat:
+                cat = infer_category(name)
+            if not cat and name in self._tool_sources:
+                cat = "Plugin"
+            if cat:
+                groups.setdefault(cat, set()).add(name)
+        return groups
+
+    def get_catalog(
+        self,
+        refresh: bool = False,
+        exclude_high_freq: bool = True,
+        deferred_tools: set[str] | None = None,
+    ) -> str:
         """
         获取工具清单
 
         Args:
             refresh: 是否强制刷新
             exclude_high_freq: 是否排除高频工具（默认排除）
+            deferred_tools: 当前被 defer 的工具名集合
 
         Returns:
             工具清单字符串
         """
-        if refresh or self._cached_catalog is None:
-            return self.generate_catalog(exclude_high_freq=exclude_high_freq)
+        if refresh or self._cached_catalog is None or deferred_tools is not None:
+            return self.generate_catalog(
+                exclude_high_freq=exclude_high_freq,
+                deferred_tools=deferred_tools,
+            )
         return self._cached_catalog
 
     def get_tool_info(self, tool_name: str) -> dict | None:
@@ -300,7 +417,16 @@ Use `get_tool_info(tool_name)` to see full parameters before calling.
         if not tool:
             return f"❌ Tool not found: {tool_name}"
 
+        deferred = getattr(self, "_deferred_tools", set())
+        is_deferred = tool_name in deferred
+
         output = f"# Tool: {tool['name']}\n\n"
+
+        if is_deferred:
+            output += (
+                "**Status**: DEFERRED — this tool's schema is not yet loaded. "
+                "Call `tool_search` to activate it, then use it in the next turn.\n\n"
+            )
 
         # 分类
         category = tool.get("category")
@@ -412,17 +538,31 @@ Use `get_tool_info(tool_name)` to see full parameters before calling.
         Args:
             tools: 新的工具定义列表
         """
-        self._tools = {t["name"]: t for t in tools}
+        nameless = [t for t in tools if not t.get("name")]
+        if nameless:
+            logger.warning(
+                "[ToolCatalog] update_tools: skipped %d tool(s) without a name, keys present: %s",
+                len(nameless),
+                [list(t.keys())[:5] for t in nameless[:3]],
+            )
+        self._tools = {t["name"]: t for t in tools if t.get("name")}
+        self._tool_sources.clear()
         self._cached_catalog = None
 
-    def add_tool(self, tool: dict) -> None:
+    def add_tool(self, tool: dict, source: str | None = None) -> None:
         """
         添加单个工具
 
         Args:
-            tool: 工具定义
+            tool: 工具定义（支持 Anthropic 和 OpenAI 格式）
+            source: 工具来源标识（如 ``"plugin:lark-cli-tool"``）
         """
-        self._tools[tool["name"]] = tool
+        name = tool.get("name") or tool.get("function", {}).get("name", "")
+        if not name:
+            raise ValueError("Tool definition must have a 'name'")
+        self._tools[name] = tool
+        if source:
+            self._tool_sources[name] = source
         self._cached_catalog = None
 
     def remove_tool(self, tool_name: str) -> bool:
@@ -437,6 +577,7 @@ Use `get_tool_info(tool_name)` to see full parameters before calling.
         """
         if tool_name in self._tools:
             del self._tools[tool_name]
+            self._tool_sources.pop(tool_name, None)
             self._cached_catalog = None
             return True
         return False

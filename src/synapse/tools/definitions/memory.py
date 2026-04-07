@@ -152,7 +152,10 @@ MEMORY_TOOLS = [
 
 **提示**：使用具体的关键词效果更好（如工具名、文件名、错误信息），避免过于宽泛的搜索词。""",
         "related_tools": [
-            {"name": "search_memory", "relation": "搜索已学习的语义记忆（偏好/事实/规则）时改用 search_memory"},
+            {
+                "name": "search_memory",
+                "relation": "搜索已学习的语义记忆（偏好/事实/规则）时改用 search_memory",
+            },
         ],
         "input_schema": {
             "type": "object",
@@ -202,6 +205,65 @@ MEMORY_TOOLS = [
                 "episode_id": {
                     "type": "string",
                     "description": "要展开的情节 ID（与 memory_id 二选一）",
+                },
+            },
+        },
+    },
+    {
+        "name": "search_relational_memory",
+        "category": "Memory",
+        "description": "Search the relational memory graph (Mode 2) with multi-dimensional traversal. Finds causally linked, temporally connected, and entity-related memories across sessions. Use when user asks about reasons, history, timelines, or cross-session patterns.",
+        "detail": """搜索关系型记忆图（模式 2），支持多维度遍历。
+
+**适用场景**：
+- 用户问"为什么"、"什么原因" → 因果链遍历
+- 用户问"之前做过什么" → 时间线遍历
+- 用户问"关于XX的所有记录" → 实体追踪
+- 需要跨会话关联信息
+
+**与 search_memory 的区别**：
+- search_memory: 碎片化搜索（关键词匹配）
+- search_relational_memory: 图遍历（沿因果/时间/实体维度多跳搜索）""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "搜索查询"},
+                "max_results": {
+                    "type": "integer",
+                    "description": "最大返回条数（默认 10）",
+                    "default": 10,
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "get_session_context",
+        "category": "Memory",
+        "description": "Get detailed context of the current session, including sub-agent execution records, tool usage history, and full message list. Use when conversation history lacks detail about delegation results or you need to review what happened in this session.",
+        "detail": """获取当前会话的详细上下文信息。
+
+**适用场景**：
+- 对话历史中的信息不够详细，需要查看子 Agent 的完整执行记录
+- 需要回顾当前会话的工具使用历史
+- 需要查看完整的消息列表（含元数据）
+
+**注意**：优先使用对话历史中已有的信息。只有在需要更多细节时才调用此工具。""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sections": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["summary", "sub_agents", "tools", "messages"],
+                    },
+                    "description": (
+                        "要获取的信息段落。"
+                        "summary=会话概况, sub_agents=子Agent详细执行记录, "
+                        "tools=工具调用历史, messages=完整消息列表"
+                    ),
+                    "default": ["summary", "sub_agents"],
                 },
             },
         },

@@ -36,6 +36,8 @@ DESKTOP_TOOLS = [
 class DesktopHandler:
     """桌面自动化工具处理器"""
 
+    TOOLS = DESKTOP_TOOLS
+
     def __init__(self, agent):
         self.agent = agent
         self._desktop_handler = None
@@ -51,6 +53,7 @@ class DesktopHandler:
                 self._desktop_handler = DesktopToolHandler()
             except ImportError as e:
                 from synapse.tools._import_helper import import_or_hint
+
                 hint = import_or_hint("pyautogui") or str(e)
                 logger.warning(f"Desktop tools not available: {hint}")
                 self._available = False
@@ -69,6 +72,7 @@ class DesktopHandler:
         """
         if not self._available:
             from synapse.tools._import_helper import import_or_hint
+
             hint = import_or_hint("pyautogui")
             if hint:
                 return f"桌面工具不可用: {hint}"

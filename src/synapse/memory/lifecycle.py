@@ -15,8 +15,14 @@ import logging
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .extractor import MemoryExtractor
+from .storage import _is_db_locked
+
+if TYPE_CHECKING:
+    import asyncio
+    from collections.abc import Callable
 from .types import (
     MEMORY_MD_MAX_CHARS,
     ConversationTurn,
@@ -28,6 +34,67 @@ from .unified_store import UnifiedStore
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Module-level helpers (shared by LifecycleManager methods)
+# ---------------------------------------------------------------------------
+
+_jieba_mod: object | None = None
+_jieba_loaded = False
+
+
+def _tokenize_for_dedup(text: str) -> set[str]:
+    """Tokenize *text* for word-overlap comparison.
+
+    Uses jieba ``cut_for_search`` for Chinese-aware segmentation;
+    falls back to whitespace split when jieba is unavailable.
+    Tokens shorter than 2 chars are discarded to reduce noise.
+    """
+    global _jieba_mod, _jieba_loaded  # noqa: PLW0603
+    if not _jieba_loaded:
+        try:
+            import jieba
+
+            jieba.setLogLevel(logging.WARNING)
+            _jieba_mod = jieba
+        except ImportError:
+            pass
+        _jieba_loaded = True
+
+    lowered = text.lower()
+    if _jieba_mod is not None:
+        tokens = set(_jieba_mod.cut_for_search(lowered))
+    else:
+        tokens = set(lowered.split())
+    return {t for t in tokens if len(t) >= 2}
+
+
+def _fast_content_dedup(new: str, existing: str) -> str:
+    """Fast local content similarity check.
+
+    Returns
+    -------
+    "exact"  – definitely duplicate (safe to merge without LLM)
+    "likely" – might be duplicate (would need LLM to confirm)
+    "no"     – not duplicate
+    """
+    if not new or not existing:
+        return "no"
+    a, b = new.lower().strip(), existing.lower().strip()
+    if a == b:
+        return "exact"
+    if len(a) > 15 and len(b) > 15 and (a in b or b in a):
+        return "exact"
+    if len(a) >= 10 and len(b) >= 10:
+        bigrams_a = {a[i : i + 2] for i in range(len(a) - 1)}
+        bigrams_b = {b[i : i + 2] for i in range(len(b) - 1)}
+        if bigrams_a and bigrams_b:
+            overlap = len(bigrams_a & bigrams_b) / len(bigrams_a | bigrams_b)
+            if overlap > 0.8:
+                return "exact"
+            if overlap > 0.3:
+                return "likely"
+    return "no"
+
 
 def _safe_write_with_backup(path: Path, content: str) -> None:
     """安全写入文件：先备份再写入，写失败则恢复"""
@@ -35,6 +102,7 @@ def _safe_write_with_backup(path: Path, content: str) -> None:
     try:
         if path.exists():
             import shutil
+
             shutil.copy2(path, backup)
     except Exception as e:
         logger.warning(f"Failed to create backup of {path}: {e}")
@@ -46,6 +114,7 @@ def _safe_write_with_backup(path: Path, content: str) -> None:
         if backup.exists():
             try:
                 import shutil
+
                 shutil.copy2(backup, path)
                 logger.info(f"Restored {path} from backup")
             except Exception as e2:
@@ -144,7 +213,9 @@ class LifecycleManager:
                 ConversationTurn(
                     role=t["role"],
                     content=t.get("content") or "",
-                    timestamp=datetime.fromisoformat(t["timestamp"]) if t.get("timestamp") else datetime.now(),
+                    timestamp=datetime.fromisoformat(t["timestamp"])
+                    if t.get("timestamp")
+                    else datetime.now(),
                     tool_calls=t.get("tool_calls") or [],
                     tool_results=t.get("tool_results") or [],
                 )
@@ -195,6 +266,9 @@ class LifecycleManager:
         }
         mem_type = type_map.get(item.get("type", "FACT"), MemoryType.FACT)
         importance = item.get("importance", 0.5)
+        content = (item.get("content") or "").strip()
+        subject = item.get("subject", "")
+        predicate = item.get("predicate", "")
 
         if importance >= 0.85 or mem_type == MemoryType.RULE:
             priority = MemoryPriority.PERMANENT
@@ -203,25 +277,57 @@ class LifecycleManager:
         else:
             priority = MemoryPriority.SHORT_TERM
 
-        if item.get("is_update"):
-            existing = self.store.find_similar(
-                item.get("subject", ""), item.get("predicate", "")
-            )
-            if existing:
-                self.store.update_semantic(existing.id, {
-                    "content": item["content"],
+        # --- Dedup layer 1: subject+predicate match (always, not only is_update) ---
+        if subject and predicate:
+            existing = self.store.find_similar(subject, predicate)
+            if existing and not existing.superseded_by:
+                updates: dict = {
                     "importance_score": max(existing.importance_score, importance),
                     "confidence": min(1.0, existing.confidence + 0.1),
-                })
+                }
+                should_update = (
+                    item.get("is_update")
+                    or importance > existing.importance_score
+                    or (
+                        importance >= existing.importance_score
+                        and len(content) > len(existing.content or "")
+                    )
+                )
+                if should_update:
+                    updates["content"] = content
+                self.store.update_semantic(existing.id, updates)
+                logger.debug(f"[Lifecycle] Dedup L1: evolved {existing.id[:8]} (subject+predicate)")
                 return
 
+        # --- Dedup layer 2: content similarity via search backend ---
+        if content and len(content) >= 10:
+            try:
+                similar = self.store.search_semantic(content, limit=5)
+                for s in similar:
+                    if s.superseded_by or s.type != mem_type:
+                        continue
+                    level = _fast_content_dedup(content, s.content or "")
+                    if level == "exact":
+                        self.store.update_semantic(
+                            s.id,
+                            {
+                                "importance_score": max(s.importance_score, importance),
+                                "confidence": min(1.0, s.confidence + 0.1),
+                            },
+                        )
+                        logger.debug(f"[Lifecycle] Dedup L2: evolved {s.id[:8]} (content match)")
+                        return
+            except Exception as e:
+                logger.debug(f"[Lifecycle] Dedup search failed: {e}")
+
+        # --- No duplicate found — save new memory ---
         mem = SemanticMemory(
             type=mem_type,
             priority=priority,
-            content=item["content"],
+            content=content,
             source="daily_consolidation",
-            subject=item.get("subject", ""),
-            predicate=item.get("predicate", ""),
+            subject=subject,
+            predicate=predicate,
             importance_score=importance,
             source_episode_id=episode_id,
             tags=[item.get("type", "fact").lower()],
@@ -265,9 +371,18 @@ class LifecycleManager:
     def _cluster_by_content(
         self, memories: list[SemanticMemory], threshold: float = 0.7
     ) -> list[list[SemanticMemory]]:
-        """Simple clustering by content similarity (word overlap)."""
+        """Clustering by token-overlap similarity.
+
+        Uses jieba segmentation (via ``_tokenize_for_dedup``) so that
+        Chinese text is properly tokenised instead of being treated as a
+        single whitespace-delimited "word".
+        """
         clusters: list[list[SemanticMemory]] = []
         assigned: set[str] = set()
+
+        token_cache: dict[str, set[str]] = {}
+        for mem in memories:
+            token_cache[mem.id] = _tokenize_for_dedup(mem.content)
 
         for i, mem_a in enumerate(memories):
             if mem_a.id in assigned:
@@ -275,12 +390,12 @@ class LifecycleManager:
             cluster = [mem_a]
             assigned.add(mem_a.id)
 
-            words_a = set(mem_a.content.lower().split())
+            words_a = token_cache[mem_a.id]
             for j in range(i + 1, len(memories)):
                 mem_b = memories[j]
                 if mem_b.id in assigned:
                     continue
-                words_b = set(mem_b.content.lower().split())
+                words_b = token_cache[mem_b.id]
                 if not words_a or not words_b:
                     continue
                 overlap = len(words_a & words_b) / min(len(words_a), len(words_b))
@@ -332,10 +447,13 @@ class LifecycleManager:
                 self.store.delete_semantic(mem.id)
                 decayed += 1
             elif effective_score < 0.3:
-                self.store.update_semantic(mem.id, {
-                    "priority": MemoryPriority.TRANSIENT.value,
-                    "importance_score": effective_score,
-                })
+                self.store.update_semantic(
+                    mem.id,
+                    {
+                        "priority": MemoryPriority.TRANSIENT.value,
+                        "importance_score": effective_score,
+                    },
+                )
                 decayed += 1
 
         expired = self.store.db.cleanup_expired()
@@ -355,6 +473,7 @@ class LifecycleManager:
         if not db._conn:
             return 0
         from datetime import timedelta
+
         cutoff = (datetime.now() - timedelta(days=max_age_days)).isoformat()
         with db._lock:
             try:
@@ -370,9 +489,13 @@ class LifecycleManager:
                 count = cursor.rowcount
                 if count:
                     db._conn.commit()
-                    logger.info(f"[Lifecycle] Cleaned {count} stale attachments (>{max_age_days} days, no content)")
+                    logger.info(
+                        f"[Lifecycle] Cleaned {count} stale attachments (>{max_age_days} days, no content)"
+                    )
                 return count
             except Exception as e:
+                if _is_db_locked(e):
+                    raise
                 logger.error(f"[Lifecycle] Attachment cleanup failed: {e}")
                 return 0
 
@@ -428,14 +551,23 @@ class LifecycleManager:
 
 只输出 JSON 数组，不要其他内容。"""
 
-    async def review_memories_with_llm(self) -> dict:
+    async def review_memories_with_llm(
+        self,
+        progress_callback: Callable[[dict], None] | None = None,
+        cancel_event: asyncio.Event | None = None,
+    ) -> dict:
         """
         使用 LLM 审查所有记忆，清理垃圾、合并重复、更新过期内容。
+
+        Args:
+            progress_callback: 每完成一个 batch 后调用，传入当前进度 dict
+            cancel_event: 如果 set，则在下一个 batch 前中止
 
         Returns:
             审查报告 {deleted, updated, merged, kept, errors}
         """
         import json
+        import math
         import re
 
         all_memories = self.store.load_all_memories()
@@ -449,8 +581,28 @@ class LifecycleManager:
         report = {"deleted": 0, "updated": 0, "merged": 0, "kept": 0, "errors": 0}
 
         batch_size = 15
-        for i in range(0, len(all_memories), batch_size):
+        total_batches = math.ceil(len(all_memories) / batch_size)
+        consecutive_risky_skips = 0
+        max_consecutive_risky = 3
+
+        for batch_idx, i in enumerate(range(0, len(all_memories), batch_size)):
+            if cancel_event and cancel_event.is_set():
+                logger.info("[Lifecycle] Memory review cancelled by user")
+                break
+
             batch = all_memories[i : i + batch_size]
+
+            if progress_callback:
+                progress_callback(
+                    {
+                        "phase": "llm_calling",
+                        "batch": batch_idx,
+                        "total_batches": total_batches,
+                        "total_memories": len(all_memories),
+                        "processed": i,
+                        "report": dict(report),
+                    }
+                )
 
             memories_text = "\n".join(
                 f"- ID={m.id} | type={m.type.value} | score={m.importance_score:.2f} "
@@ -461,7 +613,6 @@ class LifecycleManager:
             prompt = self.MEMORY_REVIEW_PROMPT.format(memories_text=memories_text)
 
             try:
-                # Memory review is critical — use main model, not think_lightweight
                 response = await self.extractor.brain.think(
                     prompt,
                     system="你是记忆质量审查专家。只输出 JSON 数组。",
@@ -470,7 +621,7 @@ class LifecycleManager:
 
                 json_match = re.search(r"\[[\s\S]*\]", text)
                 if not json_match:
-                    logger.warning(f"[Lifecycle] LLM review batch {i // batch_size}: no JSON output")
+                    logger.warning(f"[Lifecycle] LLM review batch {batch_idx}: no JSON output")
                     report["kept"] += len(batch)
                     continue
 
@@ -479,7 +630,6 @@ class LifecycleManager:
                     report["kept"] += len(batch)
                     continue
 
-                # Guardrail: avoid catastrophic over-pruning from noisy LLM output.
                 destructive = 0
                 for d in decisions:
                     if not isinstance(d, dict):
@@ -488,14 +638,30 @@ class LifecycleManager:
                     if action in ("delete", "merge"):
                         destructive += 1
                 if destructive > max(3, int(len(batch) * 0.4)):
+                    consecutive_risky_skips += 1
                     logger.warning(
-                        "[Lifecycle] Skip risky review batch %s: destructive=%s/%s",
-                        i // batch_size,
+                        "[Lifecycle] Skip risky review batch %s: destructive=%s/%s "
+                        "(consecutive=%s/%s)",
+                        batch_idx,
                         destructive,
                         len(batch),
+                        consecutive_risky_skips,
+                        max_consecutive_risky,
                     )
                     report["kept"] += len(batch)
+                    if consecutive_risky_skips >= max_consecutive_risky:
+                        remaining = len(all_memories) - (i + len(batch))
+                        logger.warning(
+                            "[Lifecycle] Aborting LLM review: %s consecutive risky "
+                            "batches — LLM appears unreliable for this corpus. "
+                            "Keeping remaining %s memories as-is.",
+                            max_consecutive_risky,
+                            remaining,
+                        )
+                        report["kept"] += remaining
+                        break
                     continue
+                consecutive_risky_skips = 0
 
                 decision_map = {d["id"]: d for d in decisions if isinstance(d, dict) and "id" in d}
 
@@ -541,14 +707,52 @@ class LifecycleManager:
                         report["kept"] += 1
 
             except Exception as e:
-                logger.error(f"[Lifecycle] LLM review batch {i // batch_size} failed: {e}")
+                logger.error(f"[Lifecycle] LLM review batch {batch_idx} failed: {e}")
                 report["errors"] += 1
                 report["kept"] += len(batch)
+
+            if progress_callback:
+                progress_callback(
+                    {
+                        "phase": "batch_done",
+                        "batch": batch_idx + 1,
+                        "total_batches": total_batches,
+                        "total_memories": len(all_memories),
+                        "processed": min(i + batch_size, len(all_memories)),
+                        "report": dict(report),
+                    }
+                )
+
+        cancelled = cancel_event.is_set() if cancel_event else False
+
+        if progress_callback:
+            progress_callback(
+                {
+                    "phase": "done",
+                    "batch": total_batches,
+                    "total_batches": total_batches,
+                    "total_memories": len(all_memories),
+                    "processed": len(all_memories),
+                    "report": dict(report),
+                    "done": True,
+                    "cancelled": cancelled,
+                }
+            )
+
+        # All batches failed → LLM completely unavailable, re-raise so the
+        # scheduler can mark_failed() and trigger its existing notification.
+        # Partial failure (some batches OK) is tolerated: succeeded batches
+        # take effect, failed ones keep memories as-is.
+        if not cancelled and report["errors"] >= total_batches > 0:
+            from ..llm.types import AllEndpointsFailedError
+
+            raise AllEndpointsFailedError(f"LLM review failed: all {total_batches} batches errored")
 
         logger.info(
             f"[Lifecycle] Memory review complete: "
             f"deleted={report['deleted']}, updated={report['updated']}, "
             f"merged={report['merged']}, kept={report['kept']}"
+            f"{' (cancelled)' if cancelled else ''}"
         )
         return report
 
@@ -608,7 +812,8 @@ class LifecycleManager:
 
         try:
             response = await self.extractor.brain.think(
-                prompt, system="你是经验归纳专家。只输出 JSON 数组。",
+                prompt,
+                system="你是经验归纳专家。只输出 JSON 数组。",
             )
             text = (getattr(response, "content", None) or str(response)).strip()
             json_match = re.search(r"\[[\s\S]*\]", text)
@@ -626,6 +831,25 @@ class LifecycleManager:
                 content = (synth.get("content") or "").strip()
                 source_ids = synth.get("synthesized_from", [])
                 if len(content) < 10 or len(source_ids) < 2:
+                    continue
+
+                # Dedup: skip if a similar experience already exists
+                dup_target: SemanticMemory | None = None
+                try:
+                    similar = self.store.search_semantic(content, limit=3)
+                    for s in similar:
+                        if s.superseded_by:
+                            continue
+                        if _fast_content_dedup(content, s.content or "") == "exact":
+                            dup_target = s
+                            break
+                except Exception:
+                    pass
+
+                if dup_target is not None:
+                    for sid in source_ids:
+                        self.store.update_semantic(sid, {"superseded_by": dup_target.id})
+                    logger.debug(f"[Lifecycle] Synthesis dedup: reused {dup_target.id[:8]}")
                     continue
 
                 mem = SemanticMemory(
@@ -646,7 +870,9 @@ class LifecycleManager:
                     self.store.update_semantic(sid, {"superseded_by": mem.id})
 
             if saved:
-                logger.info(f"[Lifecycle] Synthesized {saved} experience principles from {len(experiences)} memories")
+                logger.info(
+                    f"[Lifecycle] Synthesized {saved} experience principles from {len(experiences)} memories"
+                )
             return saved
 
         except Exception as e:
@@ -718,11 +944,34 @@ class LifecycleManager:
             "projects": [],
         }
 
-        _action_words = {"打开", "关闭", "运行", "执行", "安装", "部署", "启动", "停止",
-                         "创建", "删除", "修改", "搜索", "下载", "上传", "编译", "测试",
-                         "去", "进入", "访问", "登录", "检查", "查看", "发送"}
+        _action_words = {
+            "打开",
+            "关闭",
+            "运行",
+            "执行",
+            "安装",
+            "部署",
+            "启动",
+            "停止",
+            "创建",
+            "删除",
+            "修改",
+            "搜索",
+            "下载",
+            "上传",
+            "编译",
+            "测试",
+            "去",
+            "进入",
+            "访问",
+            "登录",
+            "检查",
+            "查看",
+            "发送",
+        }
         user_facts = [
-            m for m in user_facts
+            m
+            for m in user_facts
             if not any(w in (m.predicate or "") for w in _action_words)
             and not any(w in (m.content or "")[:20] for w in _action_words)
         ]

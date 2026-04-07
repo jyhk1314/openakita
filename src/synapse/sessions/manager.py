@@ -63,6 +63,8 @@ class SessionManager:
         self._channel_registry: dict[str, dict[str, str]] = {}
         self._load_channel_registry()
 
+        self._plugin_hooks = None
+
         # 用户管理器
         self.user_manager = UserManager(self.storage_path / "users")
 
@@ -79,6 +81,9 @@ class SessionManager:
         # 签名: (safe_session_id: str) -> list[dict]  (每个 dict 含 role, content, timestamp)
         self._turn_loader = None
 
+        # 会话是否已从磁盘加载完毕（API 层用此判断 ready 语义）
+        self._sessions_loaded = False
+
         # 加载持久化的会话
         self._load_sessions()
 
@@ -92,6 +97,29 @@ class SessionManager:
     def mark_dirty(self) -> None:
         """标记会话数据已修改，需要保存"""
         self._dirty = True
+
+    def _dispatch_hook_fire_and_forget(self, hook_name: str, **kwargs) -> None:
+        """Dispatch a plugin hook from sync context (best-effort, non-blocking)."""
+        if self._plugin_hooks is None:
+            return
+        try:
+            import asyncio
+
+            loop = asyncio.get_running_loop()
+            task = loop.create_task(self._plugin_hooks.dispatch(hook_name, **kwargs))
+            task.add_done_callback(self._hook_task_done)
+        except RuntimeError:
+            pass
+        except Exception as e:
+            logger.debug(f"Hook '{hook_name}' dispatch error: {e}")
+
+    @staticmethod
+    def _hook_task_done(task) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.warning("Plugin hook task failed: %s", exc)
 
     def flush(self) -> None:
         """立即保存所有待写入的会话（绕过防抖延迟）"""
@@ -168,8 +196,12 @@ class SessionManager:
         channel: str,
         chat_id: str,
         user_id: str,
+        thread_id: str | None = None,
         create_if_missing: bool = True,
         config: SessionConfig | None = None,
+        chat_type: str = "private",
+        display_name: str = "",
+        chat_name: str = "",
     ) -> Session | None:
         """
         获取或创建会话
@@ -178,28 +210,86 @@ class SessionManager:
             channel: 来源通道
             chat_id: 聊天 ID
             user_id: 用户 ID
+            thread_id: 话题/线程 ID（可选，用于话题级隔离）
             create_if_missing: 如果不存在是否创建
             config: 会话配置（创建时使用）
+            chat_type: 聊天类型 ("group" | "private")
+            display_name: 用户昵称
+            chat_name: 聊天/群组名称
 
         Returns:
             Session 或 None
         """
         session_key = f"{channel}:{chat_id}:{user_id}"
+        if thread_id:
+            session_key += f":{thread_id}"
 
         with self._sessions_lock:
-            # 检查缓存
             if session_key in self._sessions:
                 session = self._sessions[session_key]
                 session.touch()
                 return session
 
-            # 创建新会话
-            if create_if_missing:
-                session = self._create_session(channel, chat_id, user_id, config)
-                self._sessions[session_key] = session
-                logger.info(f"Created new session: {session_key}")
+        # 磁盘恢复在锁外执行，避免 IO 阻塞其他线程
+        recovered = self._try_recover_session_from_disk(session_key)
+
+        with self._sessions_lock:
+            # double-check：另一个线程可能已抢先恢复或创建
+            if session_key in self._sessions:
+                session = self._sessions[session_key]
+                session.touch()
                 return session
 
+            if recovered is not None:
+                self._sessions[session_key] = recovered
+                recovered.touch()
+                logger.info(
+                    f"Recovered session from disk: {session_key} "
+                    f"({len(recovered.context.messages)} messages)"
+                )
+                return recovered
+
+            if create_if_missing:
+                session = self._create_session(
+                    channel,
+                    chat_id,
+                    user_id,
+                    thread_id,
+                    config,
+                    chat_type=chat_type,
+                    display_name=display_name,
+                    chat_name=chat_name,
+                )
+                self._sessions[session_key] = session
+                logger.info(f"Created new session: {session_key}")
+                self._dispatch_hook_fire_and_forget(
+                    "on_session_start", session=session, session_key=session_key
+                )
+                return session
+
+        return None
+
+    def _try_recover_session_from_disk(self, session_key: str) -> "Session | None":
+        """尝试从 sessions.json 中恢复指定 session_key 的会话。
+
+        当会话已从内存中移除（如空闲清理、内存压力）但磁盘上仍有记录时，
+        可以通过此方法恢复，避免创建空白会话导致上下文丢失。
+        """
+        sessions_file = self.storage_path / "sessions.json"
+        data = self._try_load_sessions_file(sessions_file)
+        if not data:
+            return None
+
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            try:
+                session = Session.from_dict(item)
+                if session.session_key == session_key and not session.is_expired():
+                    self._clean_large_content_in_messages(session.context.messages)
+                    return session
+            except Exception:
+                continue
         return None
 
     def get_session_by_id(self, session_id: str) -> Session | None:
@@ -215,7 +305,11 @@ class SessionManager:
         channel: str,
         chat_id: str,
         user_id: str,
+        thread_id: str | None = None,
         config: SessionConfig | None = None,
+        chat_type: str = "private",
+        display_name: str = "",
+        chat_name: str = "",
     ) -> Session:
         """创建新会话"""
         # 合并配置
@@ -227,7 +321,11 @@ class SessionManager:
             channel=channel,
             chat_id=chat_id,
             user_id=user_id,
+            thread_id=thread_id,
             config=session_config,
+            chat_type=chat_type,
+            display_name=display_name,
+            chat_name=chat_name,
         )
 
         # 设置记忆范围
@@ -240,14 +338,22 @@ class SessionManager:
 
     def close_session(self, session_key: str) -> bool:
         """关闭会话"""
+        closed_session = None
         with self._sessions_lock:
             if session_key in self._sessions:
-                session = self._sessions[session_key]
-                session.close()
+                closed_session = self._sessions[session_key]
+                closed_session.close()
                 del self._sessions[session_key]
                 self.mark_dirty()
                 logger.info(f"Closed session: {session_key}")
-                return True
+        if closed_session is not None:
+            self._dispatch_hook_fire_and_forget(
+                "on_session_end",
+                session=closed_session,
+                session_key=session_key,
+                reason="close",
+            )
+            return True
         return False
 
     def list_sessions(
@@ -302,10 +408,7 @@ class SessionManager:
     async def cleanup_expired(self) -> int:
         """清理过期会话"""
         with self._sessions_lock:
-            expired_keys = [
-                key for key, session in self._sessions.items()
-                if session.is_expired()
-            ]
+            expired_keys = [key for key, session in self._sessions.items() if session.is_expired()]
 
             for key in expired_keys:
                 session = self._sessions[key]
@@ -317,6 +420,34 @@ class SessionManager:
             logger.info(f"Cleaned up {len(expired_keys)} expired sessions")
 
         return len(expired_keys)
+
+    def purge_channel(self, channel_name: str) -> int:
+        """清理指定通道的所有会话和注册表数据。
+
+        当 IM bot 被删除时调用，确保 UI 不再显示已删除通道的聊天窗口。
+
+        Returns:
+            被清理的会话数量
+        """
+        with self._sessions_lock:
+            keys_to_remove = [
+                key for key, session in self._sessions.items() if session.channel == channel_name
+            ]
+            for key in keys_to_remove:
+                del self._sessions[key]
+
+        if channel_name in self._channel_registry:
+            del self._channel_registry[channel_name]
+            self._save_channel_registry()
+
+        if keys_to_remove:
+            self.mark_dirty()
+            self._save_sessions()
+            logger.info(
+                f"Purged {len(keys_to_remove)} sessions and registry for channel: {channel_name}"
+            )
+
+        return len(keys_to_remove)
 
     async def _cleanup_loop(self) -> None:
         """定期清理循环（每 24 小时清理 30 天未活跃的僵尸 session）"""
@@ -354,76 +485,160 @@ class SessionManager:
                 logger.error(f"Error in save loop: {e}")
 
     def _load_sessions(self) -> None:
-        """从文件加载会话"""
+        """从文件加载会话，主文件失败时自动回退到 .bak 备份。"""
         sessions_file = self.storage_path / "sessions.json"
+        backup_file = self.storage_path / "sessions.json.bak"
 
-        if not sessions_file.exists():
+        data = self._try_load_sessions_file(sessions_file)
+        if data is None and backup_file.exists():
+            logger.warning("Main sessions.json failed or missing, trying .bak backup")
+            data = self._try_load_sessions_file(backup_file)
+
+        if data is None:
+            self._sessions_loaded = True
             return
 
+        skipped_expired = 0
+        skipped_error = 0
+        for item in data:
+            try:
+                if not isinstance(item, dict):
+                    skipped_error += 1
+                    continue
+                session = Session.from_dict(item)
+                if not session.is_expired() and session.state != SessionState.CLOSED:
+                    msg_count = len(session.context.messages)
+                    self._clean_large_content_in_messages(session.context.messages)
+                    self._sessions[session.session_key] = session
+                    if msg_count > 0:
+                        logger.debug(
+                            f"Loaded session {session.session_key}: "
+                            f"{msg_count} messages preserved "
+                            f"(last_active: {session.last_active})"
+                        )
+                else:
+                    skipped_expired += 1
+
+                session_ts = session.last_active.isoformat()
+                existing = self._channel_registry.get(session.channel)
+                _existing_ts = ""
+                if isinstance(existing, dict):
+                    _existing_ts = existing.get("last_seen", "")
+                elif isinstance(existing, list) and existing:
+                    top = existing[0]
+                    _existing_ts = top.get("last_seen", "") if isinstance(top, dict) else ""
+                if not existing or session_ts >= _existing_ts:
+                    self._channel_registry[session.channel] = {
+                        "chat_id": session.chat_id,
+                        "user_id": session.user_id,
+                        "last_seen": session_ts,
+                    }
+            except Exception as e:
+                skipped_error += 1
+                logger.warning(f"Failed to load session: {e}")
+
+        if self._channel_registry:
+            self._save_channel_registry()
+
+        parts = [f"Loaded {len(self._sessions)} sessions from storage"]
+        if skipped_expired:
+            parts.append(f"skipped {skipped_expired} expired")
+        if skipped_error:
+            parts.append(f"skipped {skipped_error} errors")
+        logger.info(f"{parts[0]}" + (f" ({', '.join(parts[1:])})" if len(parts) > 1 else ""))
+
+        self._sessions_loaded = True
+
+    @staticmethod
+    def _try_load_sessions_file(path: Path) -> list[dict] | None:
+        """尝试读取并解析 sessions JSON 文件，失败返回 None。"""
+        if not path.exists():
+            return None
         try:
-            with open(sessions_file, encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
-
-            skipped_expired = 0
-            for item in data:
-                try:
-                    session = Session.from_dict(item)
-                    if not session.is_expired() and session.state != SessionState.CLOSED:
-                        msg_count = len(session.context.messages)
-                        self._clean_large_content_in_messages(session.context.messages)
-                        self._sessions[session.session_key] = session
-                        if msg_count > 0:
-                            logger.debug(
-                                f"Loaded session {session.session_key}: "
-                                f"{msg_count} messages preserved (last_active: {session.last_active})"
-                            )
-                    else:
-                        skipped_expired += 1
-
-                    self._update_channel_registry(
-                        session.channel, session.chat_id, session.user_id
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to load session: {e}")
-
-            if self._channel_registry:
-                self._save_channel_registry()
-
-            logger.info(
-                f"Loaded {len(self._sessions)} sessions from storage"
-                f"{f' (skipped {skipped_expired} expired)' if skipped_expired else ''}"
-            )
-
+            if isinstance(data, list):
+                return data
+            logger.warning(f"Unexpected sessions format in {path.name}: {type(data).__name__}")
+            return None
         except Exception as e:
-            logger.error(f"Failed to load sessions: {e}")
+            logger.error(f"Failed to parse {path.name}: {e}")
+            return None
+
+    _MEDIA_BLOCK_TYPES = frozenset(
+        {
+            "image",
+            "video",
+            "video_url",
+            "audio",
+            "input_audio",
+        }
+    )
 
     def _clean_large_content_in_messages(self, messages: list[dict]) -> None:
         """
-        清理消息中的大型数据（如 base64 截图）
+        清理消息中的大型数据（base64 图片/视频、大段 tool_result 等）
 
-        这是一个安全措施，防止大型数据在 session 恢复时导致上下文爆炸
+        session 恢复时调用，防止历史 base64 数据导致上下文爆炸。
         """
         for msg in messages:
             content = msg.get("content")
-            if isinstance(content, list):
-                for block in content:
-                    if isinstance(block, dict):
-                        # 检查 tool_result 中的大型内容
-                        if block.get("type") == "tool_result":
-                            result_content = block.get("content", "")
-                            if isinstance(result_content, str) and len(result_content) > 10000:
-                                # 大型内容，检查是否是 base64 图片
-                                if "base64" in result_content.lower() or result_content.startswith(
-                                    "data:image"
-                                ):
-                                    block["content"] = "[图片数据已清理，请重新截图]"
-                                else:
-                                    from synapse.core.tool_executor import smart_truncate
-                                    block["content"], _ = smart_truncate(
-                                        result_content, 4000,
-                                        label="session_restore",
-                                        save_full=True,
-                                    )
+            if not isinstance(content, list):
+                continue
+
+            cleaned: list[dict] = []
+            for block in content:
+                if not isinstance(block, dict):
+                    cleaned.append(block)
+                    continue
+
+                block_type = block.get("type", "")
+
+                # 图片/视频/音频块 → 替换为文字占位符
+                if block_type in self._MEDIA_BLOCK_TYPES:
+                    cleaned.append(
+                        {
+                            "type": "text",
+                            "text": "[历史媒体内容已清理]",
+                        }
+                    )
+                    continue
+
+                # image_url 内嵌 data URI → 替换
+                if block_type == "image_url":
+                    url = (block.get("image_url") or {}).get("url", "")
+                    if url.startswith("data:"):
+                        cleaned.append(
+                            {
+                                "type": "text",
+                                "text": "[历史图片已清理]",
+                            }
+                        )
+                        continue
+
+                # tool_result 中的大型内容
+                if block_type == "tool_result":
+                    result_content = block.get("content", "")
+                    if isinstance(result_content, str) and len(result_content) > 10000:
+                        if "base64" in result_content.lower() or result_content.startswith(
+                            "data:image"
+                        ):
+                            block = dict(block)
+                            block["content"] = "[图片数据已清理，请重新截图]"
+                        else:
+                            from synapse.core.tool_executor import smart_truncate
+
+                            block = dict(block)
+                            block["content"], _ = smart_truncate(
+                                result_content,
+                                4000,
+                                label="session_restore",
+                                save_full=True,
+                            )
+
+                cleaned.append(block)
+
+            msg["content"] = cleaned
 
     # ==================== 通道注册表 ====================
 
@@ -450,9 +665,7 @@ class SessionManager:
         except Exception as e:
             logger.warning(f"Failed to save channel registry: {e}")
 
-    def _update_channel_registry(
-        self, channel: str, chat_id: str, user_id: str
-    ) -> None:
+    def _update_channel_registry(self, channel: str, chat_id: str, user_id: str) -> None:
         """
         更新通道注册表
 
@@ -486,9 +699,7 @@ class SessionManager:
         self._channel_registry[channel] = entry[:20]
         self._save_channel_registry()
 
-    def get_known_channel_target(
-        self, channel: str
-    ) -> tuple[str, str] | None:
+    def get_known_channel_target(self, channel: str) -> tuple[str, str] | None:
         """
         从通道注册表查找通道的最后已知 chat_id
 
@@ -510,9 +721,7 @@ class SessionManager:
                 return (channel, top["chat_id"])
         return None
 
-    def get_all_channel_targets(
-        self, channel: str
-    ) -> list[tuple[str, str]]:
+    def get_all_channel_targets(self, channel: str) -> list[tuple[str, str]]:
         """返回通道的所有已知 chat_id（多群场景）。"""
         entry = self._channel_registry.get(channel)
         if isinstance(entry, dict):
@@ -548,14 +757,12 @@ class SessionManager:
             # 3. 备份旧文件（如果存在）
             if sessions_file.exists():
                 try:
-                    if backup_file.exists():
-                        backup_file.unlink()
-                    sessions_file.rename(backup_file)
+                    sessions_file.replace(backup_file)
                 except Exception as e:
                     logger.warning(f"Failed to backup sessions file: {e}")
 
-            # 4. 原子重命名临时文件为正式文件
-            temp_file.rename(sessions_file)
+            # 4. 原子重命名临时文件为正式文件 (replace works on Windows too)
+            temp_file.replace(sessions_file)
 
             logger.debug(f"Saved {len(data)} sessions to storage (atomic)")
             return True

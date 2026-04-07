@@ -8,9 +8,14 @@
 - Level 3: 资源文件 - 按需加载
 """
 
+from .activation import SkillActivationManager
 from .catalog import (
     SkillCatalog,
     generate_skill_catalog,
+)
+from .events import (
+    notify_skills_changed,
+    register_on_change,
 )
 from .loader import (
     SKILL_DIRECTORIES,
@@ -30,6 +35,9 @@ from .registry import (
     get_skill,
     register_skill,
 )
+from .skill_hooks import SkillHookRunner, create_hook_runner, validate_hooks
+from .usage import SkillUsageTracker
+from .watcher import SkillWatcher, clear_all_skill_caches
 
 __all__ = [
     # Parser
@@ -50,4 +58,18 @@ __all__ = [
     # Catalog
     "SkillCatalog",
     "generate_skill_catalog",
+    # Events
+    "register_on_change",
+    "notify_skills_changed",
+    # Usage
+    "SkillUsageTracker",
+    # Activation
+    "SkillActivationManager",
+    # Hooks
+    "SkillHookRunner",
+    "create_hook_runner",
+    "validate_hooks",
+    # Watcher
+    "SkillWatcher",
+    "clear_all_skill_caches",
 ]

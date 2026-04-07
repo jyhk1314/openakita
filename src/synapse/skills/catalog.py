@@ -8,11 +8,21 @@
 
 技能清单在 Agent 启动时生成，并注入到系统提示中，
 让大模型在首次对话时就知道有哪些技能可用。
+
+三级降级预算策略:
+- Level A (full): name + description + when_to_use
+- Level B (compact): name + when_to_use
+- Level C (index): names only
 """
 
 import logging
+import threading
+from typing import TYPE_CHECKING
 
 from .registry import SkillRegistry
+
+if TYPE_CHECKING:
+    from .usage import SkillUsageTracker
 
 logger = logging.getLogger(__name__)
 
@@ -24,58 +34,127 @@ class SkillCatalog:
     管理技能清单的生成和格式化，用于系统提示注入。
     """
 
-    # 技能清单模板
-    # 注意：该段落会进入 system prompt，尽量短（降低噪声与 token 占用）
     CATALOG_TEMPLATE = """
 ## Available Skills
 
 Use `get_skill_info(skill_name)` to load full instructions when needed.
+Installed skills may come from builtin, user workspace, or project directories.
+Do not infer filesystem paths from the workspace map; `get_skill_info` is authoritative.
 
 {skill_list}
 """
 
     SKILL_ENTRY_TEMPLATE = "- **{name}**: {description}"
+    SKILL_ENTRY_WITH_HINT_TEMPLATE = "- **{name}**: {description} _(Use when: {when_to_use})_"
 
-    def __init__(self, registry: SkillRegistry):
+    @staticmethod
+    def _safe_format(template: str, **kwargs: str) -> str:
+        """str.format that won't crash on {/} in values."""
+        try:
+            return template.format(**kwargs)
+        except (KeyError, ValueError, IndexError) as e:
+            logger.warning(
+                "[SkillCatalog] str.format failed (template=%r, keys=%s): %s",
+                template[:60],
+                list(kwargs.keys()),
+                e,
+            )
+            return template + " " + " | ".join(f"{k}={v}" for k, v in kwargs.items())
+
+    def __init__(
+        self,
+        registry: SkillRegistry,
+        usage_tracker: "SkillUsageTracker | None" = None,
+    ):
         self.registry = registry
+        self._usage_tracker = usage_tracker
+        self._lock = threading.Lock()
         self._cached_catalog: str | None = None
+        self._cached_index: str | None = None
+        self._cached_compact: str | None = None
+
+    def _list_model_visible(self) -> list:
+        """Return enabled skills that are also visible to the model, sorted by usage.
+
+        Respects catalog_hidden: INCLUSIVE 模式下未勾选的技能不出现在 L1 目录中，
+        但仍保留在注册表中供 list_skills / get_skill_info 按需发现。
+        """
+        skills = [
+            s
+            for s in self.registry.list_enabled()
+            if not s.disable_model_invocation and not s.catalog_hidden
+        ]
+        if self._usage_tracker:
+            scores = self._usage_tracker.get_all_scores()
+            skills.sort(key=lambda s: scores.get(s.skill_id, 0), reverse=True)
+        return skills
 
     def generate_catalog(self) -> str:
         """
-        生成已启用技能清单（disabled 技能不会出现在系统提示中）
+        生成已启用技能清单（disabled 和 disable_model_invocation 技能不出现在系统提示中）
 
-        Returns:
-            格式化的技能清单字符串
+        INCLUSIVE 模式下 catalog_hidden 的技能不出现在 L1 目录中，
+        但会附加发现提示，引导 LLM 通过 list_skills 按需加载。
         """
-        skills = self.registry.list_enabled()
+        with self._lock:
+            skills = self._list_model_visible()
+            hidden_count = self.registry.count_catalog_hidden()
 
-        if not skills:
-            empty_catalog = (
-                "\n## Available Skills\n\n"
-                "No skills installed. Use the skill creation workflow to add new skills.\n"
+            if not skills:
+                if hidden_count > 0:
+                    empty_catalog = (
+                        "\n## Available Skills\n\n"
+                        "No skills are pre-loaded for this agent profile.\n"
+                        f"However, {hidden_count} additional skill(s) are installed. "
+                        "Use `list_skills` to discover them, then `get_skill_info(skill_name)` "
+                        "to load instructions when the task requires a specific skill.\n"
+                    )
+                else:
+                    empty_catalog = (
+                        "\n## Available Skills\n\n"
+                        "No skills installed. Use the skill creation workflow to add new skills.\n"
+                    )
+                self._cached_catalog = empty_catalog
+                return empty_catalog
+
+            skill_entries = []
+            for skill in skills:
+                desc = skill.description or ""
+                first_line = desc.split("\n")[0].strip()
+                when = getattr(skill, "when_to_use", "") or ""
+
+                if when:
+                    entry = self._safe_format(
+                        self.SKILL_ENTRY_WITH_HINT_TEMPLATE,
+                        name=skill.name,
+                        description=first_line,
+                        when_to_use=when,
+                    )
+                else:
+                    entry = self._safe_format(
+                        self.SKILL_ENTRY_TEMPLATE,
+                        name=skill.name,
+                        description=first_line,
+                    )
+                skill_entries.append(entry)
+
+            skill_list = "\n".join(skill_entries)
+
+            if hidden_count > 0:
+                skill_list += (
+                    f"\n\n_({hidden_count} more skill(s) available — "
+                    "use `list_skills` to discover all installed skills)_"
+                )
+
+            catalog = self._safe_format(self.CATALOG_TEMPLATE, skill_list=skill_list)
+            self._cached_catalog = catalog
+
+            logger.info(
+                "Generated skill catalog with %d skills (%d hidden)",
+                len(skills),
+                hidden_count,
             )
-            self._cached_catalog = empty_catalog
-            return empty_catalog
-
-        skill_entries = []
-        for skill in skills:
-            # 获取描述第一行
-            desc = skill.description or ""
-            first_line = desc.split("\n")[0].strip()
-
-            entry = self.SKILL_ENTRY_TEMPLATE.format(
-                name=skill.name,
-                description=first_line,
-            )
-            skill_entries.append(entry)
-
-        skill_list = "\n".join(skill_entries)
-
-        catalog = self.CATALOG_TEMPLATE.format(skill_list=skill_list)
-        self._cached_catalog = catalog
-
-        logger.info(f"Generated skill catalog with {len(skills)} skills")
-        return catalog
+            return catalog
 
     def get_catalog(self, refresh: bool = False) -> str:
         """
@@ -83,89 +162,138 @@ Use `get_skill_info(skill_name)` to load full instructions when needed.
 
         Args:
             refresh: 是否强制刷新
-
-        Returns:
-            技能清单字符串
         """
         if refresh or self._cached_catalog is None:
             return self.generate_catalog()
         return self._cached_catalog
 
     def get_compact_catalog(self) -> str:
-        """
-        获取紧凑版技能清单 (仅名称列表)
-
-        用于 token 受限的场景
-        """
-        skills = self.registry.list_enabled()
-        if not skills:
-            return "No skills installed."
-
-        names = [s.name for s in skills]
-        if not names:
-            return "No skills installed."
-        return f"Available skills: {', '.join(names)}"
+        """获取紧凑版技能清单 (仅名称列表)，用于 token 受限场景。"""
+        with self._lock:
+            skills = self._list_model_visible()
+            if not skills:
+                result = "No skills installed."
+            else:
+                names = [s.name for s in skills]
+                result = f"Available skills: {', '.join(names)}"
+            self._cached_compact = result
+            return result
 
     def get_index_catalog(self) -> str:
         """
-        获取已启用技能的“全量索引”（仅名称，尽量短，但完整）。
+        获取已启用技能的"全量索引"（仅名称，尽量短，但完整）。
 
-        disabled 技能不会出现在索引中，避免 LLM 误用被禁用的技能。
+        disabled、disable_model_invocation 和 catalog_hidden 技能不会出现在索引中。
+        按 system / external / plugin 三组输出。
         """
-        skills = self.registry.list_enabled()
-        if not skills:
-            return "## Skills Index (complete)\n\nNo skills installed."
+        with self._lock:
+            skills = self._list_model_visible()
+            hidden_count = self.registry.count_catalog_hidden()
+            if not skills:
+                if hidden_count > 0:
+                    result = (
+                        "## Skills Index\n\n"
+                        "No skills pre-loaded for this profile. "
+                        f"{hidden_count} more skill(s) available via `list_skills`."
+                    )
+                else:
+                    result = "## Skills Index (complete)\n\nNo skills installed."
+                self._cached_index = result
+                return result
 
-        system_names: list[str] = []
-        external_names: list[str] = []
+            system_names: list[str] = []
+            external_names: list[str] = []
+            plugin_entries: list[str] = []
 
-        for s in skills:
-            if getattr(s, "system", False):
-                system_names.append(s.name)
-            else:
-                external_names.append(s.name)
+            for s in skills:
+                if getattr(s, "system", False):
+                    system_names.append(s.name)
+                elif getattr(s, "plugin_source", None):
+                    plugin_id = s.plugin_source.replace("plugin:", "")
+                    plugin_entries.append(f"{s.name} (via {plugin_id})")
+                else:
+                    external_names.append(s.name)
 
-        # 稳定排序，减少提示词抖动（也有助于缓存命中/调试）
-        system_names.sort()
-        external_names.sort()
+            system_names.sort()
+            external_names.sort()
+            plugin_entries.sort()
 
-        lines: list[str] = [
-            "## Skills Index (complete)",
-            "",
-            "Use `get_skill_info(skill_name)` to load full instructions.",
-            "Most external skills are **instruction-only** (no pre-built scripts) — read instructions via get_skill_info, then write code and execute via run_shell.",
-            "Only use `run_skill_script` when a skill explicitly lists executable scripts.",
-        ]
-
-        if system_names:
-            lines += ["", f"**System skills ({len(system_names)})**: {', '.join(system_names)}"]
-        if external_names:
-            lines += [
+            lines: list[str] = [
+                "## Skills Index (complete)",
                 "",
-                f"**External skills ({len(external_names)})**: {', '.join(external_names)}",
+                "Use `get_skill_info(skill_name)` to load full instructions.",
+                "Most external skills are **instruction-only** (no pre-built scripts) "
+                "\u2014 read instructions via get_skill_info, then write code and execute via run_shell.",
+                "Only use `run_skill_script` when a skill explicitly lists executable scripts.",
             ]
 
-        return "\n".join(lines)
+            if system_names:
+                lines += ["", f"**System skills ({len(system_names)})**: {', '.join(system_names)}"]
+            if external_names:
+                lines += [
+                    "",
+                    f"**External skills ({len(external_names)})**: {', '.join(external_names)}",
+                ]
+            if plugin_entries:
+                lines += [
+                    "",
+                    f"**Plugin skills ({len(plugin_entries)})**: {', '.join(plugin_entries)}",
+                ]
+
+            result = "\n".join(lines)
+            self._cached_index = result
+            return result
+
+    def generate_catalog_budgeted(self, budget_chars: int = 0) -> str:
+        """Generate catalog with three-level degradation if budget_chars is set.
+
+        Level A: full (name + description + when_to_use) via generate_catalog()
+        Level B: name + short hint for each skill
+        Level C: comma-separated names only
+
+        If budget_chars <= 0, returns full catalog without budget constraint.
+        """
+        if budget_chars <= 0:
+            return self.generate_catalog()
+
+        full = self.generate_catalog()
+        if len(full) <= budget_chars:
+            return full
+
+        # Level B: name + short hint
+        with self._lock:
+            skills = self._list_model_visible()
+            if not skills:
+                return "No skills installed."
+            b_lines = ["## Skills (compact)"]
+            for s in skills:
+                hint = getattr(s, "when_to_use", "") or ""
+                if hint:
+                    b_lines.append(f"- **{s.name}**: {hint[:60]}")
+                else:
+                    desc_short = (s.description or "")[:40]
+                    b_lines.append(f"- **{s.name}**: {desc_short}")
+            level_b = "\n".join(b_lines)
+            if len(level_b) <= budget_chars:
+                return level_b
+
+            # Level C: names only
+            names = [s.name for s in skills]
+            return f"Skills ({len(skills)}): {', '.join(names)}"
 
     def get_skill_summary(self, skill_name: str) -> str | None:
-        """
-        获取单个技能的摘要
-
-        Args:
-            skill_name: 技能名称
-
-        Returns:
-            技能摘要 (name + description)
-        """
+        """获取单个技能的摘要"""
         skill = self.registry.get(skill_name)
         if not skill:
             return None
-
         return f"**{skill.name}**: {skill.description}"
 
     def invalidate_cache(self) -> None:
-        """使缓存失效"""
-        self._cached_catalog = None
+        """使所有缓存失效"""
+        with self._lock:
+            self._cached_catalog = None
+            self._cached_index = None
+            self._cached_compact = None
 
     @property
     def skill_count(self) -> int:

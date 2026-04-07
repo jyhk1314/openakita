@@ -13,6 +13,7 @@ IM 通道处理器
 - 对于平台不支持的功能（如某些平台不支持语音），返回友好提示
 """
 
+import json
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
@@ -22,6 +23,11 @@ if TYPE_CHECKING:
     from ...core.agent import Agent
 
 logger = logging.getLogger(__name__)
+
+_CHANNEL_ALIASES: dict[str, list[str]] = {
+    "wework": ["wework_ws"],
+    "wework_ws": ["wework"],
+}
 
 
 class IMChannelHandler:
@@ -41,13 +47,19 @@ class IMChannelHandler:
         "get_voice_file",
         "get_image_file",
         "get_chat_history",
+        "get_chat_info",
+        "get_user_info",
+        "get_chat_members",
+        "get_recent_messages",
     ]
 
     def __init__(self, agent: "Agent"):
         self.agent = agent
 
     def _get_workspace_root(self) -> Path | None:
-        ws = getattr(self.agent, "workspace_dir", None) or getattr(self.agent, "_workspace_dir", None)
+        ws = getattr(self.agent, "workspace_dir", None) or getattr(
+            self.agent, "_workspace_dir", None
+        )
         return Path(ws).resolve() if ws else None
 
     @staticmethod
@@ -58,6 +70,35 @@ class IMChannelHandler:
         except ValueError:
             return False
 
+    @staticmethod
+    def _normalize_artifacts(raw: Any) -> list[dict]:
+        """Normalize ``artifacts`` param: handle str (JSON), list of dicts, etc.
+
+        Some LLM models pass artifacts as a JSON string instead of a list.
+        This helper ensures we always get ``list[dict]``.
+        """
+        if isinstance(raw, str):
+            raw = raw.strip()
+            if raw:
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, list):
+                        return [item for item in parsed if isinstance(item, dict)]
+                    if isinstance(parsed, dict):
+                        return [parsed]
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            logger.warning(
+                "[deliver_artifacts] artifacts is a string but not valid JSON, ignoring: %s",
+                raw[:200],
+            )
+            return []
+        if isinstance(raw, list):
+            return [item for item in raw if isinstance(item, dict)]
+        if isinstance(raw, dict):
+            return [raw]
+        return []
+
     async def handle(self, tool_name: str, params: dict[str, Any]) -> str:
         """处理工具调用"""
         from ...core.im_context import get_im_session
@@ -66,7 +107,10 @@ class IMChannelHandler:
         if tool_name == "deliver_artifacts":
             target_channel = (params.get("target_channel") or "").strip()
             if target_channel:
-                return await self._deliver_artifacts_cross_channel(params, target_channel)
+                prefer_chat_type = (params.get("prefer_chat_type") or "private").strip()
+                return await self._deliver_artifacts_cross_channel(
+                    params, target_channel, prefer_chat_type=prefer_chat_type
+                )
             if not get_im_session():
                 return await self._deliver_artifacts_desktop(params)
             return await self._deliver_artifacts(params)
@@ -84,6 +128,13 @@ class IMChannelHandler:
             return self._get_voice_file(params)
         elif tool_name == "get_image_file":
             return self._get_image_file(params)
+        elif tool_name in (
+            "get_chat_info",
+            "get_user_info",
+            "get_chat_members",
+            "get_recent_messages",
+        ):
+            return await self._handle_im_query_tool(tool_name, params)
         else:
             return f"❌ Unknown IM channel tool: {tool_name}"
 
@@ -134,26 +185,38 @@ class IMChannelHandler:
         """
         获取 MessageGateway 实例（不依赖 IM session 上下文）。
 
-        优先从 agent._task_executor.gateway 获取（始终可用，包括 Desktop 模式），
-        回退到 IM 上下文。
+        查找顺序：
+        1. agent._task_executor.gateway（全局 agent 通过 set_scheduler_gateway 设置）
+        2. IM 上下文（IM 会话处理期间由 gateway.py 设置）
+        3. 全局 main._message_gateway（Desktop 跨通道 fallback）
         """
         executor = getattr(self.agent, "_task_executor", None)
         if executor and getattr(executor, "gateway", None):
             return executor.gateway
 
         from ...core.im_context import get_im_gateway
-        return get_im_gateway()
+
+        gw = get_im_gateway()
+        if gw:
+            return gw
+
+        try:
+            from synapse import main as _main_mod
+
+            return getattr(_main_mod, "_message_gateway", None)
+        except Exception:
+            return None
 
     def _resolve_target_channel(
-        self, target_channel: str
+        self, target_channel: str, *, prefer_chat_type: str = "private"
     ) -> tuple[Optional["ChannelAdapter"], str | None]:
         """
         解析 target_channel 名称为 (adapter, chat_id)。
 
         策略（逐级回退）:
         1. 检查 gateway 中是否有该通道的适配器且正在运行
-        2. 从 session_manager 中找到该通道最近活跃的 session
-        3. 从持久化文件 sessions.json 中查找
+        2. 从 session_manager 中找到该通道最近活跃的 session（优先匹配 prefer_chat_type）
+        3. 从持久化文件 sessions.json 中查找（优先匹配 prefer_chat_type）
         4. 从通道注册表 channel_registry.json 查找历史记录
 
         Returns:
@@ -166,31 +229,64 @@ class IMChannelHandler:
             logger.warning("[CrossChannel] No gateway available")
             return None, None
 
-        # 1. 检查适配器
+        # 1. 解析候选适配器（支持前缀匹配 + 别名回退，如 "wework" → "wework_ws:bot-id"）
         adapters = getattr(gateway, "_adapters", {})
-        if target_channel not in adapters:
-            logger.warning(f"[CrossChannel] Channel '{target_channel}' not found in adapters")
+        if target_channel in adapters:
+            candidates = [target_channel]
+        else:
+            prefixes = [target_channel + ":"]
+            for alias in _CHANNEL_ALIASES.get(target_channel, []):
+                prefixes.append(alias + ":")
+            candidates = [
+                k
+                for k in adapters
+                if any(k.startswith(p) for p in prefixes)
+                and getattr(adapters[k], "is_running", False)
+            ]
+        if not candidates:
+            logger.warning(
+                f"[CrossChannel] Channel '{target_channel}' not found in adapters: "
+                f"{list(adapters.keys())}"
+            )
             return None, None
 
-        adapter = adapters[target_channel]
-        if not getattr(adapter, "is_running", False):
-            logger.warning(f"[CrossChannel] Channel '{target_channel}' adapter is not running")
-            return None, None
+        def _chat_type_sort_key(s_chat_type: str, last_active_ts: float) -> tuple:
+            """(chat_type 不匹配排后面, 越新越靠前)"""
+            return (s_chat_type != prefer_chat_type, -last_active_ts)
 
+        adapter: ChannelAdapter | None = None
         chat_id: str | None = None
 
-        # 2. 从 session_manager 查找活跃 session
+        # 2. 跨所有候选适配器收集内存 session，全局排序选最优
         session_manager = getattr(gateway, "session_manager", None)
         if session_manager:
-            sessions = session_manager.list_sessions(channel=target_channel)
-            if sessions:
-                sessions.sort(
-                    key=lambda s: getattr(s, "last_active", datetime.min),
-                    reverse=True,
+            all_sessions: list[tuple[str, Any, Any]] = []
+            for cand in candidates:
+                for s in session_manager.list_sessions(channel=cand):
+                    all_sessions.append((cand, adapters[cand], s))
+            if all_sessions:
+                all_sessions.sort(
+                    key=lambda x: _chat_type_sort_key(
+                        x[2].metadata.get("chat_type", ""),
+                        getattr(x[2], "last_active", datetime.min).timestamp(),
+                    ),
                 )
-                chat_id = sessions[0].chat_id
+                chosen_channel, adapter, chosen = all_sessions[0]
+                chat_id = chosen.chat_id
+                chosen_type = chosen.metadata.get("chat_type", "unknown")
+                if chosen_type != prefer_chat_type:
+                    logger.info(
+                        f"[CrossChannel] No {prefer_chat_type} session across "
+                        f"{len(candidates)} candidate(s), falling back to "
+                        f"{chosen_type} on '{chosen_channel}' chat_id={chat_id}"
+                    )
+                else:
+                    logger.info(
+                        f"[CrossChannel] Selected {chosen_type} session on "
+                        f"'{chosen_channel}': chat_id={chat_id}"
+                    )
 
-        # 3. 从持久化文件查找
+        # 3. 从持久化文件查找（跨所有候选适配器，优先匹配 prefer_chat_type）
         if not chat_id and session_manager:
             import json as _json
 
@@ -201,36 +297,47 @@ class IMChannelHandler:
                     try:
                         with open(sessions_file, encoding="utf-8") as f:
                             raw = _json.load(f)
+                        cand_set = set(candidates)
                         ch_sessions = [
-                            s for s in raw
-                            if s.get("channel") == target_channel and s.get("chat_id")
+                            s for s in raw if s.get("channel") in cand_set and s.get("chat_id")
                         ]
                         if ch_sessions:
-                            ch_sessions.sort(key=lambda s: s.get("last_active", ""), reverse=True)
-                            chat_id = ch_sessions[0]["chat_id"]
+                            ch_sessions.sort(
+                                key=lambda s: _chat_type_sort_key(
+                                    (s.get("metadata") or {}).get("chat_type", ""),
+                                    0,
+                                ),
+                            )
+                            best = ch_sessions[0]
+                            chat_id = best["chat_id"]
+                            adapter = adapters.get(best["channel"])
                     except Exception as e:
                         logger.error(f"[CrossChannel] Failed to read sessions file: {e}")
 
-        # 4. 从通道注册表查找
+        # 4. 从通道注册表查找（尝试每个候选适配器）
         if not chat_id and session_manager and hasattr(session_manager, "get_known_channel_target"):
-            known = session_manager.get_known_channel_target(target_channel)
-            if known:
-                chat_id = known[1]
-                logger.info(
-                    f"[CrossChannel] Resolved '{target_channel}' from channel registry: "
-                    f"chat_id={chat_id}"
-                )
+            for cand in candidates:
+                known = session_manager.get_known_channel_target(cand)
+                if known:
+                    chat_id = known[1]
+                    adapter = adapters.get(cand)
+                    logger.info(
+                        f"[CrossChannel] Resolved '{cand}' from channel registry: chat_id={chat_id}"
+                    )
+                    break
 
-        if not chat_id:
+        if not adapter or not chat_id:
             logger.warning(
-                f"[CrossChannel] Channel '{target_channel}' is configured but no chat_id found. "
-                f"Send at least one message through this channel first."
+                f"[CrossChannel] Channel '{target_channel}' has {len(candidates)} adapter(s) "
+                f"but no chat_id found. Send at least one message through this channel first."
             )
             return None, None
 
         return adapter, chat_id
 
-    async def _deliver_artifacts_cross_channel(self, params: dict, target_channel: str) -> str:
+    async def _deliver_artifacts_cross_channel(
+        self, params: dict, target_channel: str, *, prefer_chat_type: str = "private"
+    ) -> str:
         """
         跨通道发送附件：解析 target_channel 获取 adapter+chat_id，
         然后复用 _send_file/_send_image/_send_voice 方法发送。
@@ -239,7 +346,9 @@ class IMChannelHandler:
         import json
         import re
 
-        adapter, chat_id = self._resolve_target_channel(target_channel)
+        adapter, chat_id = self._resolve_target_channel(
+            target_channel, prefer_chat_type=prefer_chat_type
+        )
         if not adapter or not chat_id:
             return json.dumps(
                 {
@@ -255,7 +364,7 @@ class IMChannelHandler:
                 ensure_ascii=False,
             )
 
-        artifacts = params.get("artifacts") or []
+        artifacts = self._normalize_artifacts(params.get("artifacts"))
         receipts = []
 
         for idx, art in enumerate(artifacts):
@@ -305,7 +414,11 @@ class IMChannelHandler:
                         receipt["error_code"] = "send_failed"
                 elif art_type == "image":
                     msg = await self._send_image(
-                        adapter, chat_id, path, caption, target_channel,
+                        adapter,
+                        chat_id,
+                        path,
+                        caption,
+                        target_channel,
                     )
                     receipt["status"] = "delivered" if msg.startswith("✅") else "failed"
                     receipt["message"] = msg
@@ -357,7 +470,7 @@ class IMChannelHandler:
         import shutil
         import urllib.parse
 
-        artifacts = params.get("artifacts") or []
+        artifacts = self._normalize_artifacts(params.get("artifacts"))
         receipts = []
 
         workspace_root = self._get_workspace_root()
@@ -370,20 +483,24 @@ class IMChannelHandler:
             name = (art or {}).get("name", "") or ""
 
             if not path_str:
-                receipts.append({
-                    "index": idx,
-                    "status": "error",
-                    "error": "missing_path",
-                })
+                receipts.append(
+                    {
+                        "index": idx,
+                        "status": "error",
+                        "error": "missing_path",
+                    }
+                )
                 continue
 
             p = Path(path_str)
             if not p.exists() or not p.is_file():
-                receipts.append({
-                    "index": idx,
-                    "status": "error",
-                    "error": f"file_not_found: {path_str}",
-                })
+                receipts.append(
+                    {
+                        "index": idx,
+                        "status": "error",
+                        "error": f"file_not_found: {path_str}",
+                    }
+                )
                 continue
 
             resolved = p.resolve()
@@ -414,17 +531,19 @@ class IMChannelHandler:
             file_url = f"/api/files?path={urllib.parse.quote(abs_path, safe='')}"
             size = resolved.stat().st_size
 
-            receipts.append({
-                "index": idx,
-                "status": "delivered",
-                "type": art_type,
-                "path": abs_path,
-                "file_url": file_url,
-                "caption": caption,
-                "name": name or p.name,
-                "size": size,
-                "channel": "desktop",
-            })
+            receipts.append(
+                {
+                    "index": idx,
+                    "status": "delivered",
+                    "type": art_type,
+                    "path": abs_path,
+                    "file_url": file_url,
+                    "caption": caption,
+                    "name": name or p.name,
+                    "size": size,
+                    "channel": "desktop",
+                }
+            )
 
         return json.dumps(
             {
@@ -432,7 +551,7 @@ class IMChannelHandler:
                 "channel": "desktop",
                 "receipts": receipts,
                 "hint": "Desktop mode: files are served via /api/files/ endpoint. "
-                        "Frontend should display images inline using the file_url.",
+                "Frontend should display images inline using the file_url.",
             },
             ensure_ascii=False,
             indent=2,
@@ -468,7 +587,7 @@ class IMChannelHandler:
                 ensure_ascii=False,
             )
 
-        artifacts = params.get("artifacts") or []
+        artifacts = self._normalize_artifacts(params.get("artifacts"))
         receipts = []
 
         # 会话内去重（仅运行时有效，不落盘）
@@ -503,9 +622,11 @@ class IMChannelHandler:
                 pass
 
             if not dedupe_key and sha256:
-                dedupe_key = f"{art_type}:{sha256}"
+                dedupe_key = f"content:{sha256}"
             elif not dedupe_key and path:
-                dedupe_key = f"{art_type}:{hashlib.sha1((path + '|' + caption).encode('utf-8', errors='ignore')).hexdigest()[:12]}"
+                dedupe_key = (
+                    f"path:{hashlib.sha1(path.encode('utf-8', errors='ignore')).hexdigest()[:12]}"
+                )
             receipt = {
                 "index": idx,
                 "type": art_type,
@@ -537,8 +658,13 @@ class IMChannelHandler:
                         receipt["error_code"] = "send_failed"
                 elif art_type == "image":
                     msg = await self._send_image(
-                        adapter, chat_id, path, caption, channel,
-                        reply_to=reply_to, channel_user_id=channel_user_id,
+                        adapter,
+                        chat_id,
+                        path,
+                        caption,
+                        channel,
+                        reply_to=reply_to,
+                        channel_user_id=channel_user_id,
                     )
                     receipt["status"] = "delivered" if msg.startswith("✅") else "failed"
                     receipt["message"] = msg
@@ -617,16 +743,26 @@ class IMChannelHandler:
         self, adapter: "ChannelAdapter", chat_id: str, file_path: str, caption: str, channel: str
     ) -> str:
         """发送文件"""
-        # 检查文件是否存在
         if not Path(file_path).exists():
             return f"❌ 文件不存在: {file_path}"
 
+        send_kwargs: dict = {}
+        from ...core.im_context import get_im_session
+
+        im_session = get_im_session()
+        if im_session:
+            current_msg = im_session.get_metadata("_current_message")
+            if current_msg:
+                req_id = getattr(current_msg, "metadata", {}).get("req_id")
+                if req_id:
+                    send_kwargs["metadata"] = {"req_id": req_id}
         try:
-            message_id = await adapter.send_file(chat_id, file_path, caption)
+            message_id = await adapter.send_file(chat_id, file_path, caption, **send_kwargs)
             logger.info(f"[IM] Sent file to {channel}:{chat_id}: {file_path}")
             return f"✅ 已发送文件: {file_path} (message_id={message_id})"
-        except NotImplementedError:
-            return f"❌ 当前平台 ({channel}) 不支持发送文件"
+        except NotImplementedError as e:
+            reason = str(e)
+            return f"❌ {reason}" if reason else f"❌ 当前平台 ({channel}) 不支持发送文件"
 
     async def _send_image(
         self,
@@ -643,32 +779,50 @@ class IMChannelHandler:
         if not Path(image_path).exists():
             return f"❌ 图片不存在: {image_path}"
 
-        # 优先使用 send_image，失败则降级到 send_file
-        # 将 channel_user_id 通过 metadata 传递，避免直接 kwarg 导致
-        # 未重写 send_image 的适配器（飞书/QQ/Telegram）在构造 OutgoingMessage 时报错
         send_kwargs: dict = {"reply_to": reply_to}
+        metadata: dict = {}
         if channel_user_id:
-            send_kwargs["metadata"] = {"channel_user_id": channel_user_id}
+            metadata["channel_user_id"] = channel_user_id
+        from ...core.im_context import get_im_session
+
+        im_session = get_im_session()
+        if im_session:
+            current_msg = im_session.get_metadata("_current_message")
+            if current_msg:
+                req_id = getattr(current_msg, "metadata", {}).get("req_id")
+                if req_id:
+                    metadata["req_id"] = req_id
+        if metadata:
+            send_kwargs["metadata"] = metadata
         try:
             message_id = await adapter.send_image(
-                chat_id, image_path, caption,
+                chat_id,
+                image_path,
+                caption,
                 **send_kwargs,
             )
             logger.info(f"[IM] Sent image to {channel}:{chat_id}: {image_path}")
             return f"✅ 已发送图片: {image_path} (message_id={message_id})"
-        except NotImplementedError:
-            pass
+        except NotImplementedError as e:
+            _img_reason = str(e)
         except Exception as e:
             logger.warning(f"[IM] send_image failed for {channel}: {e}")
-            # 非 NotImplementedError（如 stream 过期、图片处理失败）→ 降级到 send_file
+            _is_timeout = "timed out" in str(e).lower() or "timeout" in type(e).__name__.lower()
+            if _is_timeout:
+                return f"⚠️ 图片发送超时（可能已发送成功）: {image_path}"
+            _img_reason = ""
 
-        # 降级：以文件形式发送图片
+        # 降级：以文件形式发送图片（仅非超时错误才走此路径）
         try:
             message_id = await adapter.send_file(chat_id, image_path, caption)
             logger.info(f"[IM] Sent image as file to {channel}:{chat_id}: {image_path}")
             return f"✅ 已发送图片(作为文件): {image_path} (message_id={message_id})"
         except NotImplementedError:
-            return f"❌ 当前平台 ({channel}) 不支持发送图片"
+            pass
+
+        if _img_reason:
+            return f"❌ {_img_reason}"
+        return f"❌ 当前平台 ({channel}) 不支持发送图片"
 
     async def _send_voice(
         self, adapter: "ChannelAdapter", chat_id: str, voice_path: str, caption: str, channel: str
@@ -683,8 +837,8 @@ class IMChannelHandler:
             message_id = await adapter.send_voice(chat_id, voice_path, caption)
             logger.info(f"[IM] Sent voice to {channel}:{chat_id}: {voice_path}")
             return f"✅ 已发送语音: {voice_path} (message_id={message_id})"
-        except NotImplementedError:
-            pass
+        except NotImplementedError as e:
+            _voice_reason = str(e)
 
         # 降级：以文件形式发送语音
         try:
@@ -692,7 +846,11 @@ class IMChannelHandler:
             logger.info(f"[IM] Sent voice as file to {channel}:{chat_id}: {voice_path}")
             return f"✅ 已发送语音(作为文件): {voice_path} (message_id={message_id})"
         except NotImplementedError:
-            return f"❌ 当前平台 ({channel}) 不支持发送语音"
+            pass
+
+        if _voice_reason:
+            return f"❌ {_voice_reason}"
+        return f"❌ 当前平台 ({channel}) 不支持发送语音"
 
     def _get_voice_file(self, params: dict) -> str:
         """获取语音文件路径"""
@@ -757,12 +915,16 @@ class IMChannelHandler:
             _logger.debug("[getChatHistory] fallback skipped: no safe_id resolved")
             return None
         safe_id = re.sub(r'[/\\+=%?*<>|"\x00-\x1f]', "_", safe_id)
-        _logger.info(f"[getChatHistory] Session context empty, falling back to SQLite (safe_id={safe_id})")
+        _logger.info(
+            f"[getChatHistory] Session context empty, falling back to SQLite (safe_id={safe_id})"
+        )
         db_turns = mm.store.get_recent_turns(safe_id, limit)
         if not db_turns:
             _logger.info(f"[getChatHistory] SQLite fallback: no turns found for {safe_id}")
             return None
-        _logger.info(f"[getChatHistory] SQLite fallback: recovered {len(db_turns)} turns for {safe_id}")
+        _logger.info(
+            f"[getChatHistory] SQLite fallback: recovered {len(db_turns)} turns for {safe_id}"
+        )
         MSG_LIMIT = 2000
         output = f"最近 {len(db_turns)} 条消息（从持久化存储恢复）:\n\n"
         for t in db_turns:
@@ -786,7 +948,7 @@ class IMChannelHandler:
             if sid:
                 sm = getattr(self.agent, "_session_manager", None)
                 if sm:
-                    session = sm.get_session(sid)
+                    session = sm.get_session_by_id(sid)
         if not session:
             return "当前没有活跃的会话，无法获取聊天历史"
 
@@ -845,6 +1007,58 @@ class IMChannelHandler:
                 output += f"[{role}] [复杂内容]\n"
 
         return output
+
+    async def _handle_im_query_tool(self, tool_name: str, params: dict) -> str:
+        """处理 IM 查询类工具（get_chat_info / get_user_info / get_chat_members / get_recent_messages）"""
+        adapter, chat_id, channel, _, _ = self._get_adapter_and_chat_id()
+        if not adapter:
+            return "❌ 当前不在 IM 会话中"
+
+        from ...channels.base import ChannelAdapter
+
+        try:
+            if tool_name == "get_chat_info":
+                if type(adapter).get_chat_info is ChannelAdapter.get_chat_info:
+                    return f"⚠️ 当前平台 ({channel}) 暂不支持获取聊天信息"
+                result = await adapter.get_chat_info(chat_id)
+                if not result:
+                    return "未能获取聊天信息（可能缺少相应权限）"
+                return json.dumps(result, ensure_ascii=False, indent=2)
+
+            elif tool_name == "get_user_info":
+                if type(adapter).get_user_info is ChannelAdapter.get_user_info:
+                    return f"⚠️ 当前平台 ({channel}) 暂不支持获取用户信息"
+                user_id = params.get("user_id", "")
+                if not user_id:
+                    return "❌ 缺少参数 user_id"
+                result = await adapter.get_user_info(user_id)
+                if not result:
+                    return "未能获取用户信息（可能缺少相应权限）"
+                return json.dumps(result, ensure_ascii=False, indent=2)
+
+            elif tool_name == "get_chat_members":
+                if type(adapter).get_chat_members is ChannelAdapter.get_chat_members:
+                    return f"⚠️ 当前平台 ({channel}) 暂不支持获取群成员列表"
+                result = await adapter.get_chat_members(chat_id)
+                if not result:
+                    return "未能获取群成员列表（可能缺少相应权限）"
+                return json.dumps(result, ensure_ascii=False, indent=2)
+
+            elif tool_name == "get_recent_messages":
+                if type(adapter).get_recent_messages is ChannelAdapter.get_recent_messages:
+                    return f"⚠️ 当前平台 ({channel}) 暂不支持获取最近消息"
+                limit = params.get("limit", 20)
+                result = await adapter.get_recent_messages(chat_id, limit=limit)
+                if not result:
+                    return "未能获取最近消息（可能缺少相应权限）"
+                return json.dumps(result, ensure_ascii=False, indent=2)
+
+            else:
+                return f"❌ Unknown query tool: {tool_name}"
+
+        except Exception as e:
+            logger.error(f"[IM] Error in {tool_name}: {e}", exc_info=True)
+            return f"❌ 调用 {tool_name} 失败: {e}"
 
 
 def create_handler(agent: "Agent"):

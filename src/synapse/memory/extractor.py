@@ -217,7 +217,8 @@ duration 参考:
 
         try:
             response = await self._call_brain_main(
-                prompt, system="你是记忆提取专家。只输出 NONE 或 JSON 数组。",
+                prompt,
+                system="你是记忆提取专家。只输出 NONE 或 JSON 数组。",
             )
 
             text = (getattr(response, "content", None) or str(response)).strip()
@@ -249,16 +250,18 @@ duration 参考:
                         "ERROR": "7d",
                         "FACT": "permanent",
                     }.get(mem_type, "permanent")
-                results.append({
-                    "type": mem_type,
-                    "subject": (item.get("subject") or "").strip(),
-                    "predicate": (item.get("predicate") or "").strip(),
-                    "content": c,
-                    "importance": max(0.1, min(1.0, float(item.get("importance", 0.5)))),
-                    "duration": duration,
-                    "is_update": bool(item.get("is_update", False)),
-                    "update_hint": (item.get("update_hint") or "").strip(),
-                })
+                results.append(
+                    {
+                        "type": mem_type,
+                        "subject": (item.get("subject") or "").strip(),
+                        "predicate": (item.get("predicate") or "").strip(),
+                        "content": c,
+                        "importance": max(0.1, min(1.0, float(item.get("importance", 0.5)))),
+                        "duration": duration,
+                        "is_update": bool(item.get("is_update", False)),
+                        "update_hint": (item.get("update_hint") or "").strip(),
+                    }
+                )
 
             if results:
                 logger.info(f"[Extractor v2] Extracted {len(results)} items from {turn.role}")
@@ -268,96 +271,88 @@ duration 参考:
             logger.error(f"[Extractor v2] Extraction failed: {e}")
             return []
 
-    CONVERSATION_EXTRACTION_PROMPT = """回顾整段对话，判断是否包含值得长期记住的用户信息。
+    CONVERSATION_EXTRACTION_PROMPT = """回顾整段对话，提取所有值得长期记住的信息。
 
 ## 完整对话
 {conversation}
 
-### 核心原则：区分「用户是谁」和「用户要做什么」
+### 核心原则：主动记录事实
 
-**记忆只存「用户是谁」**（身份、性格、长期偏好），**不存「用户要做什么」**（任务、指令、请求）。
+你的职责是**主动发现并保存**对话中出现的有价值信息。宁可多记也不要漏记。
 
-判断标准：「这条信息在一个月后的新对话中还有用吗？」
-- "用户喜欢简洁风格" → 有用 → 记录
-- "用户需要苹果照片" → 没用（那是当时的任务） → 不记录
+### 必须记录的（遇到就记）
+- 用户身份：名字、称呼、职业、公司、时区
+- 用户偏好：沟通风格、语言习惯、审美取向、技术偏好
+- 行为规则：用户对 AI 行为的要求（「每次先做X」「不要Y」）
+- 技术环境：常用技术栈、开发工具、OS、运行环境
+- **账号和配置**：邮箱地址、API endpoint、端口号、认证方式、服务商（不含密码/密钥原文）
+- **验证有效的技术方案**：经过测试确认可用的配置、参数组合、代码模式
+- **创建的文件/Skill/工具**：文件路径、skill 名称、用途、关键参数
+- **重要的事实发现**：调试过程中发现的环境特性、兼容性、限制条件
 
-### 值得记录的
-- 用户身份：名字、称呼、职业、时区
-- 用户长期偏好：沟通风格、语言习惯、审美取向、通知渠道偏好
-- 行为规则：用户对 AI 行为的持久要求
-- 技术环境：常用技术栈、开发工具、OS 信息
-- 可复用经验：解决特定类型问题的通用方法
-- 失败教训：需要长期避免的操作模式
-
-### 绝对不要记录的
-- 一次性任务请求：「下载X」「搜索Y」「帮我找Z」「整理XX」
-- 任务产物细节：文件大小、路径、下载链接
-- 临时性需求：「需要XX照片」「希望获取XX」
+### 不要记录的
 - 打招呼、寒暄、确认、感谢
-- AI 的回复内容、任务完成报告
+- 密码、API Key、Token 等敏感凭证原文
 
 对于每条值得记录的信息，用 JSON 输出:
 [
   {{
     "type": "FACT|PREFERENCE|RULE|SKILL|ERROR",
     "subject": "实体主语 (谁/什么)",
-    "predicate": "属性/关系 (偏好/版本/位于/...)",
-    "content": "完整描述（精炼表达，不照抄原文）",
+    "predicate": "属性/关系 (偏好/版本/位于/配置为/...)",
+    "content": "完整描述（包含具体的值、路径、参数，可直接复用）",
     "importance": 0.5-1.0,
     "duration": "permanent|7d|24h|session"
   }}
 ]
 
-如果没有值得记录的信息，只输出: NONE
+如果确实没有任何有价值的信息，输出: NONE
 
 注意:
-- 最多输出 3 条记忆（宁少勿多）
+- 最多输出 8 条记忆
 - 对话中多次提到同一信息只提取一次
-- 绝大部分对话不需要记录任何信息，输出 NONE 是最常见的正确答案"""
+- content 必须包含具体值（端口号、路径、参数等），不要用模糊描述"""
 
-    EXPERIENCE_EXTRACTION_PROMPT = """回顾整段对话，判断是否包含值得总结的**任务经验或教训**。
+    EXPERIENCE_EXTRACTION_PROMPT = """回顾整段对话，提取所有**任务经验、操作结果和教训**。
 
 ## 完整对话
 {conversation}
 
-### 核心原则：提取「可复用的经验」，而非「任务本身」
+### 核心原则：完整记录做了什么、结果如何、怎么做成的
 
-经验记忆存的是「做某类事情应该怎么做/不该怎么做」，不是「这次做了什么」。
+你必须把对话中发生的关键事件和结论记录下来。下次遇到类似任务时，这些记录能让你直接复用成功方案、避开已知错误。
 
-判断标准：「下次遇到类似任务时，这条经验能帮助少走弯路吗？」
-- "Docker 命令前必须先确认 Docker Desktop 已启动" → 有用 → 记录
-- "这次帮用户下载了3张图片" → 没用（只是任务执行记录） → 不记录
+### 必须记录的
+- **成功的操作和方法**：什么操作最终成功了？用了什么配置/参数/步骤？（必须记录具体值）
+- **失败的尝试和原因**：哪些方法失败了？报了什么错？原因是什么？
+- **错误→修复的完整路径**：从错误到成功的关键转折（改了什么、为什么管用）
+- **环境和配置发现**：调试过程中发现的系统特性、版本兼容性、端口、路径等
+- **工具/Skill 使用经验**：用了哪个工具、怎么调用的、效果如何
+- **Skill 封装经验**：创建了什么 skill、放在哪里、核心逻辑是什么、注意事项
+- **最终产物**：最终生成了什么文件、部署在哪里、怎么使用
 
-### 值得记录的
-- 踩坑教训：某个操作导致失败的原因和避免方法
-- 有效方法：解决某类问题的最佳实践
-- 工具使用经验：哪个工具在什么场景下更合适
-- 流程优化：任务执行中发现的更好方式
-- 环境注意事项：特定环境下需要注意的配置或限制
+### 不要记录的
+- 打招呼、寒暄、感谢
+- 用户身份信息（那属于用户画像记忆）
 
-### 绝对不要记录的
-- 任务执行报告：「成功完成XX」「帮用户做了XX」
-- 具体的文件路径、URL、参数值
-- 一次性操作的细节
-- 用户身份信息（那属于用户画像记忆，不在此处提取）
-
-对于每条值得记录的经验，用 JSON 输出:
+对于每条记录，用 JSON 输出:
 [
   {{
     "type": "EXPERIENCE|SKILL|ERROR",
-    "subject": "经验主题 (什么类型的任务/问题)",
-    "predicate": "经验属性 (最佳实践/踩坑教训/工具经验/...)",
-    "content": "简练描述经验教训（可直接指导下次操作）",
+    "subject": "主题 (什么任务/什么操作)",
+    "predicate": "属性 (成功方法/失败原因/踩坑教训/Skill封装/最终配置/...)",
+    "content": "详细描述（包含具体的参数、路径、配置值、错误信息，确保下次可直接复用）",
     "importance": 0.5-1.0,
     "duration": "permanent|7d"
   }}
 ]
 
-如果没有值得记录的经验，只输出: NONE
+如果对话中确实没有任何操作或经验，输出: NONE
 
 注意:
-- 最多输出 2 条（宁少勿多）
-- 只记录可泛化的经验，不记录一次性操作"""
+- 最多输出 8 条
+- **宁可多记也不要漏记**——漏掉一条成功经验，下次就要重新踩一遍坑
+- content 必须足够具体，让下次看到这条记忆就能直接操作"""
 
     CITATION_SCORING_SECTION = """
 
@@ -388,11 +383,13 @@ duration 参考:
         if not self.brain or not turns:
             return [], []
 
-        user_turns = [t for t in turns if t.role == "user" and t.content and len(t.content.strip()) >= 10]
+        user_turns = [
+            t for t in turns if t.role == "user" and t.content and len(t.content.strip()) >= 10
+        ]
         if not user_turns:
             return [], []
 
-        from synapse.core.tool_executor import smart_truncate as _st
+        from openakita.core.tool_executor import smart_truncate as _st
 
         conv_lines = []
         for t in turns[-30:]:
@@ -413,12 +410,13 @@ duration 参考:
         has_citations = cited_memories and len(cited_memories) > 0
         if has_citations:
             cited_text = "\n".join(
-                f"- ID={m['id']} | {m.get('content', '')[:150]}"
-                for m in cited_memories
+                f"- ID={m['id']} | {m.get('content', '')[:150]}" for m in cited_memories
             )
             prompt += self.CITATION_SCORING_SECTION.format(cited_memories=cited_text)
-            prompt += "\n\n最终输出格式: {\"memories\": [...], \"citation_scores\": [...]}\n如果没有要提取的记忆，memories 为空数组。只输出 JSON。"
-            system_msg = "你是记忆提取+评分专家。输出 JSON 对象，包含 memories 和 citation_scores 两个字段。"
+            prompt += '\n\n最终输出格式: {"memories": [...], "citation_scores": [...]}\n如果没有要提取的记忆，memories 为空数组。只输出 JSON。'
+            system_msg = (
+                "你是记忆提取+评分专家。输出 JSON 对象，包含 memories 和 citation_scores 两个字段。"
+            )
         else:
             system_msg = "你是记忆提取专家。只输出 NONE 或 JSON 数组。"
 
@@ -441,15 +439,20 @@ duration 参考:
 
             items = self._parse_memory_items(data.get("memories", []))
             scores = [
-                s for s in data.get("citation_scores", [])
+                s
+                for s in data.get("citation_scores", [])
                 if isinstance(s, dict) and "memory_id" in s
             ]
 
             if items:
-                logger.info(f"[Extractor] Conversation extraction: {len(items)} items from {len(turns)} turns")
+                logger.info(
+                    f"[Extractor] Conversation extraction: {len(items)} items from {len(turns)} turns"
+                )
             if scores:
                 useful_count = sum(1 for s in scores if s.get("useful"))
-                logger.info(f"[Extractor] Citation scoring: {useful_count}/{len(scores)} marked useful")
+                logger.info(
+                    f"[Extractor] Citation scoring: {useful_count}/{len(scores)} marked useful"
+                )
             return items, scores
 
         except Exception as e:
@@ -468,7 +471,7 @@ duration 参考:
         if len(assistant_turns) < 2:
             return []
 
-        from synapse.core.tool_executor import smart_truncate as _st
+        from openakita.core.tool_executor import smart_truncate as _st
 
         conv_lines = []
         for t in turns[-30:]:
@@ -488,7 +491,8 @@ duration 参考:
 
         try:
             response = await self._call_brain_main(
-                prompt, system="你是任务经验总结专家。只输出 NONE 或 JSON 数组。",
+                prompt,
+                system="你是任务经验总结专家。只输出 NONE 或 JSON 数组。",
             )
             text = (getattr(response, "content", None) or str(response)).strip()
             if "NONE" in text.upper() or not text:
@@ -524,20 +528,25 @@ duration 参考:
             duration = (item.get("duration") or "").strip()
             if duration not in ("permanent", "7d", "24h", "session"):
                 duration = {
-                    "RULE": "permanent", "PREFERENCE": "permanent",
-                    "SKILL": "permanent", "ERROR": "7d", "FACT": "permanent",
+                    "RULE": "permanent",
+                    "PREFERENCE": "permanent",
+                    "SKILL": "permanent",
+                    "ERROR": "7d",
+                    "FACT": "permanent",
                     "EXPERIENCE": "permanent",
                 }.get(mem_type, "permanent")
-            results.append({
-                "type": mem_type,
-                "subject": (item.get("subject") or "").strip(),
-                "predicate": (item.get("predicate") or "").strip(),
-                "content": c,
-                "importance": min(1.0, max(0.3, float(item.get("importance", 0.5)))),
-                "duration": duration,
-                "is_update": bool(item.get("is_update", False)),
-                "update_hint": "",
-            })
+            results.append(
+                {
+                    "type": mem_type,
+                    "subject": (item.get("subject") or "").strip(),
+                    "predicate": (item.get("predicate") or "").strip(),
+                    "content": c,
+                    "importance": min(1.0, max(0.3, float(item.get("importance", 0.5)))),
+                    "duration": duration,
+                    "is_update": bool(item.get("is_update", False)),
+                    "update_hint": "",
+                }
+            )
         return results
 
     def _build_tool_context(
@@ -549,14 +558,20 @@ duration 参考:
             return ""
 
         lines = ["\n工具调用:"]
-        from synapse.core.tool_executor import smart_truncate as _st
+        from openakita.core.tool_executor import smart_truncate as _st
 
         for tc in (tool_calls or [])[:5]:
             name = tc.get("name", "unknown")
             inp = tc.get("input", {})
-            key_params = {k: v for k, v in inp.items() if k in (
-                "command", "path", "query", "url", "content", "filename"
-            )} if isinstance(inp, dict) else {}
+            key_params = (
+                {
+                    k: v
+                    for k, v in inp.items()
+                    if k in ("command", "path", "query", "url", "content", "filename")
+                }
+                if isinstance(inp, dict)
+                else {}
+            )
             params_str = json.dumps(key_params, ensure_ascii=False)
             params_trunc, _ = _st(params_str, 400, save_full=False, label="mem_tool_param")
             lines.append(f"  - {name}({params_trunc})")
@@ -588,11 +603,13 @@ duration 参考:
 
         action_nodes = self._extract_action_nodes(turns)
 
-        from synapse.core.tool_executor import smart_truncate as _st
+        from openakita.core.tool_executor import smart_truncate as _st
+
         def _episode_line(t):
             c, _ = _st(t.content or "", 600, save_full=False, label="mem_episode")
             suffix = f" [调用了 {len(t.tool_calls)} 个工具]" if t.tool_calls else ""
             return f"[{t.role}]: {c}{suffix}"
+
         conv_text = "\n".join(_episode_line(t) for t in turns[-20:])
 
         episode = Episode(
@@ -607,9 +624,7 @@ duration 参考:
         if self.brain:
             try:
                 prompt = self.EPISODE_PROMPT.format(conversation=conv_text)
-                resp = await self._call_brain(
-                    prompt, system="你是交互情节分析专家。只输出 JSON。"
-                )
+                resp = await self._call_brain(prompt, system="你是交互情节分析专家。只输出 JSON。")
                 text = (getattr(resp, "content", None) or str(resp)).strip()
                 json_match = re.search(r"\{[\s\S]*\}", text)
                 if json_match:
@@ -651,20 +666,24 @@ duration 参考:
                 for tr in turn.tool_results:
                     if tr.get("tool_use_id") == tc_id or not tc_id:
                         content = tr.get("content", "")
-                        result_summary = (content if isinstance(content, str) else str(content))[:200]
+                        result_summary = (content if isinstance(content, str) else str(content))[
+                            :200
+                        ]
                         if tr.get("is_error"):
                             success = False
                             error_msg = result_summary
                         break
 
-                nodes.append(ActionNode(
-                    tool_name=name,
-                    key_params=key_params,
-                    result_summary=result_summary,
-                    success=success,
-                    error_message=error_msg,
-                    timestamp=turn.timestamp,
-                ))
+                nodes.append(
+                    ActionNode(
+                        tool_name=name,
+                        key_params=key_params,
+                        result_summary=result_summary,
+                        success=success,
+                        error_message=error_msg,
+                        timestamp=turn.timestamp,
+                    )
+                )
         return nodes
 
     def _generate_fallback_summary(self, turns: list[ConversationTurn]) -> str:
@@ -679,7 +698,7 @@ duration 参考:
             text = turn.content or ""
             for m in re.finditer(r'[A-Za-z]:[\\\/][^\s"\']+', text):
                 entities.add(m.group(0))
-            for m in re.finditer(r'[\w-]+\.(?:py|js|ts|md|json|yaml|toml|sh)\b', text):
+            for m in re.finditer(r"[\w-]+\.(?:py|js|ts|md|json|yaml|toml|sh)\b", text):
                 entities.add(m.group(0))
         return list(entities)[:20]
 
@@ -705,7 +724,8 @@ duration 参考:
                 resp = await self._call_brain(prompt)
                 text = (getattr(resp, "content", None) or str(resp)).strip()
 
-                from synapse.core.tool_executor import smart_truncate as _st
+                from openakita.core.tool_executor import smart_truncate as _st
+
                 sp_content, _ = _st(text, 2000, save_full=False, label="mem_scratchpad")
                 return Scratchpad(
                     user_id=user_id,
@@ -723,9 +743,7 @@ duration 参考:
         if episode.summary:
             date_str = episode.ended_at.strftime("%m/%d")
             progress = f"- {date_str}: {episode.summary[:100]}"
-            pad.content = self._append_to_section(
-                pad.content, "近期进展", progress
-            )
+            pad.content = self._append_to_section(pad.content, "近期进展", progress)
         pad.updated_at = datetime.now()
         return pad
 
@@ -793,18 +811,20 @@ duration 参考:
                     if len(snippet) < 6 or snippet in seen:
                         continue
                     seen.add(snippet)
-                    results.append(SemanticMemory(
-                        type=MemoryType.RULE,
-                        priority=MemoryPriority.PERMANENT,
-                        content=snippet,
-                        source="quick_rule_scan",
-                        subject="user",
-                        predicate="rule",
-                        importance_score=0.9,
-                        confidence=0.7,
-                        created_at=_dt.now(),
-                        updated_at=_dt.now(),
-                    ))
+                    results.append(
+                        SemanticMemory(
+                            type=MemoryType.RULE,
+                            priority=MemoryPriority.PERMANENT,
+                            content=snippet,
+                            source="quick_rule_scan",
+                            subject="user",
+                            predicate="rule",
+                            importance_score=0.9,
+                            confidence=0.7,
+                            created_at=_dt.now(),
+                            updated_at=_dt.now(),
+                        )
+                    )
                     if len(results) >= 10:
                         return results
         return results
@@ -882,60 +902,69 @@ duration 参考:
 
         memories: list[Memory] = []
 
-        from synapse.core.tool_executor import smart_truncate as _st
+        from openakita.core.tool_executor import smart_truncate as _st
 
         if any(k in text for k in ("我喜欢", "我更喜欢", "我习惯", "我偏好", "请以后", "以后请")):
             pref_content, _ = _st(text, 400, save_full=False, label="mem_pref")
-            memories.append(Memory(
-                type=MemoryType.PREFERENCE,
-                priority=MemoryPriority.LONG_TERM,
-                content=pref_content,
-                source="turn_sync",
-                importance_score=0.7,
-                tags=["preference"],
-            ))
+            memories.append(
+                Memory(
+                    type=MemoryType.PREFERENCE,
+                    priority=MemoryPriority.LONG_TERM,
+                    content=pref_content,
+                    source="turn_sync",
+                    importance_score=0.7,
+                    tags=["preference"],
+                )
+            )
 
         if any(k in text for k in ("不要", "必须", "禁止", "永远不要", "务必")):
             rule_content, _ = _st(text, 400, save_full=False, label="mem_rule")
-            memories.append(Memory(
-                type=MemoryType.RULE,
-                priority=MemoryPriority.LONG_TERM,
-                content=rule_content,
-                source="turn_sync",
-                importance_score=0.8 if "永远不要" in text else 0.7,
-                tags=["rule"],
-            ))
+            memories.append(
+                Memory(
+                    type=MemoryType.RULE,
+                    priority=MemoryPriority.LONG_TERM,
+                    content=rule_content,
+                    source="turn_sync",
+                    importance_score=0.8 if "永远不要" in text else 0.7,
+                    tags=["rule"],
+                )
+            )
 
         m = re.search(r"[A-Za-z]:\\\\[^\s\"']{3,}", text)
         if m:
-            memories.append(Memory(
-                type=MemoryType.FACT,
-                priority=MemoryPriority.LONG_TERM,
-                content=f"用户提到路径: {m.group(0)}",
-                source="turn_sync",
-                importance_score=0.6,
-                tags=["path", "fact"],
-            ))
+            memories.append(
+                Memory(
+                    type=MemoryType.FACT,
+                    priority=MemoryPriority.LONG_TERM,
+                    content=f"用户提到路径: {m.group(0)}",
+                    source="turn_sync",
+                    importance_score=0.6,
+                    tags=["path", "fact"],
+                )
+            )
 
         return memories[:2]
 
     def extract_from_task_completion(
-        self, task_description: str, success: bool,
-        tool_calls: list[dict], errors: list[str],
+        self,
+        task_description: str,
+        success: bool,
+        tool_calls: list[dict],
+        errors: list[str],
     ) -> list[Memory]:
         """Deprecated: Episode 已接管会话总结，不再自动创建低质量 skill 记忆。"""
         return []
 
     async def extract_with_llm(
-        self, conversation: list[ConversationTurn], context: str = "",
+        self,
+        conversation: list[ConversationTurn],
+        context: str = "",
     ) -> list[Memory]:
         """使用 LLM 批量提取 (保留)"""
         if not self.brain or not conversation:
             return []
 
-        conv_text = "\n".join(
-            f"[{t.role}]: {t.content}" for t in conversation[-30:]
-        )
+        conv_text = "\n".join(f"[{t.role}]: {t.content}" for t in conversation[-30:])
 
         prompt = f"""分析以下对话，提取值得长期记住的信息。
 
@@ -1012,16 +1041,18 @@ duration 参考:
                 else:
                     priority = MemoryPriority.SHORT_TERM
 
-                memories.append(Memory(
-                    type=mem_type,
-                    priority=priority,
-                    content=content,
-                    source=source,
-                    importance_score=importance,
-                    subject=item.get("subject", ""),
-                    predicate=item.get("predicate", ""),
-                    tags=item.get("tags", []),
-                ))
+                memories.append(
+                    Memory(
+                        type=mem_type,
+                        priority=priority,
+                        content=content,
+                        source=source,
+                        importance_score=importance,
+                        subject=item.get("subject", ""),
+                        predicate=item.get("predicate", ""),
+                        tags=item.get("tags", []),
+                    )
+                )
 
         except json.JSONDecodeError as e:
             logger.debug(f"Failed to parse JSON response: {e}")

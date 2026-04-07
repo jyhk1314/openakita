@@ -19,7 +19,14 @@ AGENT_TOOLS = [
             "This is the PREFERRED way to use multi-agent collaboration. "
             "Use when: (1) An existing agent profile matches the task, "
             "(2) You need domain expertise (code, data, browser, docs), "
-            "(3) The task can be fully handled by an existing agent without customization."
+            "(3) The task can be fully handled by an existing agent without customization.\n\n"
+            "IMPORTANT:\n"
+            "- Launch multiple agents concurrently whenever possible for independent tasks\n"
+            "- Do NOT launch more than 4 concurrent agents\n"
+            "- Sub-agent results are not directly visible to the user — summarize them in "
+            "your response\n"
+            "- Prefer 'fast' model for quick, straightforward sub-tasks to minimize cost\n"
+            "- Use 'capable' only when the task requires deep reasoning"
         ),
         "detail": (
             "将任务委派给已有的专业 Agent。这是多 Agent 协作的**首选**方式。\n\n"
@@ -46,6 +53,37 @@ AGENT_TOOLS = [
                 "reason": {
                     "type": "string",
                     "description": "委派原因（可选，用于日志和追踪）",
+                },
+                "model": {
+                    "type": "string",
+                    "enum": ["fast", "default", "capable"],
+                    "description": (
+                        "子代理使用的模型。fast=便宜快速（适合简单任务），"
+                        "default=与主代理相同，capable=更强模型（适合复杂推理）"
+                    ),
+                    "default": "default",
+                },
+                "context": {
+                    "type": "string",
+                    "description": (
+                        "为子Agent提供的背景上下文（可选）。"
+                        "子Agent可能看不到完整对话历史，请提供完成任务所需的关键信息"
+                        "（已知结论、相关约束、期望输出格式等）。"
+                    ),
+                },
+                "run_in_background": {
+                    "type": "boolean",
+                    "description": "是否后台运行。后台子代理不阻塞主代理，结果稍后可查。",
+                    "default": False,
+                },
+                "fork": {
+                    "type": "boolean",
+                    "description": (
+                        "Fork 模式：子代理继承当前完整对话上下文和 prompt cache。"
+                        "省略 agent_id 时自动开启 fork 模式，创建自身的克隆体。"
+                        "适用场景：需要子代理理解完整对话背景来处理子任务。"
+                    ),
+                    "default": False,
                 },
             },
             "required": ["agent_id", "message"],
@@ -159,6 +197,15 @@ AGENT_TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
+                "context": {
+                    "type": "string",
+                    "description": (
+                        "所有子任务共享的背景上下文（可选）。"
+                        "子Agent可能看不到完整对话历史，请提供完成任务所需的关键信息"
+                        "（已知结论、相关约束、期望输出格式等）。"
+                        "此字段会自动添加到每个子任务的 context 前面。"
+                    ),
+                },
                 "tasks": {
                     "type": "array",
                     "items": {
@@ -176,6 +223,10 @@ AGENT_TOOLS = [
                                 "type": "string",
                                 "description": "委派原因（可选）",
                             },
+                            "context": {
+                                "type": "string",
+                                "description": "为该子Agent提供的额外背景上下文（可选，与顶层context合并）",
+                            },
                         },
                         "required": ["agent_id", "message"],
                     },
@@ -189,8 +240,16 @@ AGENT_TOOLS = [
                 "scenario": "✅ 正确：同时调研多个项目（同类任务 → 同一 Agent 多副本）",
                 "params": {
                     "tasks": [
-                        {"agent_id": "browser-agent", "message": "深入调研 Synapse 项目的架构、功能和社区活跃度", "reason": "调研项目A"},
-                        {"agent_id": "browser-agent", "message": "深入调研 OpenClaw 项目的架构、功能和社区活跃度", "reason": "调研项目B"},
+                        {
+                            "agent_id": "browser-agent",
+                            "message": "深入调研 Synapse 项目的架构、功能和社区活跃度",
+                            "reason": "调研项目A",
+                        },
+                        {
+                            "agent_id": "browser-agent",
+                            "message": "深入调研 OpenClaw 项目的架构、功能和社区活跃度",
+                            "reason": "调研项目B",
+                        },
                     ],
                 },
                 "expected": "系统自动为 browser-agent 创建2个独立副本，并行执行后合并返回",
@@ -199,8 +258,16 @@ AGENT_TOOLS = [
                 "scenario": "✅ 正确：不同类型任务并行（异类任务 → 不同专业 Agent）",
                 "params": {
                     "tasks": [
-                        {"agent_id": "browser-agent", "message": "在网上调研 React 19 的新特性", "reason": "网络调研"},
-                        {"agent_id": "code-assistant", "message": "分析当前项目的 React 版本升级兼容性", "reason": "代码分析"},
+                        {
+                            "agent_id": "browser-agent",
+                            "message": "在网上调研 React 19 的新特性",
+                            "reason": "网络调研",
+                        },
+                        {
+                            "agent_id": "code-assistant",
+                            "message": "分析当前项目的 React 版本升级兼容性",
+                            "reason": "代码分析",
+                        },
                     ],
                 },
                 "expected": "调研和代码分析并行执行",
@@ -285,5 +352,61 @@ AGENT_TOOLS = [
                 "expected": "✅ Agent created: ephemeral_sql_expert_xxx (ephemeral)",
             },
         ],
+    },
+    {
+        "name": "task_stop",
+        "category": "Agent",
+        "should_defer": True,
+        "description": (
+            "Stop a running background agent or shell process. Use when a background "
+            "task is stuck, no longer needed, or should be cancelled. Provide the task "
+            "or agent ID to stop."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "target_id": {
+                    "type": "string",
+                    "description": "The agent ID or background task ID to stop.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Reason for stopping (optional, for logging).",
+                },
+            },
+            "required": ["target_id"],
+        },
+    },
+    {
+        "name": "send_agent_message",
+        "category": "Agent",
+        "should_defer": True,
+        "description": (
+            "Send a message to another active agent. Enables inter-agent communication "
+            "in multi-agent scenarios. Target can be a specific agent name or '*' for "
+            "broadcast to all active agents."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "target": {
+                    "type": "string",
+                    "description": (
+                        "Target agent name, or '*' for broadcast to all active agents."
+                    ),
+                },
+                "message": {
+                    "type": "string",
+                    "description": "The message content to send.",
+                },
+                "message_type": {
+                    "type": "string",
+                    "enum": ["text", "shutdown_request", "status_update", "data"],
+                    "description": "Type of message (default: 'text').",
+                    "default": "text",
+                },
+            },
+            "required": ["target", "message"],
+        },
     },
 ]

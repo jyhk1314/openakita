@@ -10,10 +10,72 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
+from ..core.capabilities import (
+    CapabilityDescriptor,
+    CapabilityKind,
+    CapabilityOrigin,
+    CapabilityVisibility,
+    build_capability_id,
+    build_namespace,
+)
+
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from .parser import ParsedSkill
 
 logger = logging.getLogger(__name__)
+
+_MARKETPLACE_HOSTS = {"github.com/openakita", "openakita.com", "skill.openakita.com"}
+
+_RESTRICTED_TOOLS_FOR_UNTRUSTED = frozenset(
+    {
+        "run_shell",
+        "run_command",
+        "execute_command",
+        "write_file",
+        "delete_file",
+        "run_skill_script",
+        "execute_skill",
+    }
+)
+
+
+def _infer_trust_level(skill: "ParsedSkill", source_url: str | None) -> str:
+    """Infer trust level from skill metadata and origin."""
+    if getattr(skill.metadata, "system", False):
+        return "builtin"
+    if not source_url:
+        # Check if the skill is from the builtin directory
+        if skill.path:
+            from pathlib import Path
+
+            path_str = str(Path(skill.path)).replace("\\", "/").lower()
+            if "/builtin/" in path_str or "/site-packages/" in path_str:
+                return "builtin"
+        return "local"
+    url_lower = source_url.lower()
+    for host in _MARKETPLACE_HOSTS:
+        if host in url_lower:
+            return "marketplace"
+    return "remote"
+
+
+def _infer_origin(
+    skill: "ParsedSkill",
+    source_url: str | None,
+    plugin_source: str | None,
+) -> CapabilityOrigin:
+    if plugin_source:
+        return CapabilityOrigin.PLUGIN
+    if getattr(skill.metadata, "system", False):
+        return CapabilityOrigin.SYSTEM
+    trust_level = _infer_trust_level(skill, source_url)
+    if trust_level == "marketplace":
+        return CapabilityOrigin.MARKETPLACE
+    if trust_level == "remote":
+        return CapabilityOrigin.REMOTE
+    return CapabilityOrigin.PROJECT
 
 
 @dataclass
@@ -34,7 +96,8 @@ class SkillEntry:
     - category: 工具分类
     """
 
-    name: str
+    skill_id: str  # 唯一标识（= 目录名），用作注册 key、allowlist key、tool name key
+    name: str  # SKILL.md 声明的显示名（可重复），仅用于展示和搜索
     description: str
     version: str | None = None
     license: str | None = None
@@ -57,15 +120,55 @@ class SkillEntry:
     # 技能路径 (用于延迟加载)
     skill_path: str | None = None
 
+    # 技能来源 URL（来自 .synapse-source 文件，用于区分同名技能）
+    source_url: str | None = None
+
+    # 插件来源标识（如 "plugin:translate-skill"），非插件技能为 None
+    plugin_source: str | None = None
+
+    # 统一 capability 元数据
+    origin: str = CapabilityOrigin.PROJECT.value
+    namespace: str = CapabilityOrigin.PROJECT.value
+    visibility: str = CapabilityVisibility.PUBLIC.value
+    permission_profile: str = ""
+    capability_id: str = ""
+
     # 国际化（由 agents/openai.yaml i18n 字段注入，兼容旧的 .synapse-i18n.json）
     name_i18n: dict[str, str] = field(default_factory=dict)
     description_i18n: dict[str, str] = field(default_factory=dict)
+
+    # 技能配置 schema（从 SKILL.md frontmatter 传递）
+    config: list[dict] = field(default_factory=list)
+
+    # F1: 扩展 frontmatter 字段
+    when_to_use: str = ""
+    keywords: list[str] = field(default_factory=list)
+    arguments: list[dict] = field(default_factory=list)
+    argument_hint: str = ""
+    execution_context: str = "inline"
+    agent_profile: str | None = None
+    paths: list[str] = field(default_factory=list)
+    hooks: dict = field(default_factory=dict)
+    model: str | None = None
+
+    # F12: 信任等级 ("builtin" | "local" | "marketplace" | "remote")
+    # builtin: 随安装包分发的内置技能
+    # local: 用户本地创建的技能
+    # marketplace: 从官方市场安装的技能
+    # remote: 从第三方 URL/Git 安装的技能（不可信）
+    trust_level: str = "local"
 
     # 全局启用 / 禁用标记
     # 用户通过 UI / skills.json 禁用的技能在注册表中保留但标记 disabled=True，
     # 这样 SkillCatalog 和 list_skills 工具会过滤它们，
     # 而子 Agent INCLUSIVE 模式仍可通过 profile.skills 显式引用并重新启用。
     disabled: bool = False
+
+    # L1 目录隐藏标记（渐进式披露控制）
+    # INCLUSIVE 模式下未勾选的技能标记 catalog_hidden=True，
+    # 不出现在系统提示词目录（L1）中，但仍保留在注册表中，
+    # LLM 可通过 list_skills / get_skill_info 发现并按需加载（L2+）。
+    catalog_hidden: bool = False
 
     # 完整技能对象引用 (延迟加载)
     _parsed_skill: Optional["ParsedSkill"] = field(default=None, repr=False)
@@ -78,11 +181,64 @@ class SkillEntry:
         """按语言返回显示描述，找不到则回退到 description"""
         return self.description_i18n.get(lang, self.description)
 
+    @property
+    def skill_dir(self) -> "Path":
+        """Return the skill's directory path."""
+        from pathlib import Path
+
+        if self.skill_path:
+            p = Path(self.skill_path)
+            return p.parent if p.name.upper() == "SKILL.MD" else p
+        return Path(".")
+
+    @property
+    def is_trusted(self) -> bool:
+        """Whether this skill comes from a trusted source."""
+        return self.trust_level in ("builtin", "local", "marketplace")
+
+    def get_restricted_tools(self) -> frozenset[str]:
+        """Return tools that should be blocked for untrusted skills."""
+        if self.is_trusted:
+            return frozenset()
+        return _RESTRICTED_TOOLS_FOR_UNTRUSTED
+
     @classmethod
-    def from_parsed_skill(cls, skill: "ParsedSkill") -> "SkillEntry":
-        """从 ParsedSkill 创建条目"""
+    def from_parsed_skill(
+        cls,
+        skill: "ParsedSkill",
+        skill_id: str | None = None,
+        *,
+        plugin_source: str | None = None,
+    ) -> "SkillEntry":
+        """从 ParsedSkill 创建条目
+
+        Args:
+            skill: 解析后的技能对象
+            skill_id: 唯一标识（通常为目录名）。未提供时回退到 metadata.name。
+        """
         meta = skill.metadata
+
+        source_url: str | None = None
+        if skill.path:
+            from pathlib import Path
+
+            source_file = Path(skill.path).parent / ".synapse-source"
+            try:
+                source_url = source_file.read_text(encoding="utf-8").strip() or None
+            except Exception:
+                pass
+
+        # F12: determine trust level
+        trust_level = _infer_trust_level(skill, source_url)
+        origin = _infer_origin(skill, source_url, plugin_source)
+        effective_skill_id = skill_id or meta.name
+        namespace = build_namespace(origin, plugin_id=plugin_source or "")
+        permission_profile = (
+            "trusted" if trust_level in ("builtin", "local", "marketplace") else "restricted"
+        )
+
         return cls(
+            skill_id=effective_skill_id,
             name=meta.name,
             description=meta.description,
             version=meta.version,
@@ -98,7 +254,30 @@ class SkillEntry:
             supported_os=list(meta.supported_os),
             required_bins=list(meta.required_bins),
             required_env=list(meta.required_env),
+            config=list(meta.config) if meta.config else [],
+            when_to_use=meta.when_to_use,
+            keywords=list(meta.keywords),
+            arguments=list(meta.arguments),
+            argument_hint=meta.argument_hint,
+            execution_context=meta.execution_context,
+            agent_profile=meta.agent_profile,
+            paths=list(meta.paths),
+            hooks=dict(meta.hooks) if meta.hooks else {},
+            model=meta.model,
+            trust_level=trust_level,
             skill_path=str(skill.path),
+            source_url=source_url,
+            plugin_source=plugin_source,
+            origin=origin.value,
+            namespace=namespace,
+            visibility=CapabilityVisibility.PUBLIC.value,
+            permission_profile=permission_profile,
+            capability_id=build_capability_id(
+                CapabilityKind.SKILL,
+                effective_skill_id,
+                origin=origin,
+                plugin_id=plugin_source or "",
+            ),
             name_i18n=dict(meta.name_i18n),
             description_i18n=dict(meta.description_i18n),
             _parsed_skill=skill,
@@ -110,6 +289,37 @@ class SkillEntry:
             return self._parsed_skill.body
         return None
 
+    def to_capability_descriptor(self) -> CapabilityDescriptor:
+        return CapabilityDescriptor(
+            id=self.capability_id
+            or build_capability_id(
+                CapabilityKind.SKILL,
+                self.skill_id,
+                origin=self.origin,
+                plugin_id=self.plugin_source or "",
+            ),
+            kind=CapabilityKind.SKILL,
+            origin=CapabilityOrigin(self.origin),
+            namespace=self.namespace,
+            display_name=self.name,
+            description=self.description,
+            version=self.version or "",
+            visibility=CapabilityVisibility(self.visibility),
+            permission_profile=self.permission_profile,
+            source_ref=self.source_url or self.skill_path or "",
+            i18n={
+                "name": dict(self.name_i18n),
+                "description": dict(self.description_i18n),
+            },
+            metadata={
+                "system": self.system,
+                "tool_name": self.tool_name or "",
+                "handler": self.handler or "",
+                "trust_level": self.trust_level,
+                "plugin_source": self.plugin_source or "",
+            },
+        )
+
     def to_tool_schema(self) -> dict:
         """
         转换为 LLM 工具调用 schema
@@ -118,33 +328,78 @@ class SkillEntry:
         系统技能使用原 tool_name，外部技能使用 skill_ 前缀
         """
         if self.system and self.tool_name:
-            # 系统技能：使用原工具名
             return {
                 "name": self.tool_name,
                 "description": self.description,
                 "input_schema": self._get_input_schema(),
+                "x-capability-origin": self.origin,
             }
-        else:
-            # 外部技能：使用 skill_ 前缀，清理命名空间中的非法字符
-            safe = re.sub(r"[^a-zA-Z0-9_]", "_", self.name)
-            return {
-                "name": f"skill_{safe}",
-                "description": f"[Skill] {self.description}",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "action": {
-                            "type": "string",
-                            "description": "要执行的操作",
-                        },
-                        "params": {
-                            "type": "object",
-                            "description": "操作参数",
-                        },
+
+        safe = re.sub(r"[^a-zA-Z0-9_]", "_", self.skill_id)
+        desc = f"[Skill] {self.description}"
+        body = self.get_body() or ""
+        input_schema = self._parse_parameters_from_body(body)
+
+        if input_schema is None:
+            body_preview = body[:200].strip() if body else ""
+            if body_preview:
+                desc = f"[Skill] {self.description}\n\n{body_preview}"
+            input_schema = {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "要执行的操作",
                     },
-                    "required": ["action"],
+                    "params": {
+                        "type": "object",
+                        "description": "操作参数",
+                    },
                 },
+                "required": ["action"],
             }
+
+        return {
+            "name": f"skill_{safe}",
+            "description": desc,
+            "input_schema": input_schema,
+            "x-capability-origin": self.origin,
+        }
+
+    @staticmethod
+    def _parse_parameters_from_body(body: str) -> dict | None:
+        """Try to extract structured inputSchema from ## Parameters / ## 参数 section."""
+        if not body:
+            return None
+        param_match = re.search(
+            r"^##\s+(?:Parameters|参数)\s*\n(.*?)(?=\n##\s|\Z)",
+            body,
+            re.MULTILINE | re.DOTALL,
+        )
+        if not param_match:
+            return None
+
+        section = param_match.group(1).strip()
+        props: dict = {}
+        required: list[str] = []
+        for line in section.splitlines():
+            m = re.match(
+                r"^[-*]\s+`(\w+)`\s*(?:\((\w+)\))?\s*(?:\*\*required\*\*|必填)?\s*[:\-—]\s*(.+)",
+                line.strip(),
+            )
+            if not m:
+                continue
+            name, ptype, desc = m.group(1), m.group(2) or "string", m.group(3).strip()
+            props[name] = {"type": ptype, "description": desc}
+            if "required" in line.lower() or "必填" in line:
+                required.append(name)
+
+        if not props:
+            return None
+        schema: dict = {"type": "object", "properties": props}
+        if required:
+            schema["required"] = required
+        return schema
 
     def _get_input_schema(self) -> dict:
         """
@@ -168,65 +423,146 @@ class SkillRegistry:
     - 注册/注销
     - 搜索/查找
     - 渐进式加载
+
+    内部以 skill_id（目录名）做唯一 key，对外查找方法同时接受
+    skill_id 和 name（向后兼容：先匹配 skill_id，未命中则回退到 name）。
     """
 
     def __init__(self):
-        self._skills: dict[str, SkillEntry] = {}
+        self._skills: dict[str, SkillEntry] = {}  # key = skill_id
 
-    def register(self, skill: "ParsedSkill") -> None:
+    def _resolve(self, key: str) -> SkillEntry | None:
+        """按 skill_id 查找，未命中时回退到 name 匹配（向后兼容）。"""
+        entry = self._skills.get(key)
+        if entry is not None:
+            return entry
+        matches = [e for e in self._skills.values() if e.name == key]
+        if len(matches) > 1:
+            logger.warning(
+                "Ambiguous skill name '%s' matches %d entries: %s — refusing fuzzy resolution",
+                key,
+                len(matches),
+                [m.skill_id for m in matches],
+            )
+            return None
+        return matches[0] if matches else None
+
+    def _resolve_id(self, key: str) -> str | None:
+        """将 key 解析为实际的 skill_id。"""
+        if key in self._skills:
+            return key
+        matches = [sid for sid, e in self._skills.items() if e.name == key]
+        if len(matches) > 1:
+            logger.warning(
+                "Ambiguous skill name '%s' matches %d entries: %s — refusing fuzzy resolution",
+                key,
+                len(matches),
+                matches,
+            )
+            return None
+        if matches:
+            return matches[0]
+        return None
+
+    def register(
+        self,
+        skill: "ParsedSkill",
+        skill_id: str | None = None,
+        *,
+        plugin_source: str | None = None,
+        force: bool = False,
+    ) -> bool:
         """
         注册技能
 
         Args:
             skill: 解析后的技能对象
+            skill_id: 唯一标识（通常为目录名）。未提供时回退到 metadata.name。
+            plugin_source: 插件来源标识
+            force: 允许覆盖已有条目（仅 reload 场景使用）
+
+        Returns:
+            True if registered, False if rejected due to conflict.
         """
-        entry = SkillEntry.from_parsed_skill(skill)
+        entry = SkillEntry.from_parsed_skill(
+            skill,
+            skill_id=skill_id,
+            plugin_source=plugin_source,
+        )
 
-        if entry.name in self._skills:
-            logger.warning(f"Skill '{entry.name}' already registered, overwriting")
+        existing = self._skills.get(entry.skill_id)
+        if existing is not None and not force:
+            logger.warning(
+                "Skill '%s' already registered (origin=%s, plugin=%s). "
+                "Rejecting new registration from plugin=%s. "
+                "Use force=True or unregister first.",
+                entry.skill_id,
+                existing.origin,
+                existing.plugin_source or "none",
+                plugin_source or "none",
+            )
+            return False
 
-        self._skills[entry.name] = entry
-        logger.info(f"Registered skill: {entry.name}")
+        self._skills[entry.skill_id] = entry
+        logger.info(f"Registered skill: {entry.skill_id} (name={entry.name})")
+        return True
 
-    def unregister(self, name: str) -> bool:
+    def unregister(self, key: str) -> bool:
         """
         注销技能
 
         Args:
-            name: 技能名称
+            key: skill_id 或 name（向后兼容）
 
         Returns:
             是否成功
         """
-        if name in self._skills:
-            del self._skills[name]
-            logger.info(f"Unregistered skill: {name}")
+        sid = self._resolve_id(key)
+        if sid is not None:
+            del self._skills[sid]
+            logger.info(f"Unregistered skill: {sid}")
             return True
         return False
 
-    def get(self, name: str) -> SkillEntry | None:
+    def get(self, key: str) -> SkillEntry | None:
         """
         获取技能
 
         Args:
-            name: 技能名称
+            key: skill_id 或 name（向后兼容）
 
         Returns:
             SkillEntry 或 None
         """
-        return self._skills.get(name)
+        return self._resolve(key)
 
-    def has(self, name: str) -> bool:
-        """检查技能是否存在"""
-        return name in self._skills
+    def has(self, key: str) -> bool:
+        """检查技能是否存在（接受 skill_id 或 name）"""
+        return self._resolve(key) is not None
 
-    def set_disabled(self, name: str, disabled: bool = True) -> bool:
-        """设置技能的 disabled 标记。Returns True if skill exists."""
-        skill = self._skills.get(name)
+    def set_disabled(self, key: str, disabled: bool = True) -> bool:
+        """设置技能的 disabled 标记。接受 skill_id 或 name。"""
+        skill = self._resolve(key)
         if skill is not None:
             skill.disabled = disabled
             return True
         return False
+
+    def set_catalog_hidden(self, key: str, hidden: bool = True) -> bool:
+        """设置技能的 catalog_hidden 标记（L1 渐进式披露控制）。
+
+        catalog_hidden 的技能不出现在系统提示词目录中，
+        但仍可通过 list_skills / get_skill_info 按需发现和加载。
+        """
+        skill = self._resolve(key)
+        if skill is not None:
+            skill.catalog_hidden = hidden
+            return True
+        return False
+
+    def count_catalog_hidden(self) -> int:
+        """统计被 catalog_hidden 但仍启用的技能数量。"""
+        return sum(1 for s in self._skills.values() if not s.disabled and s.catalog_hidden)
 
     def list_all(self, include_disabled: bool = True) -> list[SkillEntry]:
         """列出所有技能。
@@ -250,6 +586,10 @@ class SkillRegistry:
         """
         return [
             {
+                "skill_id": skill.skill_id,
+                "capability_id": skill.capability_id,
+                "namespace": skill.namespace,
+                "origin": skill.origin,
                 "name": skill.name,
                 "description": skill.description,
                 "auto_invoke": not skill.disable_model_invocation,
@@ -267,23 +607,170 @@ class SkillRegistry:
         搜索技能
 
         Args:
-            query: 搜索词 (匹配名称或描述)
+            query: 搜索词 (匹配 skill_id、名称或描述)
             include_disabled: 是否包含禁用自动调用的技能
 
         Returns:
             匹配的技能列表
         """
-        results = []
-        query_lower = query.lower()
+        query_lower = query.strip().lower()
+        if not query_lower:
+            return []
 
+        results = []
         for skill in self._skills.values():
             if not include_disabled and (skill.disabled or skill.disable_model_invocation):
                 continue
 
-            if query_lower in skill.name.lower() or query_lower in skill.description.lower():
+            if (
+                query_lower in skill.skill_id.lower()
+                or query_lower in skill.name.lower()
+                or query_lower in skill.description.lower()
+            ):
                 results.append(skill)
 
         return results
+
+    _STOP_WORDS = frozenset(
+        {
+            "the",
+            "a",
+            "an",
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "been",
+            "being",
+            "have",
+            "has",
+            "had",
+            "do",
+            "does",
+            "did",
+            "will",
+            "would",
+            "could",
+            "should",
+            "may",
+            "might",
+            "shall",
+            "can",
+            "need",
+            "dare",
+            "ought",
+            "used",
+            "to",
+            "of",
+            "in",
+            "for",
+            "on",
+            "with",
+            "at",
+            "by",
+            "from",
+            "as",
+            "into",
+            "through",
+            "during",
+            "before",
+            "after",
+            "above",
+            "below",
+            "between",
+            "out",
+            "off",
+            "over",
+            "under",
+            "again",
+            "further",
+            "then",
+            "once",
+            "here",
+            "there",
+            "when",
+            "where",
+            "why",
+            "how",
+            "all",
+            "each",
+            "every",
+            "both",
+            "few",
+            "more",
+            "most",
+            "other",
+            "some",
+            "such",
+            "no",
+            "nor",
+            "not",
+            "only",
+            "own",
+            "same",
+            "so",
+            "than",
+            "too",
+            "very",
+            "just",
+            "about",
+            "also",
+            "and",
+            "but",
+            "or",
+            "if",
+            "this",
+            "that",
+            "these",
+            "those",
+            "it",
+            "its",
+            "file",
+            "files",
+            "tool",
+            "tools",
+            "use",
+            "using",
+            "data",
+            "work",
+            "make",
+            "like",
+            "new",
+            "way",
+            "help",
+            "get",
+            "set",
+            "的",
+            "了",
+            "和",
+            "是",
+            "在",
+            "有",
+            "不",
+            "与",
+            "或",
+            "及",
+            "对",
+            "将",
+            "从",
+            "到",
+            "等",
+            "用",
+            "为",
+            "把",
+            "被",
+            "让",
+            "可以",
+            "使用",
+            "通过",
+            "支持",
+            "提供",
+            "进行",
+            "功能",
+            "操作",
+        }
+    )
 
     def find_relevant(self, context: str) -> list[SkillEntry]:
         """
@@ -295,24 +782,46 @@ class SkillRegistry:
             context: 上下文文本 (如用户输入)
 
         Returns:
-            可能相关的技能列表
+            可能相关的技能列表，按相关度降序
         """
-        relevant = []
+        if not context or not context.strip():
+            return []
+
         context_lower = context.lower()
+        scored: list[tuple[SkillEntry, int]] = []
 
         for skill in self._skills.values():
-            # 跳过禁用自动调用的技能
-            if skill.disable_model_invocation:
+            if skill.disabled or skill.disable_model_invocation:
                 continue
 
-            # 检查描述中的关键词
-            desc_words = skill.description.lower().split()
+            score = 0
+            sid = skill.skill_id.lower()
+            sname = skill.name.lower()
+
+            if sid in context_lower or sname in context_lower:
+                score += 10
+
+            for kw in skill.keywords:
+                if kw.lower() in context_lower:
+                    score += 5
+
+            if skill.when_to_use and any(
+                w in context_lower
+                for w in skill.when_to_use.lower().split()
+                if len(w) > 3 and w not in self._STOP_WORDS
+            ):
+                score += 3
+
+            desc_words = set(skill.description.lower().split()) - self._STOP_WORDS
             for word in desc_words:
                 if len(word) > 3 and word in context_lower:
-                    relevant.append(skill)
-                    break
+                    score += 1
 
-        return relevant
+            if score > 0:
+                scored.append((skill, score))
+
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return [s for s, _ in scored]
 
     def get_tool_schemas(self) -> list[dict]:
         """
@@ -372,8 +881,8 @@ class SkillRegistry:
         """外部技能数量"""
         return len(self.list_external_skills())
 
-    def __contains__(self, name: str) -> bool:
-        return self.has(name)
+    def __contains__(self, key: str) -> bool:
+        return self.has(key)
 
     def __len__(self) -> int:
         return self.count
@@ -385,16 +894,22 @@ class SkillRegistry:
         """确保空 registry 不被误判为 falsy"""
         return True
 
+    def items(self):
+        return self._skills.items()
+
+    def pop(self, key: str, default=None):
+        return self._skills.pop(key, default)
+
 
 # 全局注册中心
 default_registry = SkillRegistry()
 
 
-def register_skill(skill: "ParsedSkill") -> None:
+def register_skill(skill: "ParsedSkill", skill_id: str | None = None) -> None:
     """注册技能到默认注册中心"""
-    default_registry.register(skill)
+    default_registry.register(skill, skill_id=skill_id)
 
 
-def get_skill(name: str) -> SkillEntry | None:
-    """从默认注册中心获取技能"""
-    return default_registry.get(name)
+def get_skill(key: str) -> SkillEntry | None:
+    """从默认注册中心获取技能（接受 skill_id 或 name）"""
+    return default_registry.get(key)

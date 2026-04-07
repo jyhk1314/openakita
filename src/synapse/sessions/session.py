@@ -83,11 +83,38 @@ class SessionContext:
     sub_agent_records: list[dict] = field(default_factory=list)
     _msg_lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
+    _DEDUP_WINDOW = 8
+
     def add_message(self, role: str, content: str, **metadata) -> None:
-        """添加消息"""
+        """添加消息（含滑动窗口去重，防止重试/重连导致的重复消息）"""
         with self._msg_lock:
+            if self.messages:
+                last = self.messages[-1]
+                if last.get("role") == role and last.get("content") == content:
+                    return
+
+            import hashlib
+
+            fingerprint = hashlib.md5(
+                f"{role}:{content[:200]}".encode(errors="replace")
+            ).hexdigest()
+            window = self.messages[-self._DEDUP_WINDOW :]
+            for msg in window:
+                fp = hashlib.md5(
+                    f"{msg.get('role', '')}:{(msg.get('content', '') or '')[:200]}".encode(
+                        errors="replace"
+                    )
+                ).hexdigest()
+                if fp == fingerprint:
+                    return
+
             self.messages.append(
-                {"role": role, "content": content, "timestamp": datetime.now().isoformat(), **metadata}
+                {
+                    "role": role,
+                    "content": content,
+                    "timestamp": datetime.now().isoformat(),
+                    **metadata,
+                }
             )
 
     def mark_topic_boundary(self) -> None:
@@ -111,8 +138,11 @@ class SessionContext:
 
     def get_messages(self, limit: int | None = None) -> list[dict]:
         """获取消息历史"""
-        if limit:
-            return self.messages[-limit:]
+        if limit is not None:
+            try:
+                return self.messages[-int(limit) :]
+            except (ValueError, TypeError):
+                pass
         return self.messages
 
     def set_variable(self, key: str, value: Any) -> None:
@@ -184,6 +214,10 @@ class Session:
     channel: str  # 来源通道
     chat_id: str  # 聊天 ID（群/私聊）
     user_id: str  # 用户 ID
+    thread_id: str | None = None  # 话题/线程 ID（飞书话题等）
+    chat_type: str = "private"  # "group" | "private"
+    display_name: str = ""  # 用户昵称（用于 UI 展示）
+    chat_name: str = ""  # 聊天/群组名称（群名、频道名等）
 
     # 状态
     state: SessionState = SessionState.ACTIVE
@@ -205,7 +239,11 @@ class Session:
         channel: str,
         chat_id: str,
         user_id: str,
+        thread_id: str | None = None,
         config: SessionConfig | None = None,
+        chat_type: str = "private",
+        display_name: str = "",
+        chat_name: str = "",
     ) -> "Session":
         """创建新会话"""
         session_id = (
@@ -216,6 +254,10 @@ class Session:
             channel=channel,
             chat_id=chat_id,
             user_id=user_id,
+            thread_id=thread_id,
+            chat_type=chat_type,
+            display_name=display_name,
+            chat_name=chat_name,
             config=config or SessionConfig(),
         )
 
@@ -313,7 +355,10 @@ class Session:
     @property
     def session_key(self) -> str:
         """会话唯一标识"""
-        return f"{self.channel}:{self.chat_id}:{self.user_id}"
+        key = f"{self.channel}:{self.chat_id}:{self.user_id}"
+        if self.thread_id:
+            key += f":{self.thread_id}"
+        return key
 
     def add_message(self, role: str, content: str, **metadata) -> None:
         """添加消息并更新活跃时间"""
@@ -325,8 +370,18 @@ class Session:
             self._truncate_history()
 
     _RULE_SIGNAL_WORDS = (
-        "不要", "必须", "禁止", "每次", "规则", "永远不要", "务必",
-        "永远", "always", "never", "must", "rule",
+        "不要",
+        "必须",
+        "禁止",
+        "每次",
+        "规则",
+        "永远不要",
+        "务必",
+        "永远",
+        "always",
+        "never",
+        "must",
+        "rule",
     )
 
     def _truncate_history(self) -> None:
@@ -360,15 +415,19 @@ class Session:
                 is_rule = any(w in content for w in self._RULE_SIGNAL_WORDS)
                 if is_rule and rules_len < max_rules_len:
                     snippet, _ = smart_truncate(
-                        content.replace("\n", " ").strip(), 300,
-                        save_full=False, label="rule_hist",
+                        content.replace("\n", " ").strip(),
+                        300,
+                        save_full=False,
+                        label="rule_hist",
                     )
                     rule_snippets.append(snippet)
                     rules_len += len(snippet)
                 else:
                     preview, _ = smart_truncate(
-                        content.replace("\n", " ").strip(), 150,
-                        save_full=False, label="msg_hist",
+                        content.replace("\n", " ").strip(),
+                        150,
+                        save_full=False,
+                        label="msg_hist",
                     )
                     keywords.append(preview)
 
@@ -437,6 +496,10 @@ class Session:
             "channel": self.channel,
             "chat_id": self.chat_id,
             "user_id": self.user_id,
+            "thread_id": self.thread_id,
+            "chat_type": self.chat_type,
+            "display_name": self.display_name,
+            "chat_name": self.chat_name,
             "state": self.state.value,
             "created_at": self.created_at.isoformat(),
             "last_active": self.last_active.isoformat(),
@@ -471,6 +534,10 @@ class Session:
             channel=data["channel"],
             chat_id=data["chat_id"],
             user_id=data["user_id"],
+            thread_id=data.get("thread_id"),
+            chat_type=data.get("chat_type", "private"),
+            display_name=data.get("display_name", ""),
+            chat_name=data.get("chat_name", ""),
             state=SessionState(data.get("state", "active")),
             created_at=datetime.fromisoformat(data["created_at"]),
             last_active=datetime.fromisoformat(data["last_active"]),

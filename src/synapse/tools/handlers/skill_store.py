@@ -30,6 +30,7 @@ class SkillStoreHandler:
     def _get_client(self):
         if self._client is None:
             from ...hub import SkillStoreClient
+
             self._client = SkillStoreClient()
         return self._client
 
@@ -121,7 +122,7 @@ class SkillStoreHandler:
             return f"❌ Skill `{skill_id}` 没有安装地址，无法自动安装。"
 
         try:
-            skill_dir = await client.install_skill(install_url)
+            skill_dir = await client.install_skill(install_url, skill_id=skill_id)
         except Exception as e:
             return (
                 f"❌ 安装失败: {e}\n\n"
@@ -146,8 +147,22 @@ class SkillStoreHandler:
             loader = getattr(self.agent, "skill_loader", None)
             if loader:
                 from ...config import settings
+
                 loader.load_all(settings.project_root)
-                logger.info("Skills reloaded after Store install")
+
+            catalog = getattr(self.agent, "skill_catalog", None)
+            if catalog:
+                catalog.invalidate_cache()
+                self.agent._skill_catalog_text = catalog.generate_catalog()
+
+            if hasattr(self.agent, "_update_skill_tools"):
+                self.agent._update_skill_tools()
+
+            from ...skills.events import SkillEvent, notify_skills_changed
+
+            notify_skills_changed(SkillEvent.STORE_INSTALL)
+
+            logger.info("Skills reloaded after Store install")
         except Exception as e:
             logger.warning(f"Skill reload after Store install failed (non-blocking): {e}")
 
@@ -163,10 +178,14 @@ class SkillStoreHandler:
             return f"❌ 获取详情失败: {e}"
 
         s = detail.get("skill", detail)
-        trust_icons = {"official": "🏛️ Official", "certified": "✅ Certified", "community": "🌐 Community"}
+        trust_icons = {
+            "official": "🏛️ Official",
+            "certified": "✅ Certified",
+            "community": "🌐 Community",
+        }
 
         lines = [
-            f"📋 Skill 详情\n",
+            "📋 Skill 详情\n",
             f"**名称**: {s.get('name', '?')}",
             f"**ID**: {s.get('id', '?')}",
             f"**版本**: {s.get('version', '?')}",
@@ -185,7 +204,7 @@ class SkillStoreHandler:
         if s.get("githubStars"):
             lines.append(f"**GitHub Stars**: ★{s['githubStars']}")
 
-        lines.append(f"\n使用 `install_store_skill` 安装此 Skill。")
+        lines.append("\n使用 `install_store_skill` 安装此 Skill。")
         return "\n".join(lines)
 
     async def _submit_repo(self, params: dict[str, Any]) -> str:

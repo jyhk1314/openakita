@@ -9,16 +9,17 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Any
+from datetime import UTC, datetime
+from enum import StrEnum
 
+from synapse.memory.types import normalize_tags
 
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
 
-class OrgStatus(str, Enum):
+
+class OrgStatus(StrEnum):
     DORMANT = "dormant"
     ACTIVE = "active"
     RUNNING = "running"
@@ -26,7 +27,7 @@ class OrgStatus(str, Enum):
     ARCHIVED = "archived"
 
 
-class NodeStatus(str, Enum):
+class NodeStatus(StrEnum):
     IDLE = "idle"
     BUSY = "busy"
     WAITING = "waiting"
@@ -35,14 +36,14 @@ class NodeStatus(str, Enum):
     FROZEN = "frozen"
 
 
-class EdgeType(str, Enum):
+class EdgeType(StrEnum):
     HIERARCHY = "hierarchy"
     COLLABORATE = "collaborate"
     ESCALATE = "escalate"
     CONSULT = "consult"
 
 
-class MsgType(str, Enum):
+class MsgType(StrEnum):
     TASK_ASSIGN = "task_assign"
     TASK_RESULT = "task_result"
     TASK_DELIVERED = "task_delivered"
@@ -58,13 +59,13 @@ class MsgType(str, Enum):
     HANDSHAKE = "handshake"
 
 
-class MemoryScope(str, Enum):
+class MemoryScope(StrEnum):
     ORG = "org"
     DEPARTMENT = "department"
     NODE = "node"
 
 
-class MemoryType(str, Enum):
+class MemoryType(StrEnum):
     FACT = "fact"
     DECISION = "decision"
     RULE = "rule"
@@ -73,13 +74,13 @@ class MemoryType(str, Enum):
     RESOURCE = "resource"
 
 
-class ScheduleType(str, Enum):
+class ScheduleType(StrEnum):
     CRON = "cron"
     INTERVAL = "interval"
     ONCE = "once"
 
 
-class InboxPriority(str, Enum):
+class InboxPriority(StrEnum):
     INFO = "info"
     NOTICE = "notice"
     WARNING = "warning"
@@ -88,12 +89,35 @@ class InboxPriority(str, Enum):
     ALERT = "alert"
 
 
+class ProjectType(StrEnum):
+    TEMPORARY = "temporary"
+    PERMANENT = "permanent"
+
+
+class ProjectStatus(StrEnum):
+    PLANNING = "planning"
+    ACTIVE = "active"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    ARCHIVED = "archived"
+
+
+class TaskStatus(StrEnum):
+    TODO = "todo"
+    IN_PROGRESS = "in_progress"
+    DELIVERED = "delivered"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    BLOCKED = "blocked"
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _new_id(prefix: str = "") -> str:
@@ -104,6 +128,7 @@ def _new_id(prefix: str = "") -> str:
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class OrgNode:
@@ -123,7 +148,7 @@ class OrgNode:
     skills_mode: str = "all"
     preferred_endpoint: str | None = None
     max_concurrent_tasks: int = 1
-    timeout_s: int = 300
+    timeout_s: int = 0
     can_delegate: bool = True
     can_escalate: bool = True
     can_request_scaling: bool = True
@@ -270,13 +295,17 @@ class OrgEdge:
 @dataclass
 class UserPersona:
     """The human user's identity within an organization."""
+
     title: str = "负责人"
     display_name: str = ""
     description: str = ""
 
     def to_dict(self) -> dict:
-        return {"title": self.title, "display_name": self.display_name,
-                "description": self.description}
+        return {
+            "title": self.title,
+            "display_name": self.display_name,
+            "description": self.description,
+        }
 
     @classmethod
     def from_dict(cls, d: dict | None) -> UserPersona:
@@ -311,9 +340,9 @@ class Organization:
     standup_agenda: str = "各节点汇报进展、阻塞和计划。"
 
     # Policies
-    allow_cross_level: bool = False
+    allow_cross_level: bool = False  # TODO: not yet enforced
     max_delegation_depth: int = 5
-    conflict_resolution: str = "manager"
+    conflict_resolution: str = "manager"  # TODO: not yet enforced
 
     # Scaling
     scaling_enabled: bool = True
@@ -323,7 +352,7 @@ class Organization:
     scaling_approval: str = "user"
 
     # Notifications
-    notify_enabled: bool = False
+    notify_enabled: bool = True
     notify_channel: str | None = None
     notify_webhook_url: str | None = None
     notify_im_channel: str | None = None
@@ -354,8 +383,20 @@ class Organization:
     core_business: str = ""
 
     # Token budget (reserved, not enforced initially)
-    token_budget: int | None = None
-    token_budget_period: str | None = None
+    token_budget: int | None = None  # TODO: not yet enforced
+    token_budget_period: str | None = None  # TODO: not yet enforced
+
+    # Operation mode
+    operation_mode: str = "command"
+
+    # Watchdog
+    watchdog_enabled: bool = True
+    watchdog_interval_s: int = 30
+    watchdog_stuck_threshold_s: int = 1800
+    watchdog_silence_threshold_s: int = 1800
+
+    def __post_init__(self):
+        self.tags = normalize_tags(self.tags)
 
     def to_dict(self) -> dict:
         return {
@@ -394,7 +435,7 @@ class Organization:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "is_template": self.is_template,
-            "tags": list(self.tags) if self.tags else [],
+            "tags": self.tags,
             "total_tasks_completed": self.total_tasks_completed,
             "total_messages_exchanged": self.total_messages_exchanged,
             "total_tokens_used": self.total_tokens_used,
@@ -402,6 +443,11 @@ class Organization:
             "core_business": self.core_business,
             "token_budget": self.token_budget,
             "token_budget_period": self.token_budget_period,
+            "operation_mode": self.operation_mode,
+            "watchdog_enabled": self.watchdog_enabled,
+            "watchdog_interval_s": self.watchdog_interval_s,
+            "watchdog_stuck_threshold_s": self.watchdog_stuck_threshold_s,
+            "watchdog_silence_threshold_s": self.watchdog_silence_threshold_s,
         }
 
     @classmethod
@@ -419,7 +465,7 @@ class Organization:
         filtered = {k: v for k, v in d.items() if k in known and k not in ("nodes", "edges")}
         org = cls(**filtered)
         org.nodes = [OrgNode.from_dict(n) for n in raw_nodes]
-        org.edges = [OrgEdge.from_dict(e) for e in raw_edges]
+        org.edges = [OrgEdge.from_dict(e) for e in raw_edges if e.get("source") != e.get("target")]
         if isinstance(raw_persona, dict):
             org.user_persona = UserPersona.from_dict(raw_persona)
         return org
@@ -441,8 +487,9 @@ class Organization:
             title_norm = title.replace(" ", "").replace("　", "").lower()
             if query == title or query in title or title in query:
                 return n
-            if query_norm and (query_norm == title_norm or query_norm in title_norm
-                              or title_norm in query_norm):
+            if query_norm and (
+                query_norm == title_norm or query_norm in title_norm or title_norm in query_norm
+            ):
                 return n
         if len(query_norm) >= 3:
             for n in self.nodes:
@@ -461,13 +508,13 @@ class Organization:
     def get_children(self, node_id: str) -> list[OrgNode]:
         child_ids: set[str] = set()
         for e in self.edges:
-            if e.edge_type == EdgeType.HIERARCHY and e.source == node_id:
+            if e.edge_type == EdgeType.HIERARCHY and e.source == node_id and e.target != node_id:
                 child_ids.add(e.target)
         return [n for n in self.nodes if n.id in child_ids]
 
     def get_parent(self, node_id: str) -> OrgNode | None:
         for e in self.edges:
-            if e.edge_type == EdgeType.HIERARCHY and e.target == node_id:
+            if e.edge_type == EdgeType.HIERARCHY and e.target == node_id and e.source != node_id:
                 return self.get_node(e.source)
         return None
 
@@ -536,6 +583,19 @@ class OrgMemoryEntry:
     last_accessed_at: str = field(default_factory=_now_iso)
     access_count: int = 0
 
+    def __post_init__(self):
+        self.tags = normalize_tags(self.tags)
+        try:
+            self.importance = float(self.importance)
+        except (ValueError, TypeError):
+            self.importance = 0.5
+        self.importance = max(0.0, min(1.0, self.importance))
+        if self.ttl_hours is not None:
+            try:
+                self.ttl_hours = int(self.ttl_hours)
+            except (ValueError, TypeError):
+                self.ttl_hours = None
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -546,7 +606,7 @@ class OrgMemoryEntry:
             "content": self.content,
             "source_node": self.source_node,
             "source_message_id": self.source_message_id,
-            "tags": list(self.tags) if self.tags else [],
+            "tags": self.tags,
             "importance": self.importance,
             "ttl_hours": self.ttl_hours,
             "created_at": self.created_at,
@@ -626,3 +686,132 @@ class InboxMessage:
             except ValueError:
                 d["priority"] = InboxPriority.INFO
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
+
+
+# ---------------------------------------------------------------------------
+# Project / Task tracking
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ProjectTask:
+    id: str = field(default_factory=lambda: _new_id("task_"))
+    project_id: str = ""
+    title: str = ""
+    description: str = ""
+    status: TaskStatus = TaskStatus.TODO
+    assignee_node_id: str | None = None
+    delegated_by: str | None = None
+    chain_id: str | None = None
+    parent_task_id: str | None = None
+    depth: int = 0
+    plan_steps: list = field(default_factory=list)
+    execution_log: list = field(default_factory=list)
+    priority: int = 0
+    progress_pct: int = 0
+    created_at: str = field(default_factory=_now_iso)
+    started_at: str | None = None
+    delivered_at: str | None = None
+    completed_at: str | None = None
+
+    def to_dict(self) -> dict:
+        if hasattr(self.status, "value"):
+            st = self.status.value
+        elif isinstance(self.status, str) and "." in self.status:
+            st = self.status.rsplit(".", 1)[-1].lower()
+        else:
+            st = str(self.status)
+        return {
+            "id": self.id,
+            "project_id": self.project_id,
+            "title": self.title,
+            "description": self.description,
+            "status": st,
+            "assignee_node_id": self.assignee_node_id,
+            "delegated_by": self.delegated_by,
+            "chain_id": self.chain_id,
+            "parent_task_id": self.parent_task_id,
+            "depth": self.depth,
+            "plan_steps": list(self.plan_steps) if self.plan_steps else [],
+            "execution_log": list(self.execution_log) if self.execution_log else [],
+            "priority": self.priority,
+            "progress_pct": self.progress_pct,
+            "created_at": self.created_at,
+            "started_at": self.started_at,
+            "delivered_at": self.delivered_at,
+            "completed_at": self.completed_at,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> ProjectTask:
+        d = dict(d)
+        if "status" in d and isinstance(d["status"], str):
+            raw = d["status"]
+            if "." in raw:
+                raw = raw.rsplit(".", 1)[-1].lower()
+            try:
+                d["status"] = TaskStatus(raw)
+            except ValueError:
+                d["status"] = TaskStatus.TODO
+        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
+
+
+@dataclass
+class OrgProject:
+    id: str = field(default_factory=lambda: _new_id("proj_"))
+    org_id: str = ""
+    name: str = ""
+    description: str = ""
+    project_type: ProjectType = ProjectType.TEMPORARY
+    status: ProjectStatus = ProjectStatus.PLANNING
+    owner_node_id: str | None = None
+    tasks: list[ProjectTask] = field(default_factory=list)
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+    completed_at: str | None = None
+
+    def to_dict(self) -> dict:
+        def _enum_val(v):
+            if hasattr(v, "value"):
+                return v.value
+            if isinstance(v, str) and "." in v:
+                return v.rsplit(".", 1)[-1].lower()
+            return str(v)
+
+        return {
+            "id": self.id,
+            "org_id": self.org_id,
+            "name": self.name,
+            "description": self.description,
+            "project_type": _enum_val(self.project_type),
+            "status": _enum_val(self.status),
+            "owner_node_id": self.owner_node_id,
+            "tasks": [t.to_dict() for t in self.tasks],
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "completed_at": self.completed_at,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> OrgProject:
+        d = dict(d)
+        if "project_type" in d and isinstance(d["project_type"], str):
+            raw_pt = d["project_type"]
+            if "." in raw_pt:
+                raw_pt = raw_pt.rsplit(".", 1)[-1].lower()
+            try:
+                d["project_type"] = ProjectType(raw_pt)
+            except ValueError:
+                d["project_type"] = ProjectType.TEMPORARY
+        if "status" in d and isinstance(d["status"], str):
+            raw_st = d["status"]
+            if "." in raw_st:
+                raw_st = raw_st.rsplit(".", 1)[-1].lower()
+            try:
+                d["status"] = ProjectStatus(raw_st)
+            except ValueError:
+                d["status"] = ProjectStatus.PLANNING
+        raw_tasks = d.pop("tasks", [])
+        proj = cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
+        proj.tasks = [ProjectTask.from_dict(t) for t in raw_tasks]
+        return proj

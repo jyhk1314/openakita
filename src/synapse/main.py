@@ -9,7 +9,9 @@ Synapse CLI 入口
 import synapse._ensure_utf8  # noqa: F401  # isort: skip
 
 import asyncio
+import contextlib
 import importlib
+import json
 import logging
 import os
 import subprocess
@@ -20,13 +22,15 @@ import typer
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.prompt import Prompt
 from rich.table import Table
 
 from .config import settings
 from .core.agent import Agent
 from .logging import setup_logging
 from .python_compat import patch_simplejson_jsondecodeerror
+
+# MCP stdio 子进程模式：stdout 专属 JSONRPC 协议，禁止一切控制台日志输出
+_is_mcp_subprocess = "run-mcp-module" in sys.argv
 
 # 配置日志系统（使用新的日志模块）
 setup_logging(
@@ -36,10 +40,11 @@ setup_logging(
     log_file_prefix=settings.log_file_prefix,
     log_max_size_mb=settings.log_max_size_mb,
     log_backup_count=settings.log_backup_count,
-    log_to_console=settings.log_to_console,
+    log_to_console=settings.log_to_console and not _is_mcp_subprocess,
     log_to_file=settings.log_to_file,
 )
 logger = logging.getLogger(__name__)
+
 
 # 初始化追踪系统
 def _init_tracing() -> None:
@@ -50,17 +55,18 @@ def _init_tracing() -> None:
     tracer = AgentTracer(enabled=settings.tracing_enabled)
     if settings.tracing_enabled:
         tracer.add_exporter(FileExporter(settings.tracing_export_dir))
-        if settings.tracing_console_export:
+        if settings.tracing_console_export and not _is_mcp_subprocess:
             tracer.add_exporter(ConsoleExporter())
         logger.info("[Tracing] 追踪系统已启用")
     set_tracer(tracer)
+
 
 _init_tracing()
 
 # Typer 应用
 app = typer.Typer(
     name="synapse",
-    help="Synapse - 全能自进化AI编程助手",
+    help="Synapse - 全能自进化AI助手",
     add_completion=False,
 )
 
@@ -93,12 +99,14 @@ async def _init_orchestrator():
     if _orchestrator is not None:
         return
     from synapse.agents.orchestrator import AgentOrchestrator
+
     _orchestrator = AgentOrchestrator()
     if _message_gateway:
         _orchestrator.set_gateway(_message_gateway)
     logger.info("[MultiAgent] AgentOrchestrator initialized")
     try:
         from synapse.agents.presets import ensure_presets_on_mode_enable
+
         ensure_presets_on_mode_enable(settings.data_dir / "agents")
     except Exception as e:
         logger.warning(f"[Main] Failed to deploy presets on orchestrator init: {e}")
@@ -106,14 +114,7 @@ async def _init_orchestrator():
 
 # ==================== IM 通道依赖自动安装 ====================
 
-# 通道名 → [(import_name, pip_package), ...]
-_CHANNEL_DEPS: dict[str, list[tuple[str, str]]] = {
-    "feishu": [("lark_oapi", "lark-oapi")],
-    "dingtalk": [("dingtalk_stream", "dingtalk-stream")],
-    "wework": [("aiohttp", "aiohttp"), ("Crypto", "pycryptodome")],
-    "onebot": [("websockets", "websockets")],
-    "qqbot": [("botpy", "qq-botpy"), ("pilk", "pilk")],
-}
+from .channels.deps import CHANNEL_DEPS as _CHANNEL_DEPS
 
 
 def _patch_backports_zstd() -> None:
@@ -225,6 +226,7 @@ def _ensure_channel_deps() -> None:
     patch_simplejson_jsondecodeerror(logger=logger)
     try:
         from synapse.runtime_env import inject_module_paths_runtime
+
         inject_module_paths_runtime()
     except Exception:
         pass
@@ -236,10 +238,21 @@ def _ensure_channel_deps() -> None:
         enabled_channels.append("dingtalk")
     if settings.wework_enabled:
         enabled_channels.append("wework")
+    if settings.wework_ws_enabled:
+        enabled_channels.append("wework_ws")
     if settings.onebot_enabled:
         enabled_channels.append("onebot")
     if settings.qqbot_enabled:
         enabled_channels.append("qqbot")
+    if settings.wechat_enabled:
+        enabled_channels.append("wechat")
+
+    # 补充从 im_bots 中提取已启用的通道类型，确保依赖检测覆盖 UI 创建的 Bot
+    for bot_cfg in settings.im_bots or []:
+        if bot_cfg.get("enabled", True):
+            channel_type = bot_cfg.get("type", "")
+            if channel_type and channel_type not in enabled_channels:
+                enabled_channels.append(channel_type)
 
     if not enabled_channels:
         return
@@ -282,7 +295,7 @@ def _ensure_channel_deps() -> None:
     pkg_list = ", ".join(missing)
     logger.info(f"IM 通道依赖自动安装: {pkg_list} ...")
 
-    from synapse.runtime_env import get_channel_deps_dir, get_python_executable, IS_FROZEN
+    from synapse.runtime_env import IS_FROZEN, get_channel_deps_dir, get_python_executable
 
     py = get_python_executable()
     if not py or (IS_FROZEN and py == sys.executable):
@@ -303,11 +316,13 @@ def _ensure_channel_deps() -> None:
     if _user_index:
         _host = _user_index.split("//")[1].split("/")[0] if "//" in _user_index else ""
         _mirror_sources.append((_user_index, _host))
-    _mirror_sources.extend([
-        ("https://mirrors.aliyun.com/pypi/simple/", "mirrors.aliyun.com"),
-        ("https://pypi.tuna.tsinghua.edu.cn/simple/", "pypi.tuna.tsinghua.edu.cn"),
-        ("https://pypi.org/simple/", "pypi.org"),
-    ])
+    _mirror_sources.extend(
+        [
+            ("https://mirrors.aliyun.com/pypi/simple/", "mirrors.aliyun.com"),
+            ("https://pypi.tuna.tsinghua.edu.cn/simple/", "pypi.tuna.tsinghua.edu.cn"),
+            ("https://pypi.org/simple/", "pypi.org"),
+        ]
+    )
 
     extra: dict = {}
     if sys.platform == "win32":
@@ -340,7 +355,8 @@ def _ensure_channel_deps() -> None:
         # 清理之前失败的导入在 sys.modules 中留下的残余条目，
         # 确保后续 import 能从新安装的路径加载完整模块。
         stale = [
-            k for k in sys.modules
+            k
+            for k in sys.modules
             if any(k == n or k.startswith(n + ".") for n in failed_import_names)
         ]
         for k in stale:
@@ -355,6 +371,7 @@ def _ensure_channel_deps() -> None:
             logger.info(f"已注入通道依赖路径: {target_str}")
         try:
             from synapse.runtime_env import inject_module_paths_runtime
+
             inject_module_paths_runtime()
         except Exception:
             pass
@@ -369,10 +386,15 @@ def _ensure_channel_deps() -> None:
             f"(源: offline wheels)"
         )
         offline_cmd = [
-            py, "-m", "pip", "install",
+            py,
+            "-m",
+            "pip",
+            "install",
             "--no-index",
-            "--find-links", str(bundled_wheels),
-            "--target", str(target_dir),
+            "--find-links",
+            str(bundled_wheels),
+            "--target",
+            str(target_dir),
             "--prefer-binary",
             *missing,
         ]
@@ -396,53 +418,85 @@ def _ensure_channel_deps() -> None:
         except Exception as e:
             logger.warning(f"离线 wheels 安装异常，回退在线镜像: {e}")
 
-    for idx, (index_url, trusted_host) in enumerate(_mirror_sources):
-        if installed:
-            break
-        source_label = trusted_host or index_url
-        if idx == 0:
-            console.print(
-                f"[yellow]⏳[/yellow] 自动安装 IM 通道依赖: [bold]{pkg_list}[/bold] "
-                f"(源: {source_label}) ..."
-            )
-        else:
-            console.print(
-                f"[yellow]⏳[/yellow] 切换镜像源重试: {source_label} ..."
-            )
-
-        pip_cmd = [
-            py, "-m", "pip", "install",
-            "--target", str(target_dir),
-            "-i", index_url,
-            "--prefer-binary",
-            "--timeout", "60",
-            *missing,
-        ]
-        if trusted_host:
-            pip_cmd.extend(["--trusted-host", trusted_host])
-
-        try:
-            result = subprocess.run(
-                pip_cmd,
-                env=pip_env,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=120,
-                **extra,
-            )
-            if result.returncode == 0:
-                _on_install_success(source_label)
-                installed = True
-                break
+    def _pip_install_via_mirrors(
+        packages: list[str],
+        label_prefix: str = "",
+    ) -> bool:
+        """Try installing *packages* through all mirror sources. Return True on success."""
+        for idx, (index_url, trusted_host) in enumerate(_mirror_sources):
+            source_label = trusted_host or index_url
+            if idx == 0:
+                console.print(
+                    f"[yellow]⏳[/yellow] {label_prefix}自动安装 IM 通道依赖: "
+                    f"[bold]{', '.join(packages)}[/bold] (源: {source_label}) ..."
+                )
             else:
-                err_tail = (result.stderr or result.stdout or "").strip()[-300:]
-                logger.warning(f"镜像源 {source_label} 安装失败 (exit {result.returncode}): {err_tail}")
-        except subprocess.TimeoutExpired:
-            logger.warning(f"镜像源 {source_label} 安装超时")
-        except Exception as e:
-            logger.warning(f"镜像源 {source_label} 安装异常: {e}")
+                console.print(f"[yellow]⏳[/yellow] 切换镜像源重试: {source_label} ...")
+
+            pip_cmd = [
+                py,
+                "-m",
+                "pip",
+                "install",
+                "--target",
+                str(target_dir),
+                "-i",
+                index_url,
+                "--prefer-binary",
+                "--timeout",
+                "60",
+                *packages,
+            ]
+            if trusted_host:
+                pip_cmd.extend(["--trusted-host", trusted_host])
+
+            try:
+                result = subprocess.run(
+                    pip_cmd,
+                    env=pip_env,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=120,
+                    **extra,
+                )
+                if result.returncode == 0:
+                    _on_install_success(source_label)
+                    return True
+                else:
+                    err_tail = (result.stderr or result.stdout or "").strip()[-300:]
+                    logger.warning(
+                        f"镜像源 {source_label} 安装失败 (exit {result.returncode}): {err_tail}"
+                    )
+            except subprocess.TimeoutExpired:
+                logger.warning(f"镜像源 {source_label} 安装超时")
+            except Exception as e:
+                logger.warning(f"镜像源 {source_label} 安装异常: {e}")
+        return False
+
+    if not installed:
+        installed = _pip_install_via_mirrors(missing)
+
+    # 批量安装失败且有多个包时，逐个重试——避免一个 C 扩展编译失败拖垮纯 Python 包
+    if not installed and len(missing) > 1:
+        logger.info("批量安装失败，尝试逐个安装 ...")
+        per_pkg_ok: list[str] = []
+        per_pkg_fail: list[str] = []
+        for pkg in missing:
+            if _pip_install_via_mirrors([pkg], label_prefix="[逐个] "):
+                per_pkg_ok.append(pkg)
+            else:
+                per_pkg_fail.append(pkg)
+        if per_pkg_ok:
+            installed = True
+            if per_pkg_fail:
+                fail_list = ", ".join(per_pkg_fail)
+                logger.warning(f"部分依赖安装失败（不影响已安装的包）: {fail_list}")
+                console.print(
+                    f"[yellow]⚠[/yellow] 部分依赖安装失败: {fail_list}\n"
+                    f"  相关功能（如语音转码）可能不可用，核心 IM 通道不受影响"
+                )
 
     if not installed:
         logger.error(f"所有镜像源均安装失败: {pkg_list}")
@@ -467,181 +521,86 @@ def _ensure_channel_deps() -> None:
         )
 
 
-def _create_bot_adapter(bot_type: str, creds: dict, *, channel_name: str, bot_id: str, agent_profile_id: str):
-    """Create an IM adapter instance from im_bots config entry."""
-    from .channels.base import ChannelAdapter
+def _create_bot_adapter(
+    bot_type: str, creds: dict, *, channel_name: str, bot_id: str, agent_profile_id: str
+):
+    """Create an IM adapter instance from im_bots config entry.
 
-    if bot_type == "feishu":
-        from .channels.adapters import FeishuAdapter
-        return FeishuAdapter(
-            app_id=creds.get("app_id", ""),
-            app_secret=creds.get("app_secret", ""),
-            channel_name=channel_name, bot_id=bot_id, agent_profile_id=agent_profile_id,
-        )
-    elif bot_type == "telegram":
-        from .channels.adapters import TelegramAdapter
-        require_pairing_raw = creds.get("require_pairing", "true")
-        if isinstance(require_pairing_raw, bool):
-            require_pairing = require_pairing_raw
-        else:
-            require_pairing = str(require_pairing_raw).lower() not in ("false", "0", "no")
-        return TelegramAdapter(
-            bot_token=creds.get("bot_token", ""),
-            webhook_url=creds.get("webhook_url") or None,
-            proxy=creds.get("proxy") or None,
-            pairing_code=creds.get("pairing_code") or None,
-            require_pairing=require_pairing,
-            channel_name=channel_name, bot_id=bot_id, agent_profile_id=agent_profile_id,
-        )
-    elif bot_type == "dingtalk":
-        from .channels.adapters import DingTalkAdapter
-        return DingTalkAdapter(
-            app_key=creds.get("app_key", creds.get("client_id", "")),
-            app_secret=creds.get("app_secret", creds.get("client_secret", "")),
-            channel_name=channel_name, bot_id=bot_id, agent_profile_id=agent_profile_id,
-        )
-    elif bot_type == "wework":
-        from .channels.adapters import WeWorkBotAdapter
-        return WeWorkBotAdapter(
-            corp_id=creds.get("corp_id", ""),
-            token=creds.get("token", ""),
-            encoding_aes_key=creds.get("encoding_aes_key", ""),
-            callback_port=int(creds.get("callback_port", 9880)),
-            callback_host=creds.get("callback_host", "0.0.0.0"),
-            channel_name=channel_name, bot_id=bot_id, agent_profile_id=agent_profile_id,
-        )
-    elif bot_type == "onebot":
-        from .channels.adapters import OneBotAdapter
-        return OneBotAdapter(
-            ws_url=creds.get("ws_url", "ws://127.0.0.1:8080"),
-            access_token=creds.get("access_token") or None,
-            channel_name=channel_name, bot_id=bot_id, agent_profile_id=agent_profile_id,
-        )
-    elif bot_type == "qqbot":
-        from .channels.adapters import QQBotAdapter
-        sandbox_raw = creds.get("sandbox", False)
-        if isinstance(sandbox_raw, bool):
-            sandbox = sandbox_raw
-        else:
-            sandbox = str(sandbox_raw).lower() in ("true", "1", "yes")
-        return QQBotAdapter(
-            app_id=creds.get("app_id", ""),
-            app_secret=creds.get("app_secret", ""),
-            sandbox=sandbox,
-            mode=creds.get("mode", "websocket"),
-            webhook_port=int(creds.get("webhook_port", 9890)),
-            webhook_path=creds.get("webhook_path", "/qqbot/callback"),
-            channel_name=channel_name, bot_id=bot_id, agent_profile_id=agent_profile_id,
-        )
-    else:
+    Uses the centralized adapter registry instead of if/elif branches.
+    """
+    from .channels.registry import ADAPTER_REGISTRY
+
+    factory = ADAPTER_REGISTRY.get(bot_type)
+    if factory is None:
         logger.warning(f"Unknown bot type: {bot_type}")
         return None
 
-
-def _auto_migrate_env_bots(settings) -> None:
-    """On startup, auto-promote .env channel configs into im_bots for unified management.
-
-    Only migrates channels that are enabled in .env AND have no existing im_bots
-    entry of the same type. This ensures backward compatibility for users upgrading
-    from the old single-channel .env configuration.
-    """
-    from .config import runtime_state
-
-    existing_types = {
-        b.get("type") for b in settings.im_bots if isinstance(b, dict)
-    }
-
-    env_channels = []
-
-    if settings.telegram_enabled and settings.telegram_bot_token and "telegram" not in existing_types:
-        env_channels.append({
-            "id": "telegram-env", "type": "telegram", "name": "Telegram",
-            "agent_profile_id": "default", "enabled": True,
-            "credentials": {
-                "bot_token": settings.telegram_bot_token,
-                "webhook_url": settings.telegram_webhook_url or "",
-                "proxy": settings.telegram_proxy or "",
-                "pairing_code": settings.telegram_pairing_code or "",
-                "require_pairing": str(settings.telegram_require_pairing).lower(),
-            },
-        })
-
-    if settings.feishu_enabled and settings.feishu_app_id and "feishu" not in existing_types:
-        env_channels.append({
-            "id": "feishu-env", "type": "feishu", "name": "飞书",
-            "agent_profile_id": "default", "enabled": True,
-            "credentials": {
-                "app_id": settings.feishu_app_id,
-                "app_secret": settings.feishu_app_secret,
-            },
-        })
-
-    if settings.wework_enabled and settings.wework_corp_id and "wework" not in existing_types:
-        env_channels.append({
-            "id": "wework-env", "type": "wework", "name": "企业微信",
-            "agent_profile_id": "default", "enabled": True,
-            "credentials": {
-                "corp_id": settings.wework_corp_id,
-                "token": settings.wework_token,
-                "encoding_aes_key": settings.wework_encoding_aes_key,
-                "callback_port": str(settings.wework_callback_port),
-                "callback_host": settings.wework_callback_host,
-            },
-        })
-
-    if settings.dingtalk_enabled and settings.dingtalk_client_id and "dingtalk" not in existing_types:
-        env_channels.append({
-            "id": "dingtalk-env", "type": "dingtalk", "name": "钉钉",
-            "agent_profile_id": "default", "enabled": True,
-            "credentials": {
-                "client_id": settings.dingtalk_client_id,
-                "client_secret": settings.dingtalk_client_secret,
-            },
-        })
-
-    if settings.onebot_enabled and settings.onebot_ws_url and "onebot" not in existing_types:
-        env_channels.append({
-            "id": "onebot-env", "type": "onebot", "name": "OneBot",
-            "agent_profile_id": "default", "enabled": True,
-            "credentials": {
-                "ws_url": settings.onebot_ws_url,
-                "access_token": settings.onebot_access_token or "",
-            },
-        })
-
-    if settings.qqbot_enabled and settings.qqbot_app_id and "qqbot" not in existing_types:
-        env_channels.append({
-            "id": "qqbot-env", "type": "qqbot", "name": "QQ Bot",
-            "agent_profile_id": "default", "enabled": True,
-            "credentials": {
-                "app_id": settings.qqbot_app_id,
-                "app_secret": settings.qqbot_app_secret,
-                "sandbox": str(settings.qqbot_sandbox).lower(),
-                "mode": settings.qqbot_mode,
-                "webhook_port": str(settings.qqbot_webhook_port),
-                "webhook_path": settings.qqbot_webhook_path,
-            },
-        })
-
-    if not env_channels:
-        return
-
-    # Deduplicate ids against existing im_bots
-    existing_ids = {b.get("id") for b in settings.im_bots if isinstance(b, dict)}
-    for bot in env_channels:
-        base_id = bot["id"]
-        suffix = 0
-        while bot["id"] in existing_ids:
-            suffix += 1
-            bot["id"] = f"{base_id}-{suffix}"
-        existing_ids.add(bot["id"])
-
-    settings.im_bots = list(settings.im_bots) + env_channels
-    runtime_state.save()
-    logger.info(
-        f"[AutoMigrate] Promoted {len(env_channels)} .env channel(s) to im_bots: "
-        f"{[b['id'] for b in env_channels]}"
+    return factory(
+        creds,
+        channel_name=channel_name,
+        bot_id=bot_id,
+        agent_profile_id=agent_profile_id,
     )
+
+
+def get_message_gateway():
+    """返回当前运行的 MessageGateway 实例，如未启动则返回 None。"""
+    return _message_gateway
+
+
+def _bot_channel_name(bot_cfg: dict) -> str:
+    """根据 bot 配置计算 channel_name，与 start_im_channels 中的命名规则保持一致。"""
+    bot_type = bot_cfg.get("type", "")
+    bot_id = bot_cfg.get("id", "")
+    return f"{bot_type}:{bot_id}" if bot_id else bot_type
+
+
+async def apply_im_bot(bot_cfg: dict) -> bool:
+    """动态注册或更新单个 Bot 适配器到正在运行的网关中（热重载）。
+
+    如果网关未运行（服务未启动），则不做任何操作，返回 False。
+    服务重启后仍会从 runtime_state.json 正常加载，不影响持久化。
+    """
+    if _message_gateway is None or not _message_gateway._running:
+        return False
+    bot_type = bot_cfg.get("type", "")
+    bot_id = bot_cfg.get("id", "")
+    agent_id = bot_cfg.get("agent_profile_id", "default")
+    creds = bot_cfg.get("credentials", {})
+    channel_name = _bot_channel_name(bot_cfg)
+    try:
+        adapter = _create_bot_adapter(
+            bot_type,
+            creds,
+            channel_name=channel_name,
+            bot_id=bot_id,
+            agent_profile_id=agent_id,
+        )
+        if adapter:
+            await _message_gateway.register_adapter(adapter)
+            logger.info(f"[HotReload] Applied bot adapter: {channel_name}")
+            return True
+    except Exception as e:
+        logger.error(f"[HotReload] Failed to apply bot {channel_name}: {e}")
+    return False
+
+
+async def remove_im_bot(bot_cfg: dict) -> bool:
+    """动态从正在运行的网关中注销并停止单个 Bot 适配器（热重载）。
+
+    如果网关未运行，则不做任何操作，返回 False。
+    """
+    if _message_gateway is None:
+        return False
+    channel_name = _bot_channel_name(bot_cfg)
+    try:
+        result = await _message_gateway.unregister_adapter(channel_name)
+        if result:
+            logger.info(f"[HotReload] Removed bot adapter: {channel_name}")
+        return result
+    except Exception as e:
+        logger.error(f"[HotReload] Failed to remove bot {channel_name}: {e}")
+        return False
 
 
 async def ensure_session_manager():
@@ -679,27 +638,55 @@ def _setup_session_backfill(agent_or_master):
                 logger.info(f"Session backfill: recovered {backfilled} turns from SQLite")
 
 
-async def start_im_channels(agent_or_master):
-    """启动配置的 IM 通道"""
-    global _message_gateway, _session_manager
+async def init_core_services(agent_or_master):
+    """初始化所有模式（Desktop / IM / CLI）共享的核心服务。
 
-    # SessionManager 必须在 IM 和 Desktop 模式下都可用
+    必须在 start_im_channels / start_api_server 之前调用。
+    幂等——多次调用安全。
+    """
+    global _desktop_pool
+
     await ensure_session_manager()
 
-    # 检查是否有任何通道启用（.env 或 im_bots）
+    if _desktop_pool is None:
+        from synapse.agents.factory import AgentFactory, AgentInstancePool
+
+        _desktop_pool = AgentInstancePool(AgentFactory(), idle_timeout=600)
+        await _desktop_pool.start()
+        logger.info("[Main] Desktop AgentInstancePool initialized (idle_timeout=600s)")
+
+    if settings.multi_agent_enabled:
+        await _init_orchestrator()
+
+    _setup_session_backfill(agent_or_master)
+
+
+async def start_im_channels(agent_or_master):
+    """启动配置的 IM 通道。
+
+    仅处理 IM 相关逻辑（MessageGateway、适配器注册）。
+    核心服务（SessionManager、AgentPool、Orchestrator）由 init_core_services() 负责。
+    """
+    global _message_gateway
+
     any_enabled = (
         settings.telegram_enabled
         or settings.feishu_enabled
         or settings.wework_enabled
+        or settings.wework_ws_enabled
         or settings.dingtalk_enabled
         or settings.onebot_enabled
         or settings.qqbot_enabled
-        or bool(settings.im_bots)
+        or settings.wechat_enabled
+        or any(b.get("enabled", True) for b in (settings.im_bots or []))
     )
 
     if not any_enabled:
         logger.info("No IM channels enabled, SessionManager is still active for Desktop Chat")
         _setup_session_backfill(agent_or_master)
+        if hasattr(agent_or_master, "_plugin_manager") and agent_or_master._plugin_manager:
+            if _session_manager is not None:
+                _session_manager._plugin_hooks = agent_or_master._plugin_manager.hook_registry
         return
 
     # 自动安装缺失的 IM 通道依赖
@@ -735,26 +722,25 @@ async def start_im_channels(agent_or_master):
         stt_client=stt_client,  # 在线 STT 客户端
     )
 
-    # 初始化 AgentOrchestrator (多 Agent 模式)
-    if settings.multi_agent_enabled:
-        await _init_orchestrator()
-
-    # Auto-migrate: promote .env channel configs to im_bots on first startup
-    _auto_migrate_env_bots(settings)
+    if _orchestrator is not None:
+        _orchestrator.set_gateway(_message_gateway)
 
     # 注册启用的适配器
     adapters_started = []
 
-    # Dedup: collect bot types already managed via im_bots to avoid double-registering
-    _im_bot_types = {
-        b.get("type") for b in settings.im_bots
-        if isinstance(b, dict) and b.get("enabled", True)
-    }
-
     # Telegram
     if settings.telegram_enabled and settings.telegram_bot_token:
-        if "telegram" in _im_bot_types:
-            logger.info("[Dedup] Skipping .env Telegram — managed via im_bots")
+        _tg_dup = any(
+            b.get("type") == "telegram"
+            and b.get("credentials", {}).get("bot_token") == settings.telegram_bot_token
+            and b.get("enabled", True)
+            for b in (settings.im_bots or [])
+        )
+        if _tg_dup:
+            logger.info(
+                "Telegram adapter skipped: im_bots already contains a telegram bot "
+                f"with the same bot_token ({settings.telegram_bot_token[:8]}...)"
+            )
         else:
             try:
                 from .channels.adapters import TelegramAdapter
@@ -775,8 +761,17 @@ async def start_im_channels(agent_or_master):
 
     # 飞书
     if settings.feishu_enabled and settings.feishu_app_id:
-        if "feishu" in _im_bot_types:
-            logger.info("[Dedup] Skipping .env Feishu — managed via im_bots")
+        _feishu_dup = any(
+            b.get("type") == "feishu"
+            and b.get("credentials", {}).get("app_id") == settings.feishu_app_id
+            and b.get("enabled", True)
+            for b in (settings.im_bots or [])
+        )
+        if _feishu_dup:
+            logger.info(
+                "Feishu adapter skipped: im_bots already contains a feishu bot "
+                f"with the same app_id ({settings.feishu_app_id[:8]}...)"
+            )
         else:
             try:
                 from .channels.adapters import FeishuAdapter
@@ -793,29 +788,71 @@ async def start_im_channels(agent_or_master):
 
     # 企业微信（智能机器人模式）
     if settings.wework_enabled and settings.wework_corp_id:
-        if "wework" in _im_bot_types:
-            logger.info("[Dedup] Skipping .env WeWork — managed via im_bots")
+        try:
+            from .channels.adapters import WeWorkBotAdapter
+
+            wework = WeWorkBotAdapter(
+                corp_id=settings.wework_corp_id,
+                token=settings.wework_token,
+                encoding_aes_key=settings.wework_encoding_aes_key,
+                callback_port=settings.wework_callback_port,
+                callback_host=settings.wework_callback_host,
+            )
+            await _message_gateway.register_adapter(wework)
+            adapters_started.append("wework")
+            logger.info("WeWork Smart Robot adapter registered")
+        except Exception as e:
+            logger.error(f"Failed to start WeWork adapter: {e}")
+
+    # 企业微信（智能机器人 — WebSocket 长连接模式）
+    if settings.wework_ws_enabled and settings.wework_ws_bot_id:
+        # 双开警告：HTTP 回调与 WS 长连接同时启用
+        if settings.wework_enabled:
+            logger.warning(
+                "WeWork HTTP callback and WebSocket are both enabled. "
+                "If they share the same bot, messages may be processed twice."
+            )
+
+        # 重复注册检查：im_bots 中是否已含相同 bot_id 的 wework_ws 条目
+        _wework_ws_dup = any(
+            b.get("type") == "wework_ws"
+            and b.get("credentials", {}).get("bot_id") == settings.wework_ws_bot_id
+            and b.get("enabled", True)
+            for b in (settings.im_bots or [])
+        )
+        if _wework_ws_dup:
+            logger.info(
+                "WeWork WS adapter skipped: im_bots already contains a wework_ws bot "
+                f"with the same bot_id ({settings.wework_ws_bot_id[:8]}...)"
+            )
         else:
             try:
-                from .channels.adapters import WeWorkBotAdapter
+                from .channels.adapters import WeWorkWsAdapter
 
-                wework = WeWorkBotAdapter(
-                    corp_id=settings.wework_corp_id,
-                    token=settings.wework_token,
-                    encoding_aes_key=settings.wework_encoding_aes_key,
-                    callback_port=settings.wework_callback_port,
-                    callback_host=settings.wework_callback_host,
+                wework_ws = WeWorkWsAdapter(
+                    bot_id=settings.wework_ws_bot_id,
+                    secret=settings.wework_ws_secret,
+                    webhook_url=settings.wework_ws_webhook_url,
                 )
-                await _message_gateway.register_adapter(wework)
-                adapters_started.append("wework")
-                logger.info("WeWork Smart Robot adapter registered")
+                await _message_gateway.register_adapter(wework_ws)
+                adapters_started.append("wework_ws")
+                logger.info("WeWork WS (WebSocket) adapter registered")
             except Exception as e:
-                logger.error(f"Failed to start WeWork adapter: {e}")
+                logger.error(f"Failed to start WeWork WS adapter: {e}")
 
     # 钉钉
     if settings.dingtalk_enabled and settings.dingtalk_client_id:
-        if "dingtalk" in _im_bot_types:
-            logger.info("[Dedup] Skipping .env DingTalk — managed via im_bots")
+        _ding_dup = any(
+            b.get("type") == "dingtalk"
+            and b.get("credentials", {}).get("client_id") == settings.dingtalk_client_id
+            and b.get("enabled", True)
+            for b in (settings.im_bots or [])
+        )
+        if _ding_dup:
+            logger.info(
+                "DingTalk adapter skipped: im_bots already contains a dingtalk bot "
+                f"with the same client_id ({settings.dingtalk_client_id[:8]}...)"
+            )
         else:
             try:
                 from .channels.adapters import DingTalkAdapter
@@ -831,27 +868,37 @@ async def start_im_channels(agent_or_master):
                 logger.error(f"Failed to start DingTalk adapter: {e}")
 
     # OneBot (通用协议)
-    if settings.onebot_enabled and settings.onebot_ws_url:
-        if "onebot" in _im_bot_types:
-            logger.info("[Dedup] Skipping .env OneBot — managed via im_bots")
-        else:
-            try:
-                from .channels.adapters import OneBotAdapter
+    if settings.onebot_enabled:
+        try:
+            from .channels.adapters import OneBotAdapter
 
-                onebot = OneBotAdapter(
-                    ws_url=settings.onebot_ws_url,
-                    access_token=settings.onebot_access_token or None,
-                )
-                await _message_gateway.register_adapter(onebot)
-                adapters_started.append("onebot")
-                logger.info("OneBot adapter registered")
-            except Exception as e:
-                logger.error(f"Failed to start OneBot adapter: {e}")
+            onebot = OneBotAdapter(
+                mode=settings.onebot_mode,
+                ws_url=settings.onebot_ws_url,
+                reverse_host=settings.onebot_reverse_host,
+                reverse_port=settings.onebot_reverse_port,
+                access_token=settings.onebot_access_token or None,
+            )
+            await _message_gateway.register_adapter(onebot)
+            adapters_started.append("onebot")
+            _mode_label = "reverse" if settings.onebot_mode == "reverse" else "forward"
+            logger.info(f"OneBot adapter registered (mode={_mode_label})")
+        except Exception as e:
+            logger.error(f"Failed to start OneBot adapter: {e}")
 
     # QQ 官方机器人
     if settings.qqbot_enabled and settings.qqbot_app_id:
-        if "qqbot" in _im_bot_types:
-            logger.info("[Dedup] Skipping .env QQBot — managed via im_bots")
+        _qq_dup = any(
+            b.get("type") == "qqbot"
+            and b.get("credentials", {}).get("app_id") == settings.qqbot_app_id
+            and b.get("enabled", True)
+            for b in (settings.im_bots or [])
+        )
+        if _qq_dup:
+            logger.info(
+                "QQ Bot adapter skipped: im_bots already contains a qqbot bot "
+                f"with the same app_id ({settings.qqbot_app_id[:8]}...)"
+            )
         else:
             try:
                 from .channels.adapters import QQBotAdapter
@@ -870,30 +917,48 @@ async def start_im_channels(agent_or_master):
             except Exception as e:
                 logger.error(f"Failed to start QQ Official Bot adapter: {e}")
 
+    # 微信个人号
+    if settings.wechat_enabled and settings.wechat_token:
+        _wc_dup = any(
+            b.get("type") == "wechat"
+            and b.get("credentials", {}).get("token") == settings.wechat_token
+            and b.get("enabled", True)
+            for b in (settings.im_bots or [])
+        )
+        if _wc_dup:
+            logger.info(
+                "WeChat adapter skipped: im_bots already contains a wechat bot "
+                f"with the same token ({settings.wechat_token[:8]}...)"
+            )
+        else:
+            try:
+                from .channels.adapters import WeChatAdapter
+
+                wc = WeChatAdapter(token=settings.wechat_token)
+                await _message_gateway.register_adapter(wc)
+                adapters_started.append("wechat")
+                logger.info("WeChat adapter registered")
+            except Exception as e:
+                logger.error(f"Failed to start WeChat adapter: {e}")
+
     # Multi-bot: create additional adapters from im_bots config
     if settings.im_bots:
-        for idx, bot_cfg in enumerate(settings.im_bots):
+        for bot_cfg in settings.im_bots:
             if not bot_cfg.get("enabled", True):
                 continue
             bot_type = bot_cfg.get("type", "")
             bot_id = bot_cfg.get("id", "")
             agent_id = bot_cfg.get("agent_profile_id", "default")
             creds = bot_cfg.get("credentials", {})
-
-            # 生成唯一的 channel_name，避免与单通道适配器冲突
-            if bot_id:
-                _channel_name = f"{bot_type}:{bot_id}"
-            else:
-                _channel_name = f"{bot_type}:bot{idx}"
-                bot_id = f"bot{idx}"
-                logger.warning(
-                    f"[MultiBot] im_bots[{idx}] has no 'id', auto-assigned: {_channel_name}"
-                )
+            _channel_name = f"{bot_type}:{bot_id}" if bot_id else bot_type
 
             try:
                 adapter = _create_bot_adapter(
-                    bot_type, creds,
-                    channel_name=_channel_name, bot_id=bot_id, agent_profile_id=agent_id,
+                    bot_type,
+                    creds,
+                    channel_name=_channel_name,
+                    bot_id=bot_id,
+                    agent_profile_id=agent_id,
                 )
                 if adapter:
                     await _message_gateway.register_adapter(adapter)
@@ -907,12 +972,14 @@ async def start_im_channels(agent_or_master):
 
     async def agent_handler(session, message: str) -> str:
         """通过 Agent 处理消息（运行时检查多Agent模式开关）"""
+        from .utils.errors import format_user_friendly_error
+
         if settings.multi_agent_enabled and _orchestrator is not None:
             try:
                 return await _orchestrator.handle_message(session, message)
             except Exception as e:
                 logger.error(f"Orchestrator handler error: {e}", exc_info=True)
-                return f"❌ 处理出错: {str(e)}"
+                return format_user_friendly_error(str(e))
 
         try:
             session_messages = session.context.get_messages()
@@ -926,7 +993,7 @@ async def start_im_channels(agent_or_master):
             return response
         except Exception as e:
             logger.error(f"Agent handler error: {e}", exc_info=True)
-            return f"❌ 处理出错: {str(e)}"
+            return format_user_friendly_error(str(e))
 
     agent_handler._agent_ref = agent
     agent_handler.is_stop_command = agent.is_stop_command
@@ -936,10 +1003,29 @@ async def start_im_channels(agent_or_master):
     agent_handler.skip_current_step = agent.skip_current_step
     agent_handler.insert_user_message = agent.insert_user_message
 
+    async def agent_handler_stream(session, message: str):
+        """流式版 agent_handler，yield SSE event dicts（仅单 Agent 模式可用）。"""
+        session_messages = session.context.get_messages()
+        async for event in agent.chat_with_session_stream(
+            message=message,
+            session_messages=session_messages,
+            session_id=session.id,
+            session=session,
+            gateway=_message_gateway,
+        ):
+            yield event
+
     agent.set_scheduler_gateway(_message_gateway)
     _message_gateway.set_brain(agent.brain)
 
+    if hasattr(agent, "_plugin_manager") and agent._plugin_manager:
+        _message_gateway._plugin_hooks = agent._plugin_manager.hook_registry
+        agent._plugin_manager._host_refs["gateway"] = _message_gateway
+        if _session_manager is not None:
+            _session_manager._plugin_hooks = agent._plugin_manager.hook_registry
+
     _message_gateway.agent_handler = agent_handler
+    _message_gateway.agent_handler_stream = agent_handler_stream
 
     # 设置 turn_loader 用于 session 崩溃恢复回填
     _setup_session_backfill(agent_or_master)
@@ -967,6 +1053,15 @@ async def stop_im_channels(*, graceful: bool = True, drain_timeout: float = 30.0
     """
     global _message_gateway, _session_manager, _orchestrator, _desktop_pool
 
+    # Gateway drain MUST happen first — agents and orchestrator must stay alive
+    # so in-flight IM responses can finish sending before we tear down the pool.
+    if _message_gateway:
+        if graceful:
+            await _message_gateway.drain(timeout=drain_timeout)
+        else:
+            await _message_gateway.stop()
+        logger.info("MessageGateway stopped")
+
     if _desktop_pool:
         try:
             await _desktop_pool.stop()
@@ -981,13 +1076,6 @@ async def stop_im_channels(*, graceful: bool = True, drain_timeout: float = 30.0
             logger.warning(f"Orchestrator shutdown error: {e}")
         _orchestrator = None
 
-    if _message_gateway:
-        if graceful:
-            await _message_gateway.drain(timeout=drain_timeout)
-        else:
-            await _message_gateway.stop()
-        logger.info("MessageGateway stopped")
-
     if _session_manager:
         await _session_manager.stop()
         logger.info("SessionManager stopped")
@@ -996,7 +1084,7 @@ async def stop_im_channels(*, graceful: bool = True, drain_timeout: float = 30.0
 def print_welcome():
     """打印欢迎信息"""
     welcome_text = """
-# Synapse - 全能自进化AI助手
+# OpenAkita - 全能自进化AI助手
 
 基于 **Ralph Wiggum 模式**，永不放弃。
 
@@ -1041,7 +1129,6 @@ def print_help():
     console.print(table)
 
 
-
 def show_channels():
     """显示 IM 通道状态"""
     table = Table(title="IM 通道状态")
@@ -1052,10 +1139,18 @@ def show_channels():
     channels = [
         ("Telegram", settings.telegram_enabled, settings.telegram_bot_token),
         ("飞书", settings.feishu_enabled, settings.feishu_app_id),
-        ("企业微信", settings.wework_enabled, settings.wework_corp_id),
+        ("企业微信(HTTP)", settings.wework_enabled, settings.wework_corp_id),
+        ("企业微信(WS)", settings.wework_ws_enabled, settings.wework_ws_bot_id),
         ("钉钉", settings.dingtalk_enabled, settings.dingtalk_client_id),
-        ("OneBot", settings.onebot_enabled, settings.onebot_ws_url),
+        (
+            "OneBot",
+            settings.onebot_enabled,
+            settings.onebot_ws_url
+            if settings.onebot_mode == "forward"
+            else f"{settings.onebot_reverse_host}:{settings.onebot_reverse_port}",
+        ),
         ("QQ 官方机器人", settings.qqbot_enabled, settings.qqbot_app_id),
+        ("微信", settings.wechat_enabled, settings.wechat_token),
     ]
 
     for name, enabled, token in channels:
@@ -1082,27 +1177,75 @@ async def run_interactive():
     print_welcome()
 
     shutdown_event = asyncio.Event()
+    init_done = asyncio.Event()
+    early_input_queue: list[str] = []
 
     agent = get_agent()
 
-    with console.status("[bold green]正在初始化 Agent...", spinner="dots"):
-        await agent.initialize()
+    async def _background_init():
+        """Background: initialize agent, core services, and IM channels."""
+        console.print("[dim]正在初始化 Agent...[/dim]")
+        try:
+            await agent.initialize()
+            console.print("[green]✓[/green] Agent 已准备就绪")
+        except Exception as e:
+            console.print(f"[red]✗ Agent 初始化失败: {e}[/red]")
+            shutdown_event.set()
+            init_done.set()
+            return
 
-    console.print("[green]✓[/green] Agent 已准备就绪")
+        console.print("[dim]正在初始化核心服务...[/dim]")
+        try:
+            await init_core_services(agent)
+        except Exception as e:
+            console.print(f"[red]✗ 核心服务初始化失败: {e}[/red]")
+            logger.error(f"Core services init failed: {e}", exc_info=True)
+
+        # Session recovery (depends on _session_manager from init_core_services)
+        _cli_sf = _cli_session_file
+        _cid: str | None = None
+        if not _cli_force_new_session and _cli_sf.exists():
+            try:
+                _cid = json.loads(_cli_sf.read_text(encoding="utf-8")).get("chat_id")
+            except Exception:
+                _cid = None
+        if not _cid:
+            _cid = f"cli_{_uuid.uuid4().hex[:12]}"
+        nonlocal _cli_chat_id
+        _cli_chat_id = _cid
+        if _session_manager:
+            cs = _session_manager.get_session(
+                channel="cli", chat_id=_cid, user_id="cli_user", create_if_missing=True
+            )
+            if cs:
+                agent._cli_session = cs
+                mc = len(cs.context.get_messages())
+                if mc > 0 and not _cli_force_new_session:
+                    console.print(f"[green]✓[/green] 已恢复上次会话 ({mc} 条消息)")
+                _cli_sf.parent.mkdir(parents=True, exist_ok=True)
+                _cli_sf.write_text(json.dumps({"chat_id": _cid}), encoding="utf-8")
+
+        async def _start_im_bg():
+            try:
+                channels = await start_im_channels(agent)
+                if channels:
+                    console.print(f"[green]✓[/green] IM 通道已启动: {', '.join(channels)}")
+            except Exception as e:
+                logger.warning(f"IM channel start failed: {e}")
+
+        asyncio.create_task(_start_im_bg())
+        init_done.set()
+
+    import uuid as _uuid
 
     agent_or_master = agent
     agent_name = agent.name
+    _cli_chat_id: str | None = None
+    _cli_session_file = settings.project_root / "data" / ".cli_last_session"
 
-    # 启动 IM 通道
-    im_channels = []
-    with console.status("[bold green]正在启动 IM 通道...", spinner="dots"):
-        im_channels = await start_im_channels(agent_or_master)
+    _init_task = asyncio.create_task(_background_init())
 
-    if im_channels:
-        console.print(f"[green]✓[/green] IM 通道已启动: {', '.join(im_channels)}")
-    else:
-        console.print("[yellow]ℹ[/yellow] 未成功启动任何 IM 通道（可能未启用或启动失败）")
-
+    console.print("[dim]可以开始输入，初始化完成后将自动处理[/dim]")
     console.print()
 
     # 注册信号处理器用于优雅关闭
@@ -1122,17 +1265,81 @@ async def run_interactive():
     _signal.signal(_signal.SIGINT, _interactive_signal_handler)
     _signal.signal(_signal.SIGTERM, _interactive_signal_handler)
 
-    try:
-        loop = asyncio.get_running_loop()
+    from .cli.input import create_cli_session, prompt_input
+    from .cli.stream_renderer import render_stream
+    from .commands.registry import CommandScope, find_command, get_commands
 
+    _cli_handled = {
+        "help",
+        "status",
+        "selfcheck",
+        "memory",
+        "skills",
+        "channels",
+        "clear",
+        "sessions",
+        "session",
+        "exit",
+        "quit",
+    }
+    cli_commands = [
+        (f"/{c.name}", c.description)
+        for c in get_commands()
+        if CommandScope.CLI in c.scope and c.name in _cli_handled
+    ]
+    pt_session, _completer = create_cli_session(commands=cli_commands)
+
+    async def _process_message(user_input: str):
+        """Process a single user message (extracted for early-input replay)."""
+        session_messages: list[dict] = []
+        _active_session = getattr(agent_or_master, "_cli_session", None)
+        if _active_session:
+            session_messages = _active_session.context.get_messages()
+        elif hasattr(agent_or_master, "_context"):
+            session_messages = agent_or_master._context.messages
+        _sid = _active_session.id if _active_session else _cli_chat_id
+        event_stream = agent_or_master.chat_with_session_stream(
+            message=user_input,
+            session_messages=session_messages,
+            session_id=_sid,
+        )
+        await render_stream(event_stream, console, agent_name=agent_name)
+
+    try:
         while not shutdown_event.is_set():
             try:
-                user_input = await loop.run_in_executor(
-                    None, Prompt.ask, "[bold blue]You[/bold blue]"
-                )
+                prompt_prefix = "You> " if init_done.is_set() else "(初始化中) You> "
+                user_input = await prompt_input(pt_session, prompt_prefix)
 
                 if not user_input.strip():
                     continue
+
+                # N7: Queue early input if agent is not ready yet
+                if not init_done.is_set():
+                    if user_input.startswith("/") and user_input.lower().strip() in (
+                        "/exit",
+                        "/quit",
+                    ):
+                        console.print("[yellow]再见！[/yellow]")
+                        shutdown_event.set()
+                        break
+                    early_input_queue.append(user_input.strip())
+                    console.print(
+                        f"[dim]已缓存消息 ({len(early_input_queue)})，Agent 就绪后将自动处理[/dim]"
+                    )
+                    continue
+
+                # Replay queued messages after initialization
+                if early_input_queue:
+                    queued = early_input_queue.copy()
+                    early_input_queue.clear()
+                    console.print(f"[green]正在处理 {len(queued)} 条缓存消息...[/green]")
+                    for q in queued:
+                        if q.startswith("/"):
+                            console.print(f"[dim]跳过缓存命令: {q}[/dim]")
+                            continue
+                        console.print(f"[dim]>>> {q}[/dim]")
+                        await _process_message(q)
 
                 # 处理命令
                 if user_input.startswith("/"):
@@ -1167,39 +1374,131 @@ async def run_interactive():
                         continue
 
                     elif cmd == "/clear":
-                        if hasattr(agent_or_master, '_cli_session') and agent_or_master._cli_session:
-                            agent_or_master._cli_session.context.clear_messages()
+                        _new_id = f"cli_{_uuid.uuid4().hex[:12]}"
+                        if _session_manager:
+                            cli_session = _session_manager.get_session(
+                                channel="cli",
+                                chat_id=_new_id,
+                                user_id="cli_user",
+                                create_if_missing=True,
+                            )
+                            if cli_session:
+                                agent_or_master._cli_session = cli_session
+                        else:
+                            if (
+                                hasattr(agent_or_master, "_cli_session")
+                                and agent_or_master._cli_session
+                            ):
+                                agent_or_master._cli_session.context.clear_messages()
                         agent_or_master._conversation_history.clear()
                         agent_or_master._context.messages.clear()
-                        console.print("[green]对话历史已清空[/green]")
+                        _cli_chat_id = _new_id
+                        _cli_session_file.parent.mkdir(parents=True, exist_ok=True)
+                        _cli_session_file.write_text(
+                            json.dumps({"chat_id": _cli_chat_id}), encoding="utf-8"
+                        )
+                        console.print("[green]对话历史已清空，已开启新会话[/green]")
+                        continue
+
+                    elif cmd == "/sessions":
+                        if _session_manager:
+                            cli_sessions = sorted(
+                                _session_manager.list_sessions(channel="cli"),
+                                key=lambda s: getattr(s, "created_at", None) or "",
+                                reverse=True,
+                            )
+                            if not cli_sessions:
+                                console.print("[yellow]没有历史 CLI 会话[/yellow]")
+                            else:
+                                from rich.table import Table as _Tbl
+
+                                tbl = _Tbl(title="CLI 会话列表")
+                                tbl.add_column("#", style="cyan", width=4)
+                                tbl.add_column("会话 ID", style="green")
+                                tbl.add_column("消息数", justify="right")
+                                tbl.add_column("创建时间")
+                                tbl.add_column("当前", justify="center")
+                                for i, s in enumerate(cli_sessions, 1):
+                                    is_cur = "✓" if (cli_session and s.id == cli_session.id) else ""
+                                    tbl.add_row(
+                                        str(i),
+                                        s.session_key.split(":")[1][:16],
+                                        str(len(s.context.get_messages())),
+                                        s.created_at.strftime("%m-%d %H:%M")
+                                        if hasattr(s, "created_at") and s.created_at
+                                        else "?",
+                                        is_cur,
+                                    )
+                                console.print(tbl)
+                                console.print("[dim]输入 /session <#> 切换到对应会话[/dim]")
+                        else:
+                            console.print("[yellow]SessionManager 未启动[/yellow]")
+                        continue
+
+                    elif cmd == "/session":
+                        console.print(
+                            "[yellow]用法: /session <序号>  (先用 /sessions 查看列表)[/yellow]"
+                        )
+                        continue
+
+                    elif cmd.startswith("/session "):
+                        parts = cmd.split(maxsplit=1)
+                        if not _session_manager:
+                            console.print("[yellow]SessionManager 未启动[/yellow]")
+                        elif len(parts) == 2:
+                            try:
+                                idx = int(parts[1]) - 1
+                                cli_sessions = sorted(
+                                    _session_manager.list_sessions(channel="cli"),
+                                    key=lambda s: getattr(s, "created_at", None) or "",
+                                    reverse=True,
+                                )
+                                if 0 <= idx < len(cli_sessions):
+                                    target = cli_sessions[idx]
+                                    cli_session = target
+                                    agent_or_master._cli_session = target
+                                    _cli_chat_id = target.session_key.split(":")[1]
+                                    _cli_session_file.parent.mkdir(parents=True, exist_ok=True)
+                                    _cli_session_file.write_text(
+                                        json.dumps({"chat_id": _cli_chat_id}), encoding="utf-8"
+                                    )
+                                    msg_count = len(target.context.get_messages())
+                                    console.print(
+                                        f"[green]已切换到会话 ({msg_count} 条消息)[/green]"
+                                    )
+                                else:
+                                    console.print("[red]序号超出范围[/red]")
+                            except ValueError:
+                                console.print("[red]请输入有效的会话序号[/red]")
                         continue
 
                     else:
-                        console.print(f"[red]未知命令: {cmd}[/red]")
-                        print_help()
+                        known = find_command(cmd)
+                        if known:
+                            console.print(
+                                f"[yellow]命令 /{known.name} 暂不支持 CLI，请在 Desktop 中使用[/yellow]"
+                            )
+                        else:
+                            console.print(f"[red]未知命令: {cmd}[/red]")
+                            print_help()
                         continue
 
-                # 正常对话
-                with console.status("[bold green]思考中...", spinner="dots"):
-                    response = await agent_or_master.chat(user_input)
+                # 正常对话 — 流式输出
+                await _process_message(user_input)
 
-                # 显示响应
-                console.print()
-                console.print(
-                    Panel(
-                        Markdown(response),
-                        title=f"[bold green]{agent_name}[/bold green]",
-                        border_style="green",
-                    )
-                )
-                console.print()
-
+            except EOFError:
+                console.print("\n[yellow]再见！[/yellow]")
+                break
             except KeyboardInterrupt:
                 console.print("\n[yellow]使用 /exit 退出[/yellow]")
             except Exception as e:
                 logger.error(f"Error: {e}", exc_info=True)
                 console.print(f"[red]错误: {e}[/red]")
     finally:
+        if not _init_task.done():
+            _init_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await _init_task
         with console.status("[bold yellow]正在停止服务...", spinner="dots"):
             await stop_im_channels(graceful=True, drain_timeout=30.0)
         console.print("[green]✓[/green] 服务已停止")
@@ -1294,20 +1593,27 @@ def show_skills():
         console.print(f"[red]无法加载技能列表: {e}[/red]")
 
 
+_cli_force_new_session = False
+
+
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
     version: bool = typer.Option(False, "--version", "-v", help="显示版本信息"),
+    new_session: bool = typer.Option(False, "--new", help="强制开启新 CLI 会话，不恢复上次对话"),
 ):
     """
-    Synapse - 全能自进化AI助手
+    OpenAkita - 全能自进化AI助手
 
     直接运行进入交互模式
     """
+    global _cli_force_new_session
+    _cli_force_new_session = new_session
+
     if version:
         from . import __version__
 
-        console.print(f"Synapse v{__version__}")
+        console.print(f"OpenAkita v{__version__}")
         raise typer.Exit(0)
 
     # 如果没有子命令，进入交互模式
@@ -1315,10 +1621,7 @@ def main(
         # 检查是否至少有一个可用的 LLM 端点
         from .llm.config import get_default_config_path
 
-        has_endpoint = (
-            settings.anthropic_api_key
-            or get_default_config_path().exists()
-        )
+        has_endpoint = settings.anthropic_api_key or get_default_config_path().exists()
         if not has_endpoint:
             console.print("[red]错误: 未配置任何 LLM 端点[/red]")
             console.print(
@@ -1333,9 +1636,12 @@ def main(
 @app.command()
 def init(
     project_dir: str | None = typer.Argument(None, help="项目目录（默认当前目录）"),
+    quick: bool = typer.Option(
+        False, "--quick", "-q", help="快速模式：仅配置 Provider + API Key + Model"
+    ),
 ):
     """
-    初始化 Synapse - 交互式配置向导
+    初始化 OpenAkita - 交互式配置向导
 
     运行此命令启动配置向导，引导您完成：
     - LLM API 配置
@@ -1345,12 +1651,13 @@ def init(
 
     示例:
         synapse init
+        synapse init --quick
         synapse init ./my-project
     """
     from .setup import SetupWizard
 
     wizard = SetupWizard(project_dir)
-    success = wizard.run()
+    success = wizard.run(quick=quick)
 
     if success:
         raise typer.Exit(0)
@@ -1391,6 +1698,7 @@ def run(
         # 桌面通知
         from .config import settings
         from .core.desktop_notify import notify_task_completed
+
         if settings.desktop_notify_enabled:
             notify_task_completed(
                 task[:80],
@@ -1582,7 +1890,9 @@ def _reset_globals():
 
 @app.command()
 def serve(
-    dev: bool = typer.Option(False, "--dev", help="开发模式：监控 src/ 目录的 .py 文件变化，自动重启服务"),
+    dev: bool = typer.Option(
+        False, "--dev", help="开发模式：监控 src/ 目录的 .py 文件变化，自动重启服务"
+    ),
 ):
     """
     启动服务模式 (无 CLI，只运行 IM 通道)
@@ -1611,8 +1921,13 @@ def serve(
     global console
     if getattr(sys, "frozen", False) or os.environ.get("NO_COLOR"):
         import io
-        console = Console(file=io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace"),
-                          force_terminal=False, no_color=True, highlight=False)
+
+        console = Console(
+            file=io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace"),
+            force_terminal=False,
+            no_color=True,
+            highlight=False,
+        )
 
     # ── 心跳文件机制 ──
     # 后端进程通过独立守护线程定期写入心跳文件，供 Tauri 侧判断进程真实健康状态。
@@ -1628,6 +1943,7 @@ def serve(
         try:
             _heartbeat_file.parent.mkdir(parents=True, exist_ok=True)
             from synapse import __git_hash__, __version__
+
             data = {
                 "pid": os.getpid(),
                 "timestamp": time.time(),
@@ -1682,12 +1998,13 @@ def serve(
         _heartbeat_phase = "initializing"
 
         from synapse import get_version_string
+
         _version_str = get_version_string()
-        logger.info(f"Synapse {_version_str} starting...")
+        logger.info(f"OpenAkita {_version_str} starting...")
 
         console.print(
             Panel(
-                f"[bold]Synapse 服务模式[/bold]\n\n"
+                f"[bold]OpenAkita 服务模式[/bold]\n\n"
                 f"版本: {_version_str}\n"
                 "只运行 IM 通道，不启动 CLI 交互。\n"
                 "按 Ctrl+C 停止服务。",
@@ -1704,30 +2021,19 @@ def serve(
 
         agent_or_master = agent
 
-        # 启动 IM 通道
+        # 初始化核心服务（SessionManager、Agent Pool、Orchestrator）
+        console.print("[bold green]正在初始化核心服务...[/bold green]")
+        await init_core_services(agent_or_master)
+        console.print("[green]✓[/green] 核心服务已就绪")
+
+        # 启动 IM 通道（可选）
         console.print("[bold green]正在启动 IM 通道...[/bold green]")
         im_channels = await start_im_channels(agent_or_master)
 
-        if not im_channels:
-            console.print("[yellow]⚠[/yellow] 未成功启动任何 IM 通道（HTTP API 仍可使用）")
-
         if im_channels:
             console.print(f"[green]✓[/green] IM 通道已启动: {', '.join(im_channels)}")
-
-        # 确保多 Agent 模式下 Orchestrator 已初始化
-        # （即使 start_im_channels 因无 IM 通道启用而提前返回，Orchestrator 仍需可用）
-        if settings.multi_agent_enabled and _orchestrator is None:
-            await _init_orchestrator()
-            logger.info("[Main] Orchestrator created as fallback (no IM channels path)")
-
-        # Desktop Chat per-session Agent pool — 独立于 IM 通道，始终初始化
-        # （供 HTTP API /api/chat 并发会话隔离使用）
-        global _desktop_pool
-        if _desktop_pool is None:
-            from synapse.agents.factory import AgentFactory, AgentInstancePool
-            _desktop_pool = AgentInstancePool(AgentFactory(), idle_timeout=600)
-            await _desktop_pool.start()
-            logger.info("[Main] Desktop AgentInstancePool initialized (idle_timeout=600s)")
+        else:
+            console.print("[yellow]ℹ[/yellow] 未启用 IM 通道（HTTP API 仍可使用）")
 
         # 注入 shutdown_event 到网关（供终极重启指令使用）
         if _message_gateway is not None:
@@ -1738,6 +2044,7 @@ def serve(
         _api_fatal = False
         try:
             from synapse.api.server import start_api_server
+
             api_task = await start_api_server(
                 agent=agent_or_master,
                 shutdown_event=shutdown_event,
@@ -1760,21 +2067,27 @@ def serve(
         if _api_fatal:
             # HTTP API 是 Setup Center 的核心依赖，启动失败时应退出进程
             # 让 Tauri 能正确检测到进程退出并报错给用户
-            console.print("[red]HTTP API 启动失败，进程即将退出。请检查端口 18900 是否被占用。[/red]")
+            console.print(
+                "[red]HTTP API 启动失败，进程即将退出。请检查端口 18900 是否被占用。[/red]"
+            )
             shutdown_event.set()
 
         console.print()
         if dev:
-            console.print("[bold]服务运行中 [cyan](dev 模式)[/cyan]...[/bold] 文件变化时自动重启，按 Ctrl+C 停止")
+            console.print(
+                "[bold]服务运行中 [cyan](dev 模式)[/cyan]...[/bold] 文件变化时自动重启，按 Ctrl+C 停止"
+            )
         else:
             console.print("[bold]服务运行中...[/bold] 按 Ctrl+C 停止")
 
         # ── dev 模式：文件监控自动重启 ──
         _watch_task = None
         if dev:
+
             async def _file_watcher():
                 try:
-                    from watchfiles import awatch, Change
+                    from watchfiles import awatch
+
                     src_dir = Path(__file__).resolve().parent  # src/synapse/
                     console.print(f"[dim]📂 监控目录: {src_dir}[/dim]")
                     async for changes in awatch(
@@ -1784,7 +2097,9 @@ def serve(
                         step=500,
                     ):
                         changed_files = [Path(p).name for _, p in changes]
-                        console.print(f"\n[cyan]🔄 检测到文件变化: {', '.join(changed_files)}，正在重启...[/cyan]")
+                        console.print(
+                            f"\n[cyan]🔄 检测到文件变化: {', '.join(changed_files)}，正在重启...[/cyan]"
+                        )
                         cfg._restart_requested = True
                         shutdown_event.set()
                         return
@@ -1817,28 +2132,22 @@ def serve(
                 else:
                     console.print("\n[yellow]正在停止服务...[/yellow]")
                 try:
-                    # 停止 HTTP API 服务器（proxy task → sets server.should_exit）
+                    # 停止 HTTP API 服务器
                     if api_task is not None:
                         api_task.cancel()
                         try:
-                            await asyncio.wait_for(api_task, timeout=5.0)
+                            await asyncio.wait_for(api_task, timeout=2.0)
                         except (asyncio.CancelledError, TimeoutError):
                             pass
                     await asyncio.wait_for(
                         stop_im_channels(graceful=True, drain_timeout=30.0),
                         timeout=35.0,
                     )
-                except TimeoutError:
+                except (asyncio.TimeoutError, TimeoutError):
                     logger.warning("Shutdown timeout, forcing exit")
                 except Exception as e:
                     # 忽略停止过程中的异常（常见于 Windows asyncio）
                     logger.debug(f"Exception during shutdown (ignored): {e}")
-                finally:
-                    try:
-                        from synapse.core.engine_bridge import shutdown as _bridge_shutdown
-                        _bridge_shutdown()
-                    except Exception:
-                        pass
 
                 if is_restart:
                     console.print("[cyan]✓[/cyan] 服务已停止，准备重启...")
@@ -1886,6 +2195,7 @@ def serve(
             # 重新扫描并注入模块路径（模块可能在服务运行期间安装/卸载）
             try:
                 from synapse.runtime_env import inject_module_paths_runtime
+
                 n = inject_module_paths_runtime()
                 if n > 0:
                     console.print(f"[dim]已注入 {n} 个新模块路径[/dim]")
@@ -1895,6 +2205,7 @@ def serve(
             # 等待端口释放（旧 uvicorn 关闭后 TCP socket 可能处于 TIME_WAIT）
             try:
                 from synapse.api.server import API_HOST, API_PORT, wait_for_port_free
+
                 _api_port = int(os.environ.get("API_PORT", API_PORT))
                 console.print(f"[dim]等待端口 {_api_port} 释放...[/dim]")
                 if not wait_for_port_free(API_HOST, _api_port, timeout=15.0):
@@ -1954,6 +2265,179 @@ def serve(
 
     # 主循环结束，停止心跳并清理心跳文件
     _stop_heartbeat()
+
+
+@app.command(name="plugin-validate")
+def plugin_validate(
+    path: str = typer.Argument(".", help="插件目录路径（含 plugin.json）"),
+    fix: bool = typer.Option(False, "--fix", help="自动修正可修复的问题"),
+):
+    """校验插件 manifest 是否有效（Pydantic 校验 + 权限检查 + 入口文件检查 + config schema 校验）"""
+    from .plugins.manifest import ALL_PERMISSIONS, ManifestError, parse_manifest
+
+    plugin_dir = Path(path).resolve()
+    warnings: list[str] = []
+    errors: list[str] = []
+
+    # --- 1. 目录检查 ---
+    if not plugin_dir.is_dir():
+        console.print(f"[bold red]✗[/bold red] 路径不存在或不是目录: {plugin_dir}")
+        raise typer.Exit(1)
+
+    manifest_file = plugin_dir / "plugin.json"
+    if not manifest_file.is_file():
+        console.print(f"[bold red]✗[/bold red] 未找到 plugin.json: {manifest_file}")
+        raise typer.Exit(1)
+
+    # --- 2. Manifest 解析（Pydantic 校验）---
+    try:
+        manifest = parse_manifest(plugin_dir)
+    except ManifestError as e:
+        console.print("[bold red]✗[/bold red] Manifest 校验失败:")
+        for line in str(e).split("\n"):
+            console.print(f"  {line}")
+        raise typer.Exit(1)
+
+    # --- 3. 入口文件检查 ---
+    entry_path = plugin_dir / manifest.entry
+    if not entry_path.is_file():
+        errors.append(f"入口文件不存在: {manifest.entry}")
+
+    # --- 4. 权限检查 ---
+    unknown_perms = [p for p in manifest.permissions if p not in ALL_PERMISSIONS]
+    if unknown_perms:
+        warnings.append(f"未知权限: {', '.join(unknown_perms)}")
+
+    # --- 5. config_schema.json 校验 ---
+    schema_file = plugin_dir / "config_schema.json"
+    schema_data: dict | None = None
+    if schema_file.is_file():
+        try:
+            raw_schema = json.loads(schema_file.read_text(encoding="utf-8"))
+            if not isinstance(raw_schema, dict):
+                errors.append("config_schema.json 不是有效的 JSON 对象")
+            else:
+                schema_data = raw_schema
+                if "type" not in schema_data:
+                    warnings.append("config_schema.json 缺少 'type' 字段（建议设为 'object'）")
+        except json.JSONDecodeError as e:
+            errors.append(f"config_schema.json JSON 解析失败: {e}")
+
+        config_file = plugin_dir / "config.json"
+        if config_file.is_file() and schema_data is not None:
+            try:
+                from jsonschema import ValidationError as JsonSchemaError
+                from jsonschema import validate
+
+                config_data = json.loads(config_file.read_text(encoding="utf-8"))
+                validate(instance=config_data, schema=schema_data)
+            except JsonSchemaError as ve:
+                errors.append(f"config.json 不符合 schema: {ve.message}")
+            except ImportError:
+                warnings.append("jsonschema 未安装，跳过 config.json 校验")
+            except Exception as ve:
+                warnings.append(f"config.json 校验异常: {ve}")
+
+    # --- 6. README 检查 ---
+    readme_candidates = ["README.md", "readme.md", "README.txt", "README"]
+    has_readme = any((plugin_dir / f).is_file() for f in readme_candidates)
+    if not has_readme:
+        warnings.append("缺少 README.md（建议添加使用说明）")
+
+    # --- 7. icon 检查 ---
+    if manifest.icon:
+        icon_path = plugin_dir / manifest.icon
+        if not icon_path.is_file():
+            warnings.append(f"icon 文件不存在: {manifest.icon}")
+    else:
+        warnings.append("未设置 icon（建议添加插件图标）")
+
+    # --- 8. pip 依赖可用性检查 ---
+    pip_deps = manifest.requires.get("pip", [])
+    if isinstance(pip_deps, str):
+        pip_deps = [pip_deps] if pip_deps.strip() else []
+    if pip_deps:
+        import importlib as _imp
+
+        for dep in pip_deps:
+            pkg_name = dep.split(">=")[0].split("==")[0].split("<")[0].split(">")[0].strip()
+            pkg_import = pkg_name.replace("-", "_")
+            try:
+                _imp.import_module(pkg_import)
+            except ImportError:
+                warnings.append(f"pip 依赖 '{pkg_name}' 当前不可用（安装后会自动解决）")
+
+    # --- 输出结果 ---
+    table = Table(title="插件校验报告", show_header=True, header_style="bold cyan")
+    table.add_column("属性", style="bold")
+    table.add_column("值")
+    table.add_row("ID", manifest.id)
+    table.add_row("名称", manifest.name)
+    table.add_row("版本", manifest.version)
+    table.add_row("类型", manifest.plugin_type)
+    table.add_row("入口", manifest.entry)
+    table.add_row("权限级别", manifest.max_permission_level)
+    if manifest.permissions:
+        table.add_row("权限", ", ".join(manifest.permissions))
+    if manifest.depends:
+        table.add_row("依赖", ", ".join(manifest.depends))
+    if manifest.description:
+        table.add_row("描述", manifest.description)
+    if manifest.author:
+        table.add_row("作者", manifest.author)
+    console.print(table)
+
+    if warnings:
+        console.print()
+        for w in warnings:
+            console.print(f"  [yellow]⚠[/yellow] {w}")
+
+    if errors:
+        console.print()
+        for e in errors:
+            console.print(f"  [bold red]✗[/bold red] {e}")
+        console.print(
+            f"\n[bold red]校验失败[/bold red]（{len(errors)} 个错误，{len(warnings)} 个警告）"
+        )
+        raise typer.Exit(1)
+
+    if warnings:
+        console.print(f"\n[bold green]✓ 校验通过[/bold green]（{len(warnings)} 个警告）")
+    else:
+        console.print("\n[bold green]✓ 校验通过，一切正常！[/bold green]")
+
+
+@app.command(name="run-mcp-module", hidden=True)
+def run_mcp_module(
+    module_path: str = typer.Argument(..., help="Python module path for MCP server"),
+):
+    """启动内置 MCP 服务器模块（打包模式内部命令）
+
+    PyInstaller 打包环境中，python -m 无法访问冻结模块。
+    此命令通过冻结主程序 import 并运行 FastMCP 实例，作为 stdio 子进程替代方案。
+    """
+    if not module_path.startswith("synapse."):
+        print(f"Error: only synapse.* modules allowed, got: {module_path}", file=sys.stderr)
+        raise typer.Exit(1)
+
+    try:
+        mod = importlib.import_module(module_path)
+    except ImportError as e:
+        print(f"Error: cannot import {module_path}: {e}", file=sys.stderr)
+        raise typer.Exit(1) from None
+
+    mcp_instance = getattr(mod, "mcp", None)
+    if mcp_instance is None:
+        print(f"Error: {module_path} has no 'mcp' attribute", file=sys.stderr)
+        raise typer.Exit(1)
+
+    # MCP stdio 协议独占 stdout/stdin，移除所有控制台日志 handler 防止协议污染
+    _root = logging.getLogger()
+    for h in _root.handlers[:]:
+        if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler):
+            _root.removeHandler(h)
+
+    mcp_instance.run()
 
 
 if __name__ == "__main__":

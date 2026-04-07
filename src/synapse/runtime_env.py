@@ -6,7 +6,6 @@ PyInstaller 打包后 sys.executable 指向 synapse-server.exe 而非 Python 解
 """
 
 import logging
-import json
 import sys
 from pathlib import Path
 
@@ -230,17 +229,18 @@ def get_pip_command(packages: list[str], *, index_url: str | None = None) -> lis
     if IS_FROZEN and py == sys.executable:
         return None
 
-    effective_index = (
-        os.environ.get("PIP_INDEX_URL", "").strip()
-        or index_url
-        or _DEFAULT_PIP_INDEX
-    )
+    effective_index = os.environ.get("PIP_INDEX_URL", "").strip() or index_url or _DEFAULT_PIP_INDEX
     trusted_host = effective_index.split("//")[1].split("/")[0] if "//" in effective_index else ""
 
     return [
-        py, "-m", "pip", "install",
-        "-i", effective_index,
-        "--trusted-host", trusted_host,
+        py,
+        "-m",
+        "pip",
+        "install",
+        "-i",
+        effective_index,
+        "--trusted-host",
+        trusted_host,
         "--prefer-binary",
         *packages,
     ]
@@ -310,9 +310,7 @@ def ensure_ssl_certs() -> None:
     # 方式 3: 清除无效的 SSL_CERT_FILE，让 httpx 回退到 certifi.where()
     if existing:
         del os.environ["SSL_CERT_FILE"]
-        logger.warning(
-            "Removed invalid SSL_CERT_FILE. httpx will fall back to certifi default."
-        )
+        logger.warning("Removed invalid SSL_CERT_FILE. httpx will fall back to certifi default.")
         return
 
     logger.warning(

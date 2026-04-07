@@ -27,12 +27,30 @@ def detect_chrome_installation() -> tuple[str | None, str | None]:
 
     if system == "Windows":
         chrome_paths = [
-            Path(os.environ.get("PROGRAMFILES", "C:\\Program Files"))
-            / "Google" / "Chrome" / "Application" / "chrome.exe",
-            Path(os.environ.get("PROGRAMFILES(X86)", "C:\\Program Files (x86)"))
-            / "Google" / "Chrome" / "Application" / "chrome.exe",
+            Path(
+                os.environ.get(
+                    "PROGRAMFILES", os.environ.get("SYSTEMDRIVE", "C:") + "\\Program Files"
+                )
+            )
+            / "Google"
+            / "Chrome"
+            / "Application"
+            / "chrome.exe",
+            Path(
+                os.environ.get(
+                    "PROGRAMFILES(X86)",
+                    os.environ.get("SYSTEMDRIVE", "C:") + "\\Program Files (x86)",
+                )
+            )
+            / "Google"
+            / "Chrome"
+            / "Application"
+            / "chrome.exe",
             Path(os.environ.get("LOCALAPPDATA", ""))
-            / "Google" / "Chrome" / "Application" / "chrome.exe",
+            / "Google"
+            / "Chrome"
+            / "Application"
+            / "chrome.exe",
         ]
         user_data_dir = Path(os.environ.get("LOCALAPPDATA", "")) / "Google" / "Chrome" / "User Data"
 
@@ -146,7 +164,9 @@ def detect_chrome_devtools_mcp() -> dict:
         "suggestion": "",
     }
 
-    npx_path = shutil.which("npx")
+    from ...utils.path_helper import which_command
+
+    npx_path = which_command("npx")
     result["npx_available"] = npx_path is not None
 
     chrome_path, _ = detect_chrome_installation()
@@ -159,11 +179,37 @@ def detect_chrome_devtools_mcp() -> dict:
             "开启远程调试，以便 AI Agent 连接到您的浏览器（保留登录状态和密码管理器）。"
         )
     elif not result["npx_available"]:
-        result["suggestion"] = "Chrome DevTools MCP 需要 Node.js。请安装 Node.js v20.19+ 以启用此功能。"
+        result["suggestion"] = (
+            "Chrome DevTools MCP 需要 Node.js。请安装 Node.js v20.19+ 以启用此功能。"
+        )
     elif not result["chrome_available"]:
         result["suggestion"] = "未检测到 Chrome 浏览器。请安装 Chrome 以使用 Chrome DevTools MCP。"
 
     return result
+
+
+async def detect_chrome_cdp_port(
+    ports: tuple[int, ...] = (9222, 9223, 9225),
+    timeout: float = 2.0,
+) -> int | None:
+    """探测本机 Chrome CDP 调试端口，返回第一个可用端口号，没有则返回 None。"""
+    try:
+        import httpx
+
+        async with httpx.AsyncClient() as client:
+            for port in ports:
+                try:
+                    resp = await client.get(
+                        f"http://127.0.0.1:{port}/json/version",
+                        timeout=timeout,
+                    )
+                    if resp.status_code == 200:
+                        return port
+                except Exception:
+                    continue
+    except ImportError:
+        pass
+    return None
 
 
 async def check_mcp_chrome_extension(port: int = 12306, timeout: float = 2.0) -> bool:

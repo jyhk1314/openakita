@@ -11,6 +11,8 @@ MCP 目录 (MCP Catalog)
 
 import json
 import logging
+import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -28,6 +30,22 @@ class MCPToolInfo:
 
 
 @dataclass
+class MCPConfigField:
+    """MCP 服务器配置参数声明（SERVER_METADATA.json 中的 configSchema 条目）"""
+
+    key: str
+    label: str = ""
+    type: str = "text"  # text | secret | number | select | bool | url | path
+    required: bool = False
+    help: str = ""
+    help_url: str = ""
+    default: str = ""
+    placeholder: str = ""
+    options: list[str] = field(default_factory=list)
+    when: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
 class MCPServerInfo:
     """MCP 服务器信息"""
 
@@ -40,8 +58,94 @@ class MCPServerInfo:
     env: dict[str, str] = field(default_factory=dict)
     transport: str = "stdio"  # "stdio" | "streamable_http" | "sse"
     url: str = ""  # streamable_http / sse 模式使用
+    headers: dict[str, str] = field(default_factory=dict)
     auto_connect: bool = False
+    enabled: bool = True  # per-server 启用/禁用，默认启用（向后兼容）
     config_dir: str = ""  # 配置文件所在目录（用作 stdio 的 cwd 回退）
+    config_schema: list[MCPConfigField] = field(default_factory=list)
+
+
+_ENV_VAR_RE = re.compile(r"\$\{(\w+)\}")
+_ENV_FILE_CACHE: dict[str, dict[str, str]] = {}
+
+
+def _read_nearest_env_values(start_dir: Path) -> dict[str, str]:
+    """Read the nearest workspace ``.env`` while walking up from ``start_dir``."""
+    current = start_dir
+    for _ in range(8):
+        env_path = current / ".env"
+        if env_path.is_file():
+            cache_key = str(env_path.resolve())
+            cached = _ENV_FILE_CACHE.get(cache_key)
+            if cached is not None:
+                return cached
+            try:
+                from dotenv import dotenv_values
+
+                values = {
+                    str(k): str(v)
+                    for k, v in dotenv_values(env_path).items()
+                    if k and v is not None
+                }
+                _ENV_FILE_CACHE[cache_key] = values
+                return values
+            except Exception as e:
+                logger.warning("Failed to read MCP env file %s: %s", env_path, e)
+                _ENV_FILE_CACHE[cache_key] = {}
+                return {}
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    return {}
+
+
+def clear_env_file_cache() -> None:
+    """Clear the cached .env file values so the next read picks up fresh data."""
+    _ENV_FILE_CACHE.clear()
+
+
+def _resolve_env_vars(value: str, env_values: dict[str, str] | None = None) -> str:
+    """Replace ``${VAR_NAME}`` patterns with workspace env or ``os.environ`` values."""
+    return _ENV_VAR_RE.sub(
+        lambda m: (env_values or {}).get(m.group(1), os.environ.get(m.group(1), "")),
+        value,
+    )
+
+
+def _resolve_headers(raw: dict, env_values: dict[str, str] | None = None) -> dict[str, str]:
+    """Resolve env-var placeholders in header values, dropping empty ones."""
+    resolved: dict[str, str] = {}
+    for k, v in raw.items():
+        val = _resolve_env_vars(str(v), env_values)
+        if val:
+            resolved[k] = val
+        else:
+            logger.warning("MCP header %s resolved to empty (env var not set?), skipping", k)
+    return resolved
+
+
+def _parse_config_schema(raw: list) -> list[MCPConfigField]:
+    """Parse ``configSchema`` array from SERVER_METADATA.json into dataclass list."""
+    result: list[MCPConfigField] = []
+    for item in raw:
+        if not isinstance(item, dict) or "key" not in item:
+            continue
+        result.append(
+            MCPConfigField(
+                key=item["key"],
+                label=item.get("label", ""),
+                type=item.get("type", "text"),
+                required=bool(item.get("required", False)),
+                help=item.get("help", ""),
+                help_url=item.get("helpUrl", ""),
+                default=str(item.get("default", "")),
+                placeholder=item.get("placeholder", ""),
+                options=item.get("options") or [],
+                when=item.get("when") or {},
+            )
+        )
+    return result
 
 
 class MCPCatalog:
@@ -68,6 +172,20 @@ Use `connect_mcp_server(server)` to connect a server and discover its tools.
 - *(Not connected — use `connect_mcp_server("{server_id}")` to discover available tools)*"""
 
     TOOL_ENTRY_TEMPLATE = "- **{name}**: {description}"
+
+    @staticmethod
+    def _safe_format(template: str, **kwargs: str) -> str:
+        """str.format that won't crash on {/} in values."""
+        try:
+            return template.format(**kwargs)
+        except (KeyError, ValueError, IndexError) as e:
+            logger.warning(
+                "[MCPCatalog] str.format failed (template=%r, keys=%s): %s",
+                template[:60],
+                list(kwargs.keys()),
+                e,
+            )
+            return template + " " + " | ".join(f"{k}={v}" for k, v in kwargs.items())
 
     def __init__(self, mcp_config_dir: Path | None = None):
         """
@@ -130,7 +248,7 @@ Use `connect_mcp_server(server)` to connect a server and discover its tools.
         instructions: str | None = None,
     ) -> None:
         """
-        注册内置 MCP 服务器 (如 browser-use)
+        注册内置 MCP 服务器
 
         Args:
             identifier: 服务器 ID
@@ -174,6 +292,7 @@ Use `connect_mcp_server(server)` to connect a server and discover its tools.
 
         try:
             metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+            env_values = _read_nearest_env_values(server_dir)
 
             server_id = metadata.get("serverIdentifier", server_dir.name)
             server_name = metadata.get("serverName", server_id)
@@ -188,7 +307,9 @@ Use `connect_mcp_server(server)` to connect a server and discover its tools.
             elif stype == "sse":
                 transport = "sse"
             url = metadata.get("url", "")
+            headers = _resolve_headers(metadata.get("headers") or {}, env_values)
             auto_connect = metadata.get("autoConnect", False)
+            enabled = metadata.get("enabled", True)
 
             # 加载工具
             tools = []
@@ -205,6 +326,8 @@ Use `connect_mcp_server(server)` to connect a server and discover its tools.
             if instructions_file.exists():
                 instructions = instructions_file.read_text(encoding="utf-8")
 
+            config_schema = _parse_config_schema(metadata.get("configSchema") or [])
+
             return MCPServerInfo(
                 identifier=server_id,
                 name=server_name,
@@ -215,8 +338,11 @@ Use `connect_mcp_server(server)` to connect a server and discover its tools.
                 env=env,
                 transport=transport,
                 url=url,
+                headers=headers,
                 auto_connect=auto_connect,
+                enabled=enabled,
                 config_dir=str(server_dir),
+                config_schema=config_schema,
             )
 
         except Exception as e:
@@ -243,21 +369,25 @@ Use `connect_mcp_server(server)` to connect a server and discover its tools.
         """
         生成 MCP 工具清单
 
-        包含所有服务器——有工具的展示工具列表，无工具的提示用户连接以发现。
+        只包含 enabled=True 的服务器。有工具的展示工具列表，无工具的提示用户连接以发现。
 
         Returns:
             格式化的 MCP 清单字符串
         """
-        if not self._servers:
+        enabled_servers = [s for s in self._servers if s.enabled]
+        if not enabled_servers:
+            if self._servers:
+                return "\n## MCP Servers\n\nAll MCP servers are disabled.\n"
             return "\n## MCP Servers\n\nNo MCP servers configured.\n"
 
         server_sections = []
 
-        for server in self._servers:
+        for server in enabled_servers:
             if server.tools:
                 tool_entries = []
                 for tool in server.tools:
-                    entry = self.TOOL_ENTRY_TEMPLATE.format(
+                    entry = self._safe_format(
+                        self.TOOL_ENTRY_TEMPLATE,
                         name=tool.name,
                         description=tool.description,
                     )
@@ -265,13 +395,15 @@ Use `connect_mcp_server(server)` to connect a server and discover its tools.
 
                 tools_list = "\n".join(tool_entries)
 
-                server_section = self.SERVER_TEMPLATE.format(
+                server_section = self._safe_format(
+                    self.SERVER_TEMPLATE,
                     server_name=server.name,
                     server_id=server.identifier,
                     tools_list=tools_list,
                 )
             else:
-                server_section = self.SERVER_NO_TOOLS_TEMPLATE.format(
+                server_section = self._safe_format(
+                    self.SERVER_NO_TOOLS_TEMPLATE,
                     server_name=server.name,
                     server_id=server.identifier,
                 )
@@ -279,10 +411,13 @@ Use `connect_mcp_server(server)` to connect a server and discover its tools.
 
         server_list = "\n\n".join(server_sections)
 
-        catalog = self.CATALOG_TEMPLATE.format(server_list=server_list)
+        catalog = self._safe_format(self.CATALOG_TEMPLATE, server_list=server_list)
         self._cached_catalog = catalog
 
-        logger.info(f"Generated MCP catalog with {len(self._servers)} servers")
+        logger.info(
+            f"Generated MCP catalog with {len(enabled_servers)} enabled servers "
+            f"(total: {len(self._servers)})"
+        )
         return catalog
 
     def get_catalog(self, refresh: bool = False) -> str:
@@ -328,6 +463,48 @@ Use `connect_mcp_server(server)` to connect a server and discover its tools.
         """列出所有服务器标识符"""
         return [s.identifier for s in self._servers]
 
+    def list_enabled_servers(self) -> list[str]:
+        """列出所有已启用的服务器标识符"""
+        return [s.identifier for s in self._servers if s.enabled]
+
+    def get_server(self, identifier: str) -> MCPServerInfo | None:
+        """按 identifier 获取服务器信息"""
+        for s in self._servers:
+            if s.identifier == identifier:
+                return s
+        return None
+
+    def has_server(self, identifier: str) -> bool:
+        """检查指定 server 是否在 catalog 中（用于调用隔离校验）"""
+        return any(s.identifier == identifier for s in self._servers)
+
+    def set_server_enabled(self, identifier: str, enabled: bool) -> bool:
+        """设置服务器启用/禁用状态并使缓存失效。返回是否找到。"""
+        for s in self._servers:
+            if s.identifier == identifier:
+                s.enabled = enabled
+                self._cached_catalog = None
+                return True
+        return False
+
+    def clone_filtered(self, server_ids: list[str], *, mode: str = "inclusive") -> "MCPCatalog":
+        """创建一个过滤后的 catalog 副本（用于子 Agent per-profile MCP 隔离）。
+
+        Args:
+            server_ids: 要包含或排除的服务器 ID 列表
+            mode: "inclusive" 只保留列表中的; "exclusive" 排除列表中的
+        """
+        clone = MCPCatalog(self.mcp_config_dir)
+        id_set = set(server_ids)
+        for s in self._servers:
+            if not s.enabled:
+                continue
+            if (mode == "inclusive" and s.identifier in id_set) or (
+                mode == "exclusive" and s.identifier not in id_set
+            ):
+                clone._servers.append(s)
+        return clone
+
     def list_tools(self, server_id: str | None = None) -> list[MCPToolInfo]:
         """列出工具"""
         if server_id:
@@ -368,12 +545,14 @@ Use `connect_mcp_server(server)` to connect a server and discover its tools.
 
         tool_infos = []
         for t in tools:
-            tool_infos.append(MCPToolInfo(
-                name=t.get("name", ""),
-                description=t.get("description", ""),
-                server=server_id,
-                arguments=t.get("input_schema") or t.get("inputSchema", {}),
-            ))
+            tool_infos.append(
+                MCPToolInfo(
+                    name=t.get("name", ""),
+                    description=t.get("description", ""),
+                    server=server_id,
+                    arguments=t.get("input_schema") or t.get("inputSchema", {}),
+                )
+            )
         target.tools = tool_infos
         self._cached_catalog = None
         logger.info(f"Synced {len(tool_infos)} tools from runtime for MCP server: {server_id}")
@@ -381,6 +560,20 @@ Use `connect_mcp_server(server)` to connect a server and discover its tools.
 
     def invalidate_cache(self) -> None:
         """使缓存失效"""
+        self._cached_catalog = None
+
+    def remove_server(self, identifier: str) -> bool:
+        """移除指定服务器并使缓存失效。返回是否找到并移除。"""
+        before = len(self._servers)
+        self._servers = [s for s in self._servers if s.identifier != identifier]
+        removed = len(self._servers) < before
+        if removed:
+            self._cached_catalog = None
+        return removed
+
+    def reset(self) -> None:
+        """清空所有服务器并使缓存失效（用于重载配置）"""
+        self._servers.clear()
         self._cached_catalog = None
 
     @property

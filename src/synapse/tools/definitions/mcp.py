@@ -43,18 +43,18 @@ MCP_TOOLS = [
     {
         "name": "list_mcp_servers",
         "category": "MCP",
-        "description": "List all configured MCP servers and their connection status. When you need to: (1) Check available MCP servers, (2) Verify server connections.",
-        "detail": """列出所有配置的 MCP 服务器及其连接状态。
+        "description": "List all configured MCP servers, their connection status, and available tool names with descriptions. When you need to: (1) Discover available MCP tools, (2) Check server connections.",
+        "detail": """列出所有配置的 MCP 服务器及其完整工具清单。
 
 **返回信息**：
-- 服务器标识符
-- 服务器名称
-- 连接状态
-- 可用工具数量
+- 服务器标识符和连接状态
+- 每个服务器的工具名称和描述（已连接或预加载时）
+- 未连接服务器的连接提示
 
 **适用场景**：
-- 查看可用的 MCP 服务器
-- 验证服务器连接""",
+- 查看可用的 MCP 服务器和工具
+- 发现某个服务器提供的具体工具名
+- 验证服务器连接状态""",
         "input_schema": {"type": "object", "properties": {}},
     },
     {
@@ -97,29 +97,47 @@ SSE 模式: add_mcp_server(name="legacy-api", transport="sse", url="http://local
         "input_schema": {
             "type": "object",
             "properties": {
-                "name": {"type": "string", "description": "服务器唯一标识符（如 web-search, my-database）"},
+                "name": {
+                    "type": "string",
+                    "description": "服务器唯一标识符（如 web-search, my-database）",
+                },
                 "transport": {
                     "type": "string",
                     "enum": ["stdio", "streamable_http", "sse"],
                     "description": "传输协议: stdio(本地进程) | streamable_http(HTTP远程) | sse(SSE远程,兼容旧版MCP)",
                     "default": "stdio",
                 },
-                "command": {"type": "string", "description": "启动命令 (stdio 模式必填，如 python, npx, node)"},
+                "command": {
+                    "type": "string",
+                    "description": "启动命令 (stdio 模式必填，如 python, npx, node)",
+                },
                 "args": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "命令参数列表 (如 [\"-m\", \"my_server\"])",
+                    "description": '命令参数列表 (如 ["-m", "my_server"])',
                     "default": [],
                 },
                 "env": {
                     "type": "object",
-                    "description": "额外环境变量 (如 {\"API_KEY\": \"xxx\"})",
+                    "description": '额外环境变量 (如 {"API_KEY": "xxx"})',
                     "default": {},
                 },
                 "url": {"type": "string", "description": "服务 URL (streamable_http 模式必填)"},
+                "headers": {
+                    "type": "object",
+                    "description": '自定义 HTTP 请求头 (streamable_http/sse 模式可用，如 {"Authorization": "Bearer xxx"})',
+                    "default": {},
+                },
                 "description": {"type": "string", "description": "服务器描述 (可选)"},
-                "instructions": {"type": "string", "description": "使用说明文本 (可选，将写入 INSTRUCTIONS.md)"},
-                "auto_connect": {"type": "boolean", "description": "启动时是否自动连接此服务器 (默认 false)", "default": False},
+                "instructions": {
+                    "type": "string",
+                    "description": "使用说明文本 (可选，将写入 INSTRUCTIONS.md)",
+                },
+                "auto_connect": {
+                    "type": "boolean",
+                    "description": "启动时是否自动连接此服务器 (默认 false)",
+                    "default": False,
+                },
             },
             "required": ["name"],
         },

@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import defaultdict
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .runtime import OrgRuntime
@@ -70,7 +70,8 @@ class OrgInbox:
             source_node=source_node,
             category=category,
             requires_approval=requires_approval,
-            approval_options=approval_options or (["approve", "reject"] if requires_approval else []),
+            approval_options=approval_options
+            or (["approve", "reject"] if requires_approval else []),
             approval_id=approval_id,
             metadata=metadata or {},
         )
@@ -79,17 +80,23 @@ class OrgInbox:
         bucket.append(msg)
 
         if len(bucket) > self.MAX_MESSAGES_PER_ORG:
-            bucket.sort(key=lambda m: (
-                0 if m.requires_approval and m.status != "acted" else 1,
-                m.created_at,
-            ))
-            bucket[:] = bucket[-self.MAX_MESSAGES_PER_ORG:]
+            bucket.sort(
+                key=lambda m: (
+                    0 if m.requires_approval and m.status != "acted" else 1,
+                    m.created_at,
+                )
+            )
+            bucket[:] = bucket[-self.MAX_MESSAGES_PER_ORG :]
 
         self._notify_listeners(org_id, msg)
         return msg
 
     def push_task_complete(
-        self, org_id: str, node_id: str, task_name: str, result_summary: str,
+        self,
+        org_id: str,
+        node_id: str,
+        task_name: str,
+        result_summary: str,
     ) -> InboxMessage:
         return self.push(
             org_id,
@@ -100,8 +107,11 @@ class OrgInbox:
         )
 
     def push_approval_request(
-        self, org_id: str, node_id: str,
-        title: str, body: str,
+        self,
+        org_id: str,
+        node_id: str,
+        title: str,
+        body: str,
         options: list[str] | None = None,
         metadata: dict | None = None,
     ) -> InboxMessage:
@@ -118,21 +128,35 @@ class OrgInbox:
         )
 
     def push_progress(
-        self, org_id: str, node_id: str, title: str, body: str,
+        self,
+        org_id: str,
+        node_id: str,
+        title: str,
+        body: str,
     ) -> InboxMessage:
         return self.push(
-            org_id, title=title, body=body,
+            org_id,
+            title=title,
+            body=body,
             priority=InboxPriority.INFO,
-            source_node=node_id, category="progress",
+            source_node=node_id,
+            category="progress",
         )
 
     def push_warning(
-        self, org_id: str, node_id: str, title: str, body: str,
+        self,
+        org_id: str,
+        node_id: str,
+        title: str,
+        body: str,
     ) -> InboxMessage:
         return self.push(
-            org_id, title=title, body=body,
+            org_id,
+            title=title,
+            body=body,
             priority=InboxPriority.WARNING,
-            source_node=node_id, category="warning",
+            source_node=node_id,
+            category="warning",
         )
 
     # ------------------------------------------------------------------
@@ -168,11 +192,13 @@ class OrgInbox:
             InboxPriority.INFO: 0,
         }
 
-        result.sort(key=lambda m: (
-            -priority_order.get(m.priority, 0),
-            0 if m.status != "acted" else 1,
-            m.created_at,
-        ))
+        result.sort(
+            key=lambda m: (
+                -priority_order.get(m.priority, 0),
+                0 if m.status != "acted" else 1,
+                m.created_at,
+            )
+        )
 
         return result[offset : offset + limit]
 
@@ -208,8 +234,7 @@ class OrgInbox:
 
     def pending_approval_count(self, org_id: str) -> int:
         return sum(
-            1 for m in self._messages.get(org_id, [])
-            if m.requires_approval and m.status != "acted"
+            1 for m in self._messages.get(org_id, []) if m.requires_approval and m.status != "acted"
         )
 
     # ------------------------------------------------------------------
@@ -230,13 +255,53 @@ class OrgInbox:
         msg.acted_result = decision
         msg.acted_at = _now_iso()
 
+        if decision == "approve":
+            self._execute_approval_side_effects(org_id, msg)
+
         self._runtime.get_event_store(org_id).emit(
-            "approval_resolved", by,
+            "approval_resolved",
+            by,
             {"msg_id": msg.id, "approval_id": msg.approval_id, "decision": decision},
         )
 
         self._notify_listeners(org_id, msg)
         return msg
+
+    def _execute_approval_side_effects(self, org_id: str, msg: InboxMessage) -> None:
+        meta = msg.metadata
+        if meta.get("policy_filename") and meta.get("policy_content"):
+            try:
+                org_dir = self._runtime._manager._org_dir(org_id)
+                policies_dir = org_dir / "policies"
+                policies_dir.mkdir(parents=True, exist_ok=True)
+                policy_path = policies_dir / meta["policy_filename"]
+                policy_path.write_text(meta["policy_content"], encoding="utf-8")
+                logger.info(f"[OrgInbox] Wrote approved policy: {meta['policy_filename']}")
+            except Exception as e:
+                logger.error(f"[OrgInbox] Failed to write approved policy: {e}")
+
+        if meta.get("action_type") == "create_schedule":
+            try:
+                from .models import NodeSchedule, ScheduleType
+
+                params = meta.get("schedule_params", {})
+                target_node = meta.get("node_id", "")
+                if params and target_node:
+                    sched = NodeSchedule(
+                        name=params.get("name", ""),
+                        schedule_type=ScheduleType(params.get("schedule_type", "interval")),
+                        cron=params.get("cron"),
+                        interval_s=params.get("interval_s"),
+                        run_at=params.get("run_at"),
+                        prompt=params.get("prompt", ""),
+                        report_to=params.get("report_to"),
+                        report_condition=params.get("report_condition", "on_issue"),
+                        enabled=True,
+                    )
+                    self._runtime._manager.add_node_schedule(org_id, target_node, sched)
+                    logger.info(f"[OrgInbox] Created approved schedule: {sched.name}")
+            except Exception as e:
+                logger.error(f"[OrgInbox] Failed to create approved schedule: {e}")
 
     def resolve_by_approval_id(
         self, org_id: str, approval_id: str, decision: str, by: str = "user"
