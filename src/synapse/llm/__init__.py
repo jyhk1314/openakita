@@ -2,7 +2,7 @@
 LLM 统一调用层。
 
 Keep package exports lazy so importing lightweight modules such as
-`openakita.llm.types` does not automatically initialize the full client stack.
+`synapse.llm.types` does not automatically initialize the full client stack.
 """
 
 from __future__ import annotations

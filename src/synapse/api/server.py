@@ -26,12 +26,16 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+import synapse._ensure_utf8  # noqa: F401  # Windows UTF-8 编码保护
+
 from .auth import WebAccessConfig, create_auth_middleware
 from .routes import (
     agents,
+    bug_report,
     chat,
     chat_models,
     config,
+    feishu_onboard,
     files,
     health,
     hub,
@@ -41,16 +45,25 @@ from .routes import (
     mcp,
     memory,
     orgs,
+    qqbot_onboard,
     scheduler,
     sessions,
     skills,
     token_stats,
     upload,
+    wechat_onboard,
+    wecom_onboard,
     workspace_io,
     yuque,
     gitnexus,
     dev_iwhalecloud,
 )
+
+try:
+    from .routes import plugins as plugins_routes
+except ImportError:
+    plugins_routes = None
+    logging.getLogger(__name__).debug("Plugin routes not available")
 from .routes import (
     auth as auth_routes,
 )
@@ -63,7 +76,7 @@ logger = logging.getLogger(__name__)
 access_logger = logging.getLogger("synapse.api.access")
 
 API_HOST = os.environ.get("API_HOST", "127.0.0.1")
-API_PORT = 18900
+API_PORT = int(os.environ.get("API_PORT", "18900"))
 
 
 def is_port_free(host: str, port: int) -> bool:
@@ -108,6 +121,57 @@ def _find_web_dist() -> Path | None:
         return dev_web
 
     return None
+
+
+def _find_docs_dist() -> Path | None:
+    """Locate bundled user docs dist directory.
+
+    Search order:
+    1. synapse/docs_dist/ (pip wheel install)
+    2. docs-site/.vitepress/dist/ (development)
+    """
+    pkg_docs = Path(__file__).parent.parent / "docs_dist"
+    if (pkg_docs / "index.html").exists():
+        return pkg_docs
+
+    dev_docs = Path(__file__).parent.parent.parent.parent / "docs-site" / ".vitepress" / "dist"
+    if (dev_docs / "index.html").exists():
+        return dev_docs
+
+    return None
+
+
+def _deploy_docs(data_dir: Path, app_version: str) -> Path | None:
+    """Deploy bundled docs to data/docs/v{version}/ if not already present.
+
+    Historical versions are never deleted so users can switch between them.
+    """
+    import json
+    import shutil
+
+    bundled = _find_docs_dist()
+    if not bundled:
+        return None
+
+    docs_root = data_dir / "docs"
+    version_clean = app_version.split("+")[0]
+    version_dir = docs_root / f"v{version_clean}"
+
+    if not (version_dir / "index.html").exists():
+        version_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(bundled, version_dir, dirs_exist_ok=True)
+        logger.info(f"Deployed user docs v{version_clean} → {version_dir}")
+
+    versions_file = docs_root / "versions.json"
+    try:
+        versions = json.loads(versions_file.read_text("utf-8")) if versions_file.exists() else []
+    except Exception:
+        versions = []
+    if version_clean not in versions:
+        versions.insert(0, version_clean)
+        versions_file.write_text(json.dumps(versions, indent=2), encoding="utf-8")
+
+    return docs_root
 
 
 def _mount_web_frontend(app: FastAPI) -> None:
@@ -174,10 +238,11 @@ def create_app(
         {"name": "统计", "description": "Token 用量统计"},
         {"name": "日志", "description": "服务日志查询"},
         {"name": "反馈", "description": "Bug 报告与功能建议"},
-        {"name": "语雀", "description": "语雀知识库文档管理"},
-        {"name": "KAG知识库", "description": "KAG 知识库管理"},
         {"name": "WebSocket", "description": "实时事件推送"},
         {"name": "系统", "description": "根路径、关机等系统操作"},
+		{"name": "语雀", "description": "语雀知识库文档管理"},
+        {"name": "KAG知识库", "description": "KAG 知识库管理"},
+		{"name": "研发云", "description": "研发云CICD"},
     ]
 
     app = FastAPI(
@@ -198,7 +263,7 @@ def create_app(
         so the frontend never receives raw error objects."""
         msgs = []
         for err in exc.errors():
-            loc = " → ".join(str(l) for l in err.get("loc", []))
+            loc = " → ".join(str(part) for part in err.get("loc", []))
             msg = err.get("msg", "validation error")
             msgs.append(f"{loc}: {msg}" if loc else msg)
         return JSONResponse(
@@ -226,11 +291,11 @@ def create_app(
     # allow_origin_regex which matches any origin, achieving the same permissive
     # behaviour while satisfying the spec.
     cors_origins = os.environ.get("CORS_ORIGINS", "").strip()
-    cors_kwargs: dict[str, Any] = dict(
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    cors_kwargs: dict[str, Any] = {
+        "allow_credentials": True,
+        "allow_methods": ["*"],
+        "allow_headers": ["*"],
+    }
     if cors_origins:
         origins = [o.strip() for o in cors_origins.split(",") if o.strip()]
         # Always include Capacitor mobile origins so mobile apps work
@@ -281,6 +346,20 @@ def create_app(
     app.state.orchestrator = orchestrator
     app.state.agent_pool = agent_pool
 
+    if agent is not None:
+        pm = getattr(agent, "_plugin_manager", None)
+        if pm is not None:
+            pm._host_refs["api_app"] = app
+            pending = pm._host_refs.pop("_pending_plugin_routers", [])
+            for plugin_id, router in pending:
+                try:
+                    app.include_router(router, prefix=f"/api/plugins/{plugin_id}")
+                    logger.info("Mounted pending plugin routes for '%s'", plugin_id)
+                except Exception as e:
+                    logger.warning(
+                        "Failed to mount pending routes for plugin '%s': %s", plugin_id, e
+                    )
+
     # Initialize OrgManager & OrgRuntime
     from synapse.orgs.manager import OrgManager
     from synapse.orgs.runtime import OrgRuntime
@@ -294,9 +373,14 @@ def create_app(
     # Mount routes
     app.include_router(auth_routes.router, tags=["认证"])
     app.include_router(agents.router, tags=["智能体"])
+    app.include_router(bug_report.router, tags=["反馈"])
     app.include_router(chat.router, tags=["对话"])
     app.include_router(chat_models.router, tags=["模型"])
     app.include_router(config.router, tags=["配置"])
+    app.include_router(feishu_onboard.router, tags=["飞书扫码"])
+    app.include_router(qqbot_onboard.router, tags=["QQ扫码"])
+    app.include_router(wechat_onboard.router, tags=["微信扫码"])
+    app.include_router(wecom_onboard.router, tags=["企微扫码"])
     app.include_router(files.router, tags=["文件"])
     app.include_router(health.router, tags=["健康检查"])
     app.include_router(im.router, tags=["即时通讯"])
@@ -312,13 +396,16 @@ def create_app(
     app.include_router(ws_routes.router, tags=["WebSocket"])
     app.include_router(hub.router, tags=["Hub"])
     app.include_router(identity.router, tags=["身份"])
-    app.include_router(yuque.router, tags=["语雀"])
+
     app.include_router(orgs.router, tags=["组织编排"])
     app.include_router(orgs.inbox_router, tags=["组织消息中心"])
+    app.include_router(yuque.router, tags=["语雀"])
     app.include_router(gitnexus.router, tags=["GitNexus"])
     app.include_router(dev_iwhalecloud.router, tags=["研发云"])
 
-
+    if plugins_routes is not None:
+        app.include_router(plugins_routes.router)
+		
     @app.get("/", tags=["系统"])
     async def root():
         # If web frontend is available, redirect to it
@@ -338,6 +425,27 @@ def create_app(
     _avatar_dir = _settings.data_dir / "avatars"
     _avatar_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/api/avatars", _StaticFiles(directory=str(_avatar_dir)), name="avatars")
+
+    # ── Serve versioned user docs ──
+    from synapse import get_version_string as _get_ver
+
+    _docs_ver = _get_ver().split("+")[0]
+    _docs_root = _deploy_docs(data_dir, _docs_ver)
+    if _docs_root:
+        from fastapi.responses import RedirectResponse as _Redirect
+        from fastapi.staticfiles import StaticFiles as _DocsStatic
+
+        @app.get("/user-docs", include_in_schema=False)
+        @app.get("/user-docs/", include_in_schema=False)
+        async def _docs_redirect():
+            return _Redirect(f"/user-docs/v{_docs_ver}/")
+
+        app.mount(
+            "/user-docs",
+            _DocsStatic(directory=str(_docs_root), html=True),
+            name="user-docs",
+        )
+        logger.info(f"Mounted user docs at /user-docs/ from {_docs_root}")
 
     # ── Serve web frontend static files ──
     _mount_web_frontend(app)
@@ -379,6 +487,48 @@ def create_app(
                 await to_engine(app.state.org_runtime.start())
             except Exception as e:
                 logger.warning(f"OrgRuntime startup error (non-fatal): {e}")
+
+        # Endpoint health check: detect stale/broken endpoints early
+        try:
+            _agent = getattr(app.state, "agent", None)
+            _brain = getattr(_agent, "brain", None) if _agent else None
+            _llm_client = getattr(_brain, "_llm_client", None) if _brain else None
+            if _llm_client and hasattr(_llm_client, "startup_health_check"):
+                _results = await _llm_client.startup_health_check()
+                _ok = sum(1 for v in _results.values() if v == "ok")
+                _fail = len(_results) - _ok
+                if _fail:
+                    logger.warning(
+                        f"[Startup] Endpoint health check: {_ok} ok, {_fail} failed — "
+                        f"{', '.join(f'{k}={v}' for k, v in _results.items() if v != 'ok')}"
+                    )
+                else:
+                    logger.info(f"[Startup] All {_ok} endpoints healthy")
+        except Exception as e:
+            logger.debug(f"[Startup] Endpoint health check skipped: {e}")
+
+        # Compiler endpoint health check
+        try:
+            _agent = getattr(app.state, "agent", None)
+            _brain = getattr(_agent, "brain", None) if _agent else None
+            _compiler_client = getattr(_brain, "_compiler_client", None) if _brain else None
+            if _compiler_client and hasattr(_compiler_client, "startup_health_check"):
+                comp_result = await _compiler_client.startup_health_check()
+                comp_failed = {k: v for k, v in comp_result.items() if v != "ok"}
+                if comp_failed:
+                    for ep_name, status in comp_failed.items():
+                        _brain._compiler_on_failure(f"startup: {ep_name}={status}")
+                    logger.warning(
+                        f"[Startup] Compiler health check failed: "
+                        f"{', '.join(f'{k}={v}' for k, v in comp_failed.items())}. "
+                        f"Compiler tasks will use main model."
+                    )
+                else:
+                    logger.info(
+                        f"[Startup] Compiler endpoints all healthy: {list(comp_result.keys())}"
+                    )
+        except Exception as e:
+            logger.debug(f"[Startup] Compiler health check skipped: {e}")
 
     @app.on_event("shutdown")
     async def _shutdown_org_runtime():
@@ -480,7 +630,9 @@ async def start_api_server(
                 pass
 
     api_thread = threading.Thread(
-        target=_api_thread, daemon=True, name="synapse-api",
+        target=_api_thread,
+        daemon=True,
+        name="synapse-api",
     )
     api_thread.start()
 

@@ -41,7 +41,14 @@ from ..llm.types import (
     VideoBlock,
     VideoContent,
 )
-from .token_tracking import record_usage as _record_token_usage
+from .token_tracking import (
+    TokenTrackingContext,
+    reset_tracking_context,
+    set_tracking_context,
+)
+from .token_tracking import (
+    record_usage as _record_token_usage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +89,12 @@ class Brain:
         model: str | None = None,
         max_tokens: int | None = None,
     ):
+        # Compiler 熔断器 —— 实例级，避免跨实例共享状态
+        self._compiler_fail_count: int = 0
+        self._compiler_circuit_open: bool = False
+        self._compiler_circuit_open_at: float = 0.0
+        self._compiler_auth_failed: bool = False
+
         # max_tokens=0 表示"使用合理默认值"：
         # - 对 OpenAI 兼容 API：使用端点配置值或兜底 16384（部分 API 如 NVIDIA NIM 默认极低）
         # - 对 Anthropic API：使用端点配置值或兜底 16384（该 API 强制要求此参数）
@@ -101,12 +114,10 @@ class Brain:
         self._compiler_client: LLMClient | None = None
         self._init_compiler_client()
 
-        # Compiler 熔断器状态
-        self._compiler_fail_count: int = 0
-        self._compiler_circuit_open: bool = False
-        self._compiler_circuit_open_at: float = 0.0
+        # Compiler 熔断器常量（实例级，允许测试覆盖）
         self._COMPILER_FAIL_THRESHOLD: int = 5
         self._COMPILER_CIRCUIT_RESET_S: float = 300.0
+        self._COMPILER_AUTH_CIRCUIT_RESET_S: float = 1800.0
 
         # 公开属性（从 LMClient 获取）
         self._update_public_attrs()
@@ -173,10 +184,17 @@ class Brain:
         if not self._compiler_circuit_open:
             return True
         import time
+
         elapsed = time.monotonic() - self._compiler_circuit_open_at
-        if elapsed >= self._COMPILER_CIRCUIT_RESET_S:
+        reset_s = (
+            self._COMPILER_AUTH_CIRCUIT_RESET_S
+            if self._compiler_auth_failed
+            else self._COMPILER_CIRCUIT_RESET_S
+        )
+        if elapsed >= reset_s:
             self._compiler_circuit_open = False
             self._compiler_fail_count = 0
+            self._compiler_auth_failed = False
             logger.info("[Brain] Compiler circuit breaker reset, will retry compiler endpoint")
             return True
         return False
@@ -187,13 +205,44 @@ class Brain:
             self._compiler_circuit_open = False
             logger.info("[Brain] Compiler circuit breaker closed (success)")
 
-    def _compiler_on_failure(self) -> None:
+    def _compiler_on_failure(self, error_str: str = "") -> None:
         self._compiler_fail_count += 1
+
+        _is_auth = (
+            any(
+                kw in error_str.lower()
+                for kw in (
+                    "invalid_api_key",
+                    "authentication",
+                    "unauthorized",
+                    "401",
+                    "api key",
+                    "auth_failed",
+                )
+            )
+            if error_str
+            else False
+        )
+
+        if _is_auth:
+            import time
+
+            self._compiler_auth_failed = True
+            self._compiler_circuit_open = True
+            self._compiler_circuit_open_at = time.monotonic()
+            logger.error(
+                f"[Brain] Compiler circuit breaker OPEN (auth failure), "
+                f"skipping compiler for {self._COMPILER_AUTH_CIRCUIT_RESET_S}s. "
+                f"Fix the API key in settings to restore."
+            )
+            return
+
         if (
             not self._compiler_circuit_open
             and self._compiler_fail_count >= self._COMPILER_FAIL_THRESHOLD
         ):
             import time
+
             self._compiler_circuit_open = True
             self._compiler_circuit_open_at = time.monotonic()
             logger.warning(
@@ -217,12 +266,22 @@ class Brain:
             else:
                 self._compiler_client = None
                 logger.info("Compiler endpoints cleared (none configured)")
+            # 重载配置后重置熔断器，允许用户修复 API key 后恢复
+            self._compiler_circuit_open = False
+            self._compiler_fail_count = 0
+            self._compiler_auth_failed = False
+            self._compiler_circuit_open_at = 0.0
             return True
         except Exception as e:
             logger.warning(f"Failed to reload compiler client: {e}")
             return False
 
-    async def compiler_think(self, prompt: str, system: str = "") -> Response:
+    async def compiler_think(
+        self,
+        prompt: str,
+        system: str = "",
+        max_tokens: int = 512,
+    ) -> Response:
         """
         Prompt Compiler 专用 LLM 调用。
 
@@ -233,35 +292,60 @@ class Brain:
         Args:
             prompt: 用户消息
             system: 系统提示词
+            max_tokens: 最大输出 token（默认 512，调用方可按需调大）
 
         Returns:
             Response 对象
         """
         messages = [Message(role="user", content=[TextBlock(text=prompt)])]
 
+        _source = "compiler"
         if self._compiler_available():
             try:
                 response = await self._compiler_client.chat(
                     messages=messages,
                     system=system,
                     enable_thinking=False,
-                    max_tokens=2048,
+                    max_tokens=max_tokens,
                 )
                 self._compiler_on_success()
                 self._record_usage(response)
-                return self._llm_response_to_response(response)
+                result = self._llm_response_to_response(response)
+                self._dump_llm_request(system, messages, [], caller="compiler_think")
+                self._dump_llm_response(
+                    response,
+                    caller="compiler_think",
+                    request_id=f"compiler_{_source}",
+                )
+                return result
             except Exception as e:
-                self._compiler_on_failure()
+                self._compiler_on_failure(str(e))
                 logger.warning(f"Compiler LLM failed, falling back to main model: {e}")
 
-        # 回退到主模型（同样禁用思考，以节省时间）
+        # 回退到主模型
+        # 主模型可能是 reasoning 模型（如 mimo-v2-pro），即使 enable_thinking=False
+        # 也会在 reasoning 字段产出思考内容，占用 max_tokens 预算。
+        # 需要增大 max_tokens 确保 reasoning 之后仍有余量产出 content。
+        _source = "main_fallback"
+        _fallback_max = max(max_tokens * 4, 2048)
+        if _fallback_max != max_tokens:
+            logger.info(
+                f"[compiler_think] Falling back to main model, "
+                f"bumping max_tokens {max_tokens} → {_fallback_max}"
+            )
         response = await self._llm_client.chat(
             messages=messages,
             system=system,
             enable_thinking=False,
-            max_tokens=2048,
+            max_tokens=_fallback_max,
         )
         self._record_usage(response)
+        req_id = self._dump_llm_request(system, messages, [], caller="compiler_think")
+        self._dump_llm_response(
+            response,
+            caller=f"compiler_think({_source})",
+            request_id=req_id,
+        )
         return self._llm_response_to_response(response)
 
     async def think_lightweight(
@@ -309,8 +393,10 @@ class Brain:
             logger.info(f"[LLM] think_lightweight completed via {client_name} endpoint")
         except Exception as e:
             if use_compiler:
-                self._compiler_on_failure()
-                logger.warning(f"[LLM] think_lightweight: compiler failed ({e}), falling back to main")
+                self._compiler_on_failure(str(e))
+                logger.warning(
+                    f"[LLM] think_lightweight: compiler failed ({e}), falling back to main"
+                )
                 response = await self._llm_client.chat(
                     messages=messages,
                     system=sys_prompt,
@@ -322,7 +408,9 @@ class Brain:
                 raise
 
         # 保存响应
-        self._dump_llm_response(response, caller=f"think_lightweight_{client_name}", request_id=req_id)
+        self._dump_llm_response(
+            response, caller=f"think_lightweight_{client_name}", request_id=req_id
+        )
 
         self._record_usage(response)
         return self._llm_response_to_response(response)
@@ -335,11 +423,13 @@ class Brain:
             if isinstance(block, TextBlock):
                 text_parts.append(block.text)
             elif isinstance(block, ToolUseBlock):
-                tool_calls.append({
-                    "id": block.id,
-                    "name": block.name,
-                    "input": block.input,
-                })
+                tool_calls.append(
+                    {
+                        "id": block.id,
+                        "name": block.name,
+                        "input": block.input,
+                    }
+                )
         return Response(
             content="\n".join(text_parts),
             tool_calls=tool_calls,
@@ -356,11 +446,29 @@ class Brain:
         logger.info(f"Thinking mode {'enabled' if enabled else 'disabled'}")
 
     def is_thinking_enabled(self) -> bool:
-        """检查 thinking 模式是否启用"""
+        """检查 thinking 模式是否启用
+
+        先检查全局配置 (always/never)，再检查模型能力是否支持 thinking，
+        最后使用运行时开关。不支持 thinking 的模型始终返回 False。
+        """
         thinking_mode = settings.thinking_mode
         if thinking_mode == "always":
+            from ..llm.model_registry import get_model_capabilities
+
+            caps = get_model_capabilities(self.model)
+            if not caps.supports_thinking:
+                logger.debug(
+                    f"[Brain] thinking_mode=always but model={self.model} "
+                    f"does not support thinking, disabled"
+                )
+                return False
             return True
         if thinking_mode == "never":
+            return False
+        from ..llm.model_registry import get_model_capabilities
+
+        caps = get_model_capabilities(self.model)
+        if not caps.supports_thinking:
             return False
         return self._thinking_enabled
 
@@ -388,7 +496,9 @@ class Brain:
     # 核心方法：messages_create
     # ========================================================================
 
-    def messages_create(self, use_thinking: bool = None, thinking_depth: str | None = None, **kwargs) -> AnthropicMessage:
+    def messages_create(
+        self, use_thinking: bool = None, thinking_depth: str | None = None, **kwargs
+    ) -> AnthropicMessage:
         """
         调用 LLM API（通过 LLMClient）
 
@@ -455,7 +565,13 @@ class Brain:
         # 转换响应: LLMClient -> Anthropic Message
         return self._convert_response_to_anthropic(response)
 
-    async def messages_create_async(self, use_thinking: bool = None, thinking_depth: str | None = None, **kwargs) -> AnthropicMessage:
+    async def messages_create_async(
+        self,
+        use_thinking: bool = None,
+        thinking_depth: str | None = None,
+        cancel_event: asyncio.Event | None = None,
+        **kwargs,
+    ) -> AnthropicMessage:
         """异步版本的 messages_create，直接 await LLMClient.chat()。
 
         用于已处在事件循环中的场景（如取消收尾），避免 asyncio.to_thread + asyncio.run
@@ -476,7 +592,9 @@ class Brain:
             f"tools_count={len(llm_tools) if llm_tools else 0}, model_kwarg={kwargs.get('model', 'N/A')}"
         )
 
-        req_id = self._dump_llm_request(system, llm_messages, llm_tools, caller="messages_create_async")
+        req_id = self._dump_llm_request(
+            system, llm_messages, llm_tools, caller="messages_create_async"
+        )
 
         extra_params = kwargs.get("extra_params")
 
@@ -489,10 +607,11 @@ class Brain:
                 enable_thinking=use_thinking,
                 thinking_depth=thinking_depth,
                 conversation_id=conversation_id,
+                cancel_event=cancel_event,
                 extra_params=extra_params,
             )
-            _choices = getattr(response, 'choices', None) or []
-            _content = getattr(response, 'content', None) or []
+            _choices = getattr(response, "choices", None) or []
+            _content = getattr(response, "content", None) or []
             logger.info(
                 f"[Brain] messages_create_async success: "
                 f"choices={len(_choices)}, content_blocks={len(_content)}"
@@ -507,6 +626,60 @@ class Brain:
         self._record_usage(response)
 
         return self._convert_response_to_anthropic(response)
+
+    async def messages_create_stream(
+        self,
+        use_thinking: bool = None,
+        thinking_depth: str | None = None,
+        **kwargs,
+    ):
+        """流式版本的 messages_create，yield Provider 原始流事件 (dict)。
+
+        参数准备与 messages_create_async 一致，但调用 LLMClient.chat_stream()
+        逐事件 yield，供 StreamAccumulator 消费。Token 用量由调用方在流结束后
+        通过 StreamAccumulator 获取的 usage 信息自行记录。
+        """
+        if use_thinking is None:
+            use_thinking = self.is_thinking_enabled()
+
+        llm_messages = self._convert_messages_to_llm(kwargs.get("messages", []))
+        system = kwargs.get("system", "")
+        llm_tools = self._convert_tools_to_llm(kwargs.get("tools", []))
+        max_tokens = kwargs.get("max_tokens", self.max_tokens)
+        conversation_id = kwargs.get("conversation_id")
+        extra_params = kwargs.get("extra_params")
+
+        logger.info(
+            f"[Brain] messages_create_stream called: msg_count={len(llm_messages)}, "
+            f"max_tokens={max_tokens}, use_thinking={use_thinking}, "
+            f"tools_count={len(llm_tools) if llm_tools else 0}, model_kwarg={kwargs.get('model', 'N/A')}"
+        )
+
+        self._dump_llm_request(system, llm_messages, llm_tools, caller="messages_create_stream")
+
+        _tt = set_tracking_context(
+            TokenTrackingContext(
+                session_id=kwargs.get("conversation_id", ""),
+                operation_type="chat_react_iteration_stream",
+                channel="api",
+                iteration=kwargs.get("iteration", 0),
+                agent_profile_id=kwargs.get("agent_profile_id", "default"),
+            )
+        )
+        try:
+            async for event in self._llm_client.chat_stream(
+                messages=llm_messages,
+                system=system,
+                tools=llm_tools,
+                max_tokens=max_tokens,
+                enable_thinking=use_thinking,
+                thinking_depth=thinking_depth,
+                conversation_id=conversation_id,
+                extra_params=extra_params,
+            ):
+                yield event
+        finally:
+            reset_tracking_context(_tt)
 
     # ========================================================================
     # Token 用量记录
@@ -523,8 +696,7 @@ class Brain:
             self._acc_tokens_in += usage.input_tokens
             self._acc_tokens_out += usage.output_tokens
 
-            ep_info = self.get_current_endpoint_info()
-            ep_name = ep_info.get("name", "")
+            ep_name = response.endpoint_name or self.get_current_endpoint_info().get("name", "")
             cost = 0.0
             for ep in self._llm_client.endpoints:
                 if ep.name == ep_name:
@@ -630,7 +802,9 @@ class Brain:
                             blocks.append(
                                 ToolResultBlock(
                                     tool_use_id=part.get("tool_use_id", ""),
-                                    content=tool_content if isinstance(tool_content, list) else str(tool_content),
+                                    content=tool_content
+                                    if isinstance(tool_content, list)
+                                    else str(tool_content),
                                     is_error=part.get("is_error", False),
                                 )
                             )
@@ -691,6 +865,7 @@ class Brain:
                             url = image_url.get("url", "")
                             if url:
                                 import re as _re
+
                                 m = _re.match(r"data:([^;]+);base64,(.+)", url)
                                 if m:
                                     blocks.append(
@@ -712,6 +887,7 @@ class Brain:
                             url = video_url.get("url", "")
                             if url:
                                 import re as _re
+
                                 m = _re.match(r"data:([^;]+);base64,(.+)", url)
                                 if m:
                                     blocks.append(
@@ -736,7 +912,11 @@ class Brain:
                             data = audio_data.get("data", "")
                             fmt = audio_data.get("format", "wav")
                             if data:
-                                mime_map = {"wav": "audio/wav", "mp3": "audio/mpeg", "pcm16": "audio/pcm"}
+                                mime_map = {
+                                    "wav": "audio/wav",
+                                    "mp3": "audio/mpeg",
+                                    "pcm16": "audio/pcm",
+                                }
                                 media_type = mime_map.get(fmt, f"audio/{fmt}")
                                 blocks.append(
                                     AudioBlock(
@@ -756,8 +936,8 @@ class Brain:
                         Message(role=role, content=blocks, reasoning_content=reasoning_content)
                     )
                 else:
-                    result.append(
-                        Message(role=role, content="", reasoning_content=reasoning_content)
+                    logger.debug(
+                        f"[Brain] Skipping message with empty content blocks (role={role})"
                     )
             else:
                 result.append(
@@ -767,24 +947,78 @@ class Brain:
         return result
 
     def _convert_tools_to_llm(self, tools: list[ToolParam] | None) -> list[Tool] | None:
-        """将 Anthropic ToolParam 转换为 LLMClient Tool
+        """将工具定义转换为 LLMClient Tool，兼容 Anthropic / OpenAI 两种格式。
 
-        支持渐进式披露：
-        - description: 简短清单描述
-        - detail: 详细使用说明（传给 LLM API）
+        支持 defer_loading：标记 _deferred=True 的工具只传 name + description，
+        不传 input_schema，减少 token 消耗。模型通过 tool_search 按需获取完整 schema。
+
+        支持的格式：
+        - Anthropic (内部): {"name": ..., "description": ..., "input_schema": {...}}
+        - OpenAI:          {"type": "function", "function": {"name": ..., ...}}
         """
         if not tools:
             return None
 
-        return [
-            Tool(
-                name=tool.get("name", ""),
-                # 优先使用 detail 字段（详细说明），否则 fallback 到 description
-                description=tool.get("detail") or tool.get("description", ""),
-                input_schema=tool.get("input_schema", {}),
+        result: list[Tool] = []
+        skipped = 0
+        deferred = 0
+        for tool in tools:
+            name = tool.get("name", "")
+            description = tool.get("detail") or tool.get("description", "")
+            schema = tool.get("input_schema", {})
+            is_deferred = tool.get("_deferred", False)
+
+            if not name:
+                func = tool.get("function")
+                if isinstance(func, dict):
+                    name = func.get("name", "")
+                    description = description or func.get("description", "")
+                    schema = schema or func.get("parameters", {})
+
+            if not name:
+                skipped += 1
+                continue
+
+            if is_deferred:
+                short_desc = description.split("\n")[0][:200] if description else ""
+                result.append(
+                    Tool(
+                        name=name,
+                        description=(
+                            f"[DEFERRED] {short_desc} — "
+                            "Do NOT call this tool directly. "
+                            'You must first call tool_search(query="...") to load '
+                            "its full parameters, then call it in the NEXT turn."
+                        ),
+                        input_schema={"type": "object", "properties": {}},
+                    )
+                )
+                deferred += 1
+            else:
+                result.append(
+                    Tool(
+                        name=name,
+                        description=description,
+                        input_schema=schema,
+                    )
+                )
+
+        if skipped:
+            logger.warning(
+                "[Brain] _convert_tools_to_llm: skipped %d tool(s) with empty name "
+                "(total=%d, valid=%d)",
+                skipped,
+                len(tools),
+                len(result),
             )
-            for tool in tools
-        ]
+        if deferred:
+            logger.debug(
+                "[Brain] defer_loading: %d/%d tools deferred (schema omitted)",
+                deferred,
+                len(result),
+            )
+
+        return result if result else None
 
     def _convert_response_to_anthropic(self, response: LLMResponse) -> AnthropicMessage:
         """将 LLMClient Response 转换为 Anthropic Message
@@ -908,7 +1142,9 @@ class Brain:
         )
 
         # 调试输出：保存完整请求到文件
-        req_id = self._dump_llm_request(sys_prompt, llm_messages, llm_tools, caller="_chat_with_llm_client")
+        req_id = self._dump_llm_request(
+            sys_prompt, llm_messages, llm_tools, caller="_chat_with_llm_client"
+        )
 
         # 调用 LLMClient
         response = await self._llm_client.chat(
@@ -971,7 +1207,7 @@ class Brain:
             request_id: 请求 ID，用于关联对应的 response 文件
         """
         try:
-            debug_dir = Path("data/llm_debug")
+            debug_dir = settings.project_root / "data" / "llm_debug"
             debug_dir.mkdir(parents=True, exist_ok=True)
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -995,22 +1231,27 @@ class Brain:
             for t in tools or []:
                 if hasattr(t, "name"):
                     # Tool / NamedTuple / dataclass 对象
-                    full_tools.append({
-                        "name": t.name,
-                        "description": getattr(t, "description", ""),
-                        "input_schema": getattr(t, "input_schema", {}),
-                    })
+                    full_tools.append(
+                        {
+                            "name": t.name,
+                            "description": getattr(t, "description", ""),
+                            "input_schema": getattr(t, "input_schema", {}),
+                        }
+                    )
                 elif isinstance(t, dict):
-                    full_tools.append({
-                        "name": t.get("name", ""),
-                        "description": t.get("description", ""),
-                        "input_schema": t.get("input_schema", {}),
-                    })
+                    full_tools.append(
+                        {
+                            "name": t.get("name", ""),
+                            "description": t.get("description", ""),
+                            "input_schema": t.get("input_schema", {}),
+                        }
+                    )
                 else:
                     full_tools.append({"raw": str(t)})
 
             # ── 3. Token 估算（中英混合感知：中文 ~1.5字符/token，英文/JSON ~4字符/token）──
             from .context_manager import ContextManager as _CM
+
             _est = _CM.static_estimate_tokens
             system_length = len(system) if system else 0
             estimated_system_tokens = _est(system) if system else 0
@@ -1018,7 +1259,9 @@ class Brain:
             estimated_messages_tokens = _est(messages_text)
             tools_text = json.dumps(full_tools, ensure_ascii=False)
             estimated_tools_tokens = _est(tools_text)
-            total_estimated_tokens = estimated_system_tokens + estimated_messages_tokens + estimated_tools_tokens
+            total_estimated_tokens = (
+                estimated_system_tokens + estimated_messages_tokens + estimated_tools_tokens
+            )
 
             # ── 4. 构建完整 debug 数据（和发给 LLM 的请求结构一致）──
             debug_data: dict[str, Any] = {
@@ -1069,9 +1312,7 @@ class Brain:
             logger.warning(f"[LLM DEBUG] Failed to save debug file: {e}")
             return uuid.uuid4().hex[:8]  # 即使保存失败也返回一个 ID 供 response 关联
 
-    def _dump_llm_response(
-        self, response, caller: str = "unknown", request_id: str = ""
-    ) -> None:
+    def _dump_llm_response(self, response, caller: str = "unknown", request_id: str = "") -> None:
         """
         保存 LLM 响应到调试文件（与 _dump_llm_request 对称）
 
@@ -1081,7 +1322,7 @@ class Brain:
             request_id: 对应的请求 ID（用于关联 request 文件）
         """
         try:
-            debug_dir = Path("data/llm_debug")
+            debug_dir = settings.project_root / "data" / "llm_debug"
             debug_dir.mkdir(parents=True, exist_ok=True)
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1116,13 +1357,9 @@ class Brain:
 
             # 摘要日志
             text_len = sum(
-                len(b.get("text", ""))
-                for b in content_blocks
-                if b.get("type") == "text"
+                len(b.get("text", "")) for b in content_blocks if b.get("type") == "text"
             )
-            tool_count = sum(
-                1 for b in content_blocks if b.get("type") == "tool_use"
-            )
+            tool_count = sum(1 for b in content_blocks if b.get("type") == "tool_use")
             in_tokens = debug_data["llm_response"]["usage"]["input_tokens"]
             out_tokens = debug_data["llm_response"]["usage"]["output_tokens"]
             logger.info(
@@ -1149,23 +1386,39 @@ class Brain:
             # 简单 text 响应
             blocks.append({"type": "text", "text": response.text or ""})
             for tc in getattr(response, "tool_calls", []):
-                input_str = json.dumps(tc.input, ensure_ascii=False, default=str) if isinstance(tc.input, dict) else str(tc.input)
-                blocks.append({
-                    "type": "tool_use",
-                    "id": tc.id,
-                    "name": tc.name,
-                    "input": input_str,
-                })
+                input_str = (
+                    json.dumps(tc.input, ensure_ascii=False, default=str)
+                    if isinstance(tc.input, dict)
+                    else str(tc.input)
+                )
+                blocks.append(
+                    {
+                        "type": "tool_use",
+                        "id": tc.id,
+                        "name": tc.name,
+                        "input": input_str,
+                    }
+                )
             return blocks
 
         # Anthropic Message 格式
         for block in getattr(response, "content", []):
-            block_type = getattr(block, "type", None) or (block.get("type") if isinstance(block, dict) else None)
+            block_type = getattr(block, "type", None) or (
+                block.get("type") if isinstance(block, dict) else None
+            )
             if block_type == "text":
-                text = getattr(block, "text", "") if not isinstance(block, dict) else block.get("text", "")
+                text = (
+                    getattr(block, "text", "")
+                    if not isinstance(block, dict)
+                    else block.get("text", "")
+                )
                 blocks.append({"type": "text", "text": text})
             elif block_type == "thinking":
-                thinking = getattr(block, "thinking", "") if not isinstance(block, dict) else block.get("thinking", "")
+                thinking = (
+                    getattr(block, "thinking", "")
+                    if not isinstance(block, dict)
+                    else block.get("thinking", "")
+                )
                 blocks.append({"type": "thinking", "thinking": str(thinking)})
             elif block_type == "tool_use":
                 if isinstance(block, dict):
@@ -1176,13 +1429,19 @@ class Brain:
                     name = getattr(block, "name", "")
                     bid = getattr(block, "id", "")
                     inp = getattr(block, "input", {})
-                input_str = json.dumps(inp, ensure_ascii=False, default=str) if isinstance(inp, dict) else str(inp)
-                blocks.append({
-                    "type": "tool_use",
-                    "id": bid,
-                    "name": name,
-                    "input": input_str,
-                })
+                input_str = (
+                    json.dumps(inp, ensure_ascii=False, default=str)
+                    if isinstance(inp, dict)
+                    else str(inp)
+                )
+                blocks.append(
+                    {
+                        "type": "tool_use",
+                        "id": bid,
+                        "name": name,
+                        "input": input_str,
+                    }
+                )
             else:
                 blocks.append({"type": str(block_type), "raw": str(block)})
 

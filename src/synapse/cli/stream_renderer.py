@@ -23,7 +23,7 @@ E = StreamEventType
 async def render_stream(
     event_stream: AsyncIterator[dict],
     console: Console,
-    agent_name: str = "OpenAkita",
+    agent_name: str = "Synapse",
 ) -> str:
     """Consume an SSE event stream and render it progressively in the terminal.
 

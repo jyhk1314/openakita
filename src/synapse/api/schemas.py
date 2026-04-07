@@ -2,33 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Generic, Optional, TypeVar
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-T = TypeVar("T")
-
-
-class BaseResponse(BaseModel, Generic[T]):
-    """统一响应模型"""
-
-    errorcode: int = Field(description="业务状态码，0 表示成功")
-    message: str = Field(description="返回消息")
-    data: Optional[T] = Field(default=None, description="返回数据")
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "errorcode": 0,
-                "message": "success",
-                "data": None,
-            }
-        }
-
-
 def success_response(data: Any = None, message: str = "success") -> dict:
     return {"errorcode": 0, "message": message, "data": data}
-
 
 def error_response(errorcode: int = 500, message: str = "error", error: str | None = None) -> dict:
     return {
@@ -43,7 +22,13 @@ class ChatRequest(BaseModel):
 
     message: str = Field("", description="User message text")
     conversation_id: str | None = Field(None, description="Conversation ID for context")
-    plan_mode: bool = Field(False, description="Force Plan mode")
+    mode: Literal["ask", "plan", "agent"] = Field(
+        "agent",
+        description="Interaction mode: ask (read-only), plan (plan then execute), agent (full execution)",
+    )
+    plan_mode: bool = Field(
+        False, description="Deprecated: use mode='plan' instead. Kept for backward compatibility."
+    )
     endpoint: str | None = Field(None, description="Specific endpoint name (null=auto)")
     attachments: list[AttachmentInfo] | None = Field(None, description="Attached files/images")
     thinking_mode: str | None = Field(
@@ -126,6 +111,10 @@ class ModelInfo(BaseModel):
 class SkillInfoResponse(BaseModel):
     """Skill information for the API."""
 
+    skill_id: str | None = None
+    capability_id: str | None = None
+    namespace: str | None = None
+    origin: str | None = None
     name: str
     description: str
     system: bool = False

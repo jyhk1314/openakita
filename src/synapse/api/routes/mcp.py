@@ -10,13 +10,63 @@ Provides HTTP API for the frontend to manage MCP servers:
 
 from __future__ import annotations
 
-import json
 import logging
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
+from synapse.tools.mcp_catalog import MCPConfigField
+from synapse.tools.mcp_workspace import (
+    add_server_to_workspace,
+    remove_server_from_workspace,
+    sync_tools_after_connect,
+)
+
 logger = logging.getLogger(__name__)
+
+
+def _check_config_status(
+    schema: list[MCPConfigField],
+) -> tuple[dict[str, bool], bool]:
+    """Return per-key filled status and overall completeness for a config schema.
+
+    Clears the env-file cache first so newly saved values are always picked up.
+    """
+    import os
+    from pathlib import Path
+
+    from synapse.config import settings
+    from synapse.tools.mcp_catalog import _read_nearest_env_values, clear_env_file_cache
+
+    clear_env_file_cache()
+    env_vals = _read_nearest_env_values(Path(settings.project_root))
+
+    status: dict[str, bool] = {}
+    for f in schema:
+        val = env_vals.get(f.key) or os.environ.get(f.key) or ""
+        status[f.key] = bool(val.strip())
+
+    complete = all(status[f.key] for f in schema if f.required)
+    return status, complete
+
+
+def _serialize_config_schema(schema: list[MCPConfigField]) -> list[dict]:
+    return [
+        {
+            "key": f.key,
+            "label": f.label,
+            "type": f.type,
+            "required": f.required,
+            "help": f.help,
+            "helpUrl": f.help_url,
+            "default": f.default,
+            "placeholder": f.placeholder,
+            "options": f.options,
+            "when": f.when if f.when else None,
+        }
+        for f in schema
+    ]
+
 
 router = APIRouter()
 
@@ -43,25 +93,11 @@ def _get_mcp_catalog(request: Request):
     return agent.mcp_catalog if agent else None
 
 
-def _refresh_catalog_text(request: Request):
-    """刷新 Agent 系统提示中的 MCP 清单文本"""
-    agent = _get_agent(request)
-    if agent and hasattr(agent, "_mcp_catalog_text"):
-        agent._mcp_catalog_text = agent.mcp_catalog.generate_catalog()
-
-
 def _sync_tools_to_catalog(request: Request, server_name: str, client):
-    """连接成功后将运行时工具同步到 catalog 并刷新系统提示"""
+    """连接成功后将运行时工具同步到 catalog（MCPCatalog 内部缓存自动失效）"""
     catalog = _get_mcp_catalog(request)
-    tools = client.list_tools(server_name)
-    if catalog and tools:
-        tool_dicts = [
-            {"name": t.name, "description": t.description,
-             "input_schema": t.input_schema}
-            for t in tools
-        ]
-        catalog.sync_tools_from_client(server_name, tool_dicts, force=True)
-    _refresh_catalog_text(request)
+    if catalog:
+        sync_tools_after_connect(server_name, client, catalog)
 
 
 class MCPServerAddRequest(BaseModel):
@@ -71,8 +107,13 @@ class MCPServerAddRequest(BaseModel):
     args: list[str] = []
     env: dict[str, str] = {}
     url: str = ""
+    headers: dict[str, str] = {}
     description: str = ""
     auto_connect: bool = False
+
+
+class MCPToggleRequest(BaseModel):
+    enabled: bool
 
 
 class MCPConnectRequest(BaseModel):
@@ -89,6 +130,7 @@ async def list_mcp_servers(request: Request):
         return {"error": "Agent not initialized", "servers": []}
 
     from synapse.config import settings
+
     if not settings.mcp_enabled:
         return {"mcp_enabled": False, "servers": [], "message": "MCP is disabled"}
 
@@ -97,7 +139,7 @@ async def list_mcp_servers(request: Request):
 
     servers = []
     for name in configured:
-        server_config = client._servers.get(name)
+        server_config = client.get_server_config(name)
         tools = client.list_tools(name)
 
         catalog_info = None
@@ -110,25 +152,32 @@ async def list_mcp_servers(request: Request):
         workspace_dir = settings.mcp_config_path / name
         source = "workspace" if workspace_dir.exists() else "builtin"
 
-        servers.append({
-            "name": name,
-            "description": server_config.description if server_config else "",
-            "transport": server_config.transport if server_config else "stdio",
-            "url": server_config.url if server_config else "",
-            "command": server_config.command if server_config else "",
-            "connected": name in connected,
-            "tools": [
-                {"name": t.name, "description": t.description}
-                for t in tools
-            ],
-            "tool_count": len(tools),
-            "has_instructions": bool(
-                catalog_info and catalog_info.instructions
-            ) if catalog_info else False,
-            "catalog_tool_count": len(catalog_info.tools) if catalog_info else 0,
-            "source": source,
-            "removable": source == "workspace",
-        })
+        schema = catalog_info.config_schema if catalog_info else []
+        config_status, config_complete = _check_config_status(schema) if schema else ({}, True)
+
+        servers.append(
+            {
+                "name": name,
+                "description": server_config.description if server_config else "",
+                "transport": server_config.transport if server_config else "stdio",
+                "url": server_config.url if server_config else "",
+                "command": server_config.command if server_config else "",
+                "connected": name in connected,
+                "enabled": catalog_info.enabled if catalog_info else True,
+                "auto_connect": catalog_info.auto_connect if catalog_info else False,
+                "tools": [{"name": t.name, "description": t.description} for t in tools],
+                "tool_count": len(tools),
+                "has_instructions": bool(catalog_info and catalog_info.instructions)
+                if catalog_info
+                else False,
+                "catalog_tool_count": len(catalog_info.tools) if catalog_info else 0,
+                "source": source,
+                "removable": source == "workspace",
+                "config_schema": _serialize_config_schema(schema),
+                "config_status": config_status,
+                "config_complete": config_complete,
+            }
+        )
 
     return {
         "mcp_enabled": True,
@@ -153,6 +202,29 @@ async def connect_mcp_server(request: Request, body: MCPConnectRequest):
             "server": body.server_name,
             "tools": [{"name": t.name, "description": t.description} for t in tools],
         }
+
+    catalog = _get_mcp_catalog(request)
+    if catalog:
+        server_info = catalog.get_server(body.server_name)
+        if server_info and server_info.config_schema:
+            config_status, config_complete = _check_config_status(server_info.config_schema)
+            if not config_complete:
+                missing = [
+                    {"key": f.key, "label": f.label or f.key}
+                    for f in server_info.config_schema
+                    if f.required and not config_status.get(f.key)
+                ]
+                labels = ", ".join(m["label"] for m in missing)
+                return {
+                    "status": "config_incomplete",
+                    "server": body.server_name,
+                    "missing_fields": missing,
+                    "message": f"请先完成配置：缺少 {labels}",
+                }
+
+    from synapse.tools.mcp_workspace import prepare_chrome_devtools_args
+
+    await prepare_chrome_devtools_args(client, body.server_name)
 
     result = await client.connect(body.server_name)
     if result.success:
@@ -223,133 +295,108 @@ async def get_mcp_instructions(request: Request, server_name: str):
 @router.post("/api/mcp/servers/add")
 async def add_mcp_server(request: Request, body: MCPServerAddRequest):
     """Add a new MCP server config (persisted to workspace data/mcp/servers/)."""
+    import re
+    from pathlib import Path
+
     from synapse.tools.mcp import VALID_TRANSPORTS
 
-    import re
     if not body.name.strip():
         return {"status": "error", "message": "服务器名称不能为空"}
-    if not re.match(r'^[a-zA-Z0-9_-]+$', body.name.strip()):
+    if not re.match(r"^[a-zA-Z0-9_-]+$", body.name.strip()):
         return {"status": "error", "message": "服务器名称只能包含字母、数字、连字符和下划线"}
     if body.transport not in VALID_TRANSPORTS:
-        return {"status": "error", "message": f"不支持的传输协议: {body.transport}（支持: {', '.join(sorted(VALID_TRANSPORTS))}）"}
+        return {
+            "status": "error",
+            "message": f"不支持的传输协议: {body.transport}（支持: {', '.join(sorted(VALID_TRANSPORTS))}）",
+        }
     if body.transport == "stdio" and not body.command.strip():
         return {"status": "error", "message": "stdio 模式需要填写启动命令"}
     if body.transport in ("streamable_http", "sse") and not body.url.strip():
         return {"status": "error", "message": f"{body.transport} 模式需要填写 URL"}
 
-    from synapse.config import settings
-
-    name = body.name.strip()
-    server_dir = settings.mcp_config_path / name
-    server_dir.mkdir(parents=True, exist_ok=True)
-
-    # stdio 模式下自动解析相对路径为绝对路径
-    resolved_args = list(body.args)
-    if body.transport == "stdio":
-        from pathlib import Path as _P
-        search_bases = [server_dir, settings.project_root, _P.cwd()]
-        for i, arg in enumerate(resolved_args):
-            if arg.startswith("-") or _P(arg).is_absolute():
-                continue
-            for base in search_bases:
-                candidate = base / arg
-                if candidate.is_file():
-                    resolved_args[i] = str(candidate.resolve())
-                    break
-
-    metadata = {
-        "serverIdentifier": name,
-        "serverName": body.description or name,
-        "command": body.command,
-        "args": resolved_args,
-        "env": body.env,
-        "transport": body.transport,
-        "url": body.url,
-        "autoConnect": body.auto_connect,
-    }
-
-    metadata_file = server_dir / "SERVER_METADATA.json"
-    metadata_file.write_text(
-        json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-
     client = _get_mcp_client(request)
     catalog = _get_mcp_catalog(request)
+    if not client or not catalog:
+        return {"status": "error", "message": "Agent not initialized"}
 
-    if catalog:
-        catalog.scan_mcp_directory(settings.mcp_config_path)
-        catalog.invalidate_cache()
+    from synapse.config import settings
 
-    if client:
-        from synapse.tools.mcp import MCPServerConfig
-        client.add_server(MCPServerConfig(
-            name=name,
-            command=body.command,
-            args=resolved_args,
-            env=body.env,
-            description=body.description,
-            transport=body.transport,
-            url=body.url,
-            cwd=str(server_dir),
-        ))
+    result = await add_server_to_workspace(
+        name=body.name.strip(),
+        transport=body.transport,
+        command=body.command,
+        args=body.args,
+        env=body.env,
+        url=body.url,
+        description=body.description,
+        instructions="",
+        auto_connect=body.auto_connect,
+        headers=body.headers or None,
+        config_base_dir=settings.mcp_config_path,
+        search_bases=[settings.project_root, Path.cwd()],
+        client=client,
+        catalog=catalog,
+    )
 
-    _refresh_catalog_text(request)
+    return result
 
-    # 添加后尝试连接，获取工具信息
-    connect_result = None
-    if client:
-        result = await client.connect(name)
-        if result.success:
-            _sync_tools_to_catalog(request, name, client)
-            connect_result = {"connected": True, "tool_count": result.tool_count}
-        else:
-            connect_result = {"connected": False, "error": result.error}
+
+@router.post("/api/mcp/servers/{server_name}/toggle")
+async def toggle_mcp_server(request: Request, server_name: str, body: MCPToggleRequest):
+    """Toggle a MCP server's enabled state (persisted to SERVER_METADATA.json)."""
+    import json
+    from pathlib import Path
+
+    catalog = _get_mcp_catalog(request)
+    client = _get_mcp_client(request)
+    if not catalog or not client:
+        return {"status": "error", "message": "Agent not initialized"}
+
+    server_info = catalog.get_server(server_name)
+    if not server_info:
+        return {"status": "error", "message": f"MCP server '{server_name}' not found"}
+
+    server_info.enabled = body.enabled
+    catalog.invalidate_cache()
+
+    if server_info.config_dir:
+        metadata_path = Path(server_info.config_dir) / "SERVER_METADATA.json"
+        if metadata_path.exists():
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                metadata["enabled"] = body.enabled
+                metadata_path.write_text(
+                    json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8"
+                )
+            except Exception as e:
+                logger.warning("Failed to persist enabled state for %s: %s", server_name, e)
+
+    if not body.enabled and client.is_connected(server_name):
+        await client.disconnect(server_name)
 
     return {
         "status": "ok",
-        "server": name,
-        "path": str(server_dir),
-        "connect_result": connect_result,
+        "server": server_name,
+        "enabled": body.enabled,
     }
 
 
 @router.delete("/api/mcp/servers/{server_name}")
 async def remove_mcp_server(request: Request, server_name: str):
     """Remove an MCP server config (only workspace configs, not built-in)."""
+    client = _get_mcp_client(request)
+    catalog = _get_mcp_catalog(request)
+    if not client or not catalog:
+        return {"status": "error", "message": "Agent not initialized"}
+
     from synapse.config import settings
 
-    client = _get_mcp_client(request)
-    if client and server_name in client.list_connected():
-        await client.disconnect(server_name)
+    result = await remove_server_from_workspace(
+        server_name,
+        config_base_dir=settings.mcp_config_path,
+        builtin_dir=settings.mcp_builtin_path,
+        client=client,
+        catalog=catalog,
+    )
 
-    workspace_dir = settings.mcp_config_path / server_name
-    builtin_dir = settings.mcp_builtin_path / server_name
-
-    removed = False
-    if workspace_dir.exists():
-        import shutil
-        shutil.rmtree(workspace_dir, ignore_errors=True)
-        removed = True
-    elif builtin_dir.exists():
-        return {"status": "error", "message": f"{server_name} is a built-in server and cannot be removed"}
-
-    if client:
-        client._servers.pop(server_name, None)
-        client._connections.pop(server_name, None)
-        prefix = f"{server_name}:"
-        for key in [k for k in client._tools if k.startswith(prefix)]:
-            del client._tools[key]
-        for key in [k for k in client._resources if k.startswith(prefix)]:
-            del client._resources[key]
-        for key in [k for k in client._prompts if k.startswith(prefix)]:
-            del client._prompts[key]
-
-    catalog = _get_mcp_catalog(request)
-    if catalog:
-        catalog._servers = [s for s in catalog._servers if s.identifier != server_name]
-        catalog.invalidate_cache()
-
-    _refresh_catalog_text(request)
-
-    return {"status": "ok", "server": server_name, "removed": removed}
+    return result

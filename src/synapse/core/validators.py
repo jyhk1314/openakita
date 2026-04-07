@@ -16,15 +16,16 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any
+from enum import StrEnum
 
 logger = logging.getLogger(__name__)
 
 
-class ValidationResult(str, Enum):
+class ValidationResult(StrEnum):
     """验证结果"""
+
     PASS = "pass"
+    WARN = "warn"
     FAIL = "fail"
     SKIP = "skip"  # 验证器不适用于当前场景
 
@@ -32,6 +33,7 @@ class ValidationResult(str, Enum):
 @dataclass
 class ValidatorOutput:
     """单个验证器的输出"""
+
     name: str
     result: ValidationResult
     reason: str = ""
@@ -41,12 +43,17 @@ class ValidatorOutput:
 @dataclass
 class ValidationReport:
     """综合验证报告"""
+
     outputs: list[ValidatorOutput] = field(default_factory=list)
 
     @property
     def all_passed(self) -> bool:
         applicable = [o for o in self.outputs if o.result != ValidationResult.SKIP]
-        return all(o.result == ValidationResult.PASS for o in applicable) if applicable else True
+        return (
+            all(o.result in (ValidationResult.PASS, ValidationResult.WARN) for o in applicable)
+            if applicable
+            else True
+        )
 
     @property
     def any_failed(self) -> bool:
@@ -70,7 +77,11 @@ class ValidationReport:
         for o in self.outputs:
             if o.result == ValidationResult.SKIP:
                 continue
-            icon = "✓" if o.result == ValidationResult.PASS else "✗"
+            icon = (
+                "✓"
+                if o.result == ValidationResult.PASS
+                else ("⚠" if o.result == ValidationResult.WARN else "✗")
+            )
             parts.append(f"{icon} {o.name}: {o.reason}")
         return "\n".join(parts) if parts else "No applicable validators"
 
@@ -80,17 +91,16 @@ class BaseValidator(ABC):
 
     @property
     @abstractmethod
-    def name(self) -> str:
-        ...
+    def name(self) -> str: ...
 
     @abstractmethod
-    def validate(self, context: ValidationContext) -> ValidatorOutput:
-        ...
+    def validate(self, context: ValidationContext) -> ValidatorOutput: ...
 
 
 @dataclass
 class ValidationContext:
     """验证上下文（传递给所有验证器的数据）"""
+
     user_request: str = ""
     assistant_response: str = ""
     executed_tools: list[str] = field(default_factory=list)
@@ -108,16 +118,16 @@ class PlanValidator(BaseValidator):
 
     def validate(self, context: ValidationContext) -> ValidatorOutput:
         try:
-            from ..tools.handlers.plan import get_plan_handler_for_session, has_active_plan
+            from ..tools.handlers.plan import get_todo_handler_for_session, has_active_todo
 
-            if not context.conversation_id or not has_active_plan(context.conversation_id):
+            if not context.conversation_id or not has_active_todo(context.conversation_id):
                 return ValidatorOutput(
                     name=self.name,
                     result=ValidationResult.SKIP,
-                    reason="No active plan",
+                    reason="No active todo",
                 )
 
-            handler = get_plan_handler_for_session(context.conversation_id)
+            handler = get_todo_handler_for_session(context.conversation_id)
             plan = handler.get_plan_for(context.conversation_id) if handler else None
             if not plan:
                 return ValidatorOutput(
@@ -128,21 +138,33 @@ class PlanValidator(BaseValidator):
 
             steps = plan.get("steps", [])
             total = len(steps)
-            completed = sum(1 for s in steps if s.get("status") in ("completed", "skipped"))
+            _TERMINAL = ("completed", "skipped", "failed", "cancelled")
+            terminal = sum(1 for s in steps if s.get("status") in _TERMINAL)
             pending = sum(1 for s in steps if s.get("status") in ("pending", "in_progress"))
+            failed = sum(1 for s in steps if s.get("status") == "failed")
 
             if pending > 0:
-                pending_ids = [s.get("id", "?") for s in steps if s.get("status") in ("pending", "in_progress")]
+                pending_ids = [
+                    s.get("id", "?") for s in steps if s.get("status") in ("pending", "in_progress")
+                ]
                 return ValidatorOutput(
                     name=self.name,
                     result=ValidationResult.FAIL,
                     reason=f"{pending}/{total} steps pending: {pending_ids[:3]}",
                 )
 
+            if failed > 0:
+                failed_ids = [s.get("id", "?") for s in steps if s.get("status") == "failed"]
+                return ValidatorOutput(
+                    name=self.name,
+                    result=ValidationResult.WARN,
+                    reason=f"All steps resolved but {failed} failed: {failed_ids[:3]}",
+                )
+
             return ValidatorOutput(
                 name=self.name,
                 result=ValidationResult.PASS,
-                reason=f"All {total} steps completed",
+                reason=f"All {total} steps completed ({terminal} terminal)",
             )
 
         except Exception as e:
@@ -208,13 +230,12 @@ class ToolSuccessValidator(BaseValidator):
                 reason="No tools executed",
             )
 
-        error_indicators = ["❌", "⚠️ 工具执行错误", "错误类型:", "Error:"]
         error_results = []
         for tr in context.tool_results:
-            content = str(tr.get("content", "")) if isinstance(tr, dict) else str(tr)
-            if any(indicator in content for indicator in error_indicators):
-                tool_id = tr.get("tool_use_id", "?") if isinstance(tr, dict) else "?"
-                error_results.append(tool_id)
+            if not isinstance(tr, dict):
+                continue
+            if tr.get("is_error", False):
+                error_results.append(tr.get("tool_use_id", "?"))
 
         if error_results:
             total = len(context.tool_results)
@@ -234,27 +255,28 @@ class ToolSuccessValidator(BaseValidator):
 
 
 class CompletePlanValidator(BaseValidator):
-    """验证 complete_plan 工具是否被调用"""
+    """验证 complete_todo 工具是否被调用"""
 
     @property
     def name(self) -> str:
         return "CompletePlanValidator"
 
     def validate(self, context: ValidationContext) -> ValidatorOutput:
-        if "complete_plan" in context.executed_tools:
+        if "complete_todo" in context.executed_tools:
             return ValidatorOutput(
                 name=self.name,
                 result=ValidationResult.PASS,
-                reason="complete_plan was called",
+                reason="complete_todo was called",
             )
 
         try:
-            from ..tools.handlers.plan import has_active_plan
-            if context.conversation_id and has_active_plan(context.conversation_id):
+            from ..tools.handlers.plan import has_active_todo
+
+            if context.conversation_id and has_active_todo(context.conversation_id):
                 return ValidatorOutput(
                     name=self.name,
                     result=ValidationResult.FAIL,
-                    reason="Active plan exists but complete_plan not called",
+                    reason="Active plan exists but complete_todo not called",
                 )
         except Exception:
             pass
@@ -295,15 +317,18 @@ class ValidatorRegistry:
                 report.outputs.append(output)
             except Exception as e:
                 logger.warning(f"[Validator] {validator.name} error: {e}")
-                report.outputs.append(ValidatorOutput(
-                    name=validator.name,
-                    result=ValidationResult.SKIP,
-                    reason=f"Validator error: {e}",
-                ))
+                report.outputs.append(
+                    ValidatorOutput(
+                        name=validator.name,
+                        result=ValidationResult.SKIP,
+                        reason=f"Validator error: {e}",
+                    )
+                )
 
         # Decision Trace
         try:
             from ..tracing.tracer import get_tracer
+
             tracer = get_tracer()
             tracer.record_decision(
                 decision_type="deterministic_validation",

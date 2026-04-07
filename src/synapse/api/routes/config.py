@@ -11,8 +11,8 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
@@ -29,13 +29,31 @@ def _project_root() -> Path:
     """Return the project root (settings.project_root or cwd)."""
     try:
         from synapse.config import settings
+
         return Path(settings.project_root)
     except Exception:
         return Path.cwd()
 
 
+def _endpoints_config_path() -> Path:
+    """Return the canonical llm_endpoints.json path.
+
+    Uses the same resolution logic as LLMClient so the Config API
+    reads/writes the SAME file that the LLM runtime actually loads.
+    """
+    try:
+        from synapse.llm.config import get_default_config_path
+
+        return get_default_config_path()
+    except Exception:
+        return _project_root() / "data" / "llm_endpoints.json"
+
+
 def _parse_env(content: str) -> dict[str, str]:
     """Parse .env file content into a dict (same logic as Tauri bridge)."""
+    # Strip UTF-8 BOM if present (e.g. files saved by Windows Notepad)
+    if content.startswith("\ufeff"):
+        content = content[1:]
     env: dict[str, str] = {}
     for line in content.splitlines():
         line = line.strip()
@@ -46,9 +64,13 @@ def _parse_env(content: str) -> dict[str, str]:
         key, _, value = line.partition("=")
         key = key.strip()
         value = value.strip()
-        # Strip surrounding quotes (content inside quotes is taken literally)
+        # Strip surrounding quotes; unescape only \" and \\ (produced by _quote_env_value)
         if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
-            value = value[1:-1]
+            inner = value[1:-1]
+            if "\\" in inner:
+                # Only unescape sequences produced by our own writer
+                inner = inner.replace("\\\\", "\x00").replace('\\"', '"').replace("\x00", "\\")
+            value = inner
         else:
             # Unquoted: strip inline comment (# preceded by whitespace)
             for sep in (" #", "\t#"):
@@ -60,8 +82,40 @@ def _parse_env(content: str) -> dict[str, str]:
     return env
 
 
-def _update_env_content(existing: str, entries: dict[str, str]) -> str:
-    """Merge entries into existing .env content (preserves comments, order)."""
+def _needs_quoting(value: str) -> bool:
+    """Check whether a .env value must be quoted to survive round-trip parsing."""
+    if not value:
+        return False
+    if value[0] in (" ", "\t") or value[-1] in (" ", "\t"):
+        return True  # leading/trailing whitespace
+    if value[0] in ('"', "'"):
+        return True  # starts with a quote char
+    return any(ch in value for ch in (" ", "#", '"', "'", "\\"))
+
+
+def _quote_env_value(value: str) -> str:
+    """Quote a .env value only when it contains characters that would be
+    mangled by typical .env parsers.  Plain values (the vast majority of
+    API keys, URLs, flags) are written unquoted for maximum compatibility
+    with older Synapse versions and third-party .env tooling."""
+    if not _needs_quoting(value):
+        return value
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def _update_env_content(
+    existing: str,
+    entries: dict[str, str],
+    delete_keys: set[str] | None = None,
+) -> str:
+    """Merge entries into existing .env content (preserves comments, order).
+
+    - Non-empty values are written (quoted for round-trip safety).
+    - Empty string values are **ignored** (original line preserved).
+    - Keys in *delete_keys* are explicitly removed.
+    """
+    delete_keys = delete_keys or set()
     lines = existing.splitlines()
     updated_keys: set[str] = set()
     new_lines: list[str] = []
@@ -75,13 +129,16 @@ def _update_env_content(existing: str, entries: dict[str, str]) -> str:
             new_lines.append(line)
             continue
         key = stripped.split("=", 1)[0].strip()
+        if key in delete_keys:
+            updated_keys.add(key)
+            continue  # explicit delete — skip line
         if key in entries:
             value = entries[key]
             if value == "":
-                # Empty value → delete key (skip line)
-                updated_keys.add(key)
-                continue
-            new_lines.append(f"{key}={value}")
+                # Empty value → preserve the existing line (do NOT delete)
+                new_lines.append(line)
+            else:
+                new_lines.append(f"{key}={_quote_env_value(value)}")
             updated_keys.add(key)
         else:
             new_lines.append(line)
@@ -89,7 +146,7 @@ def _update_env_content(existing: str, entries: dict[str, str]) -> str:
     # Append new keys that weren't in the existing content
     for key, value in entries.items():
         if key not in updated_keys and value != "":
-            new_lines.append(f"{key}={value}")
+            new_lines.append(f"{key}={_quote_env_value(value)}")
 
     return "\n".join(new_lines) + "\n"
 
@@ -99,6 +156,7 @@ def _update_env_content(existing: str, entries: dict[str, str]) -> str:
 
 class EnvUpdateRequest(BaseModel):
     entries: dict[str, str]
+    delete_keys: list[str] = []
 
 
 class EndpointsWriteRequest(BaseModel):
@@ -124,69 +182,147 @@ class ListModelsRequest(BaseModel):
     api_key: str
 
 
+class SecurityConfigUpdate(BaseModel):
+    security: dict[str, Any]
+
+
+class SecurityZonesUpdate(BaseModel):
+    workspace: list[str] = []
+    controlled: list[str] = []
+    protected: list[str] = []
+    forbidden: list[str] = []
+
+
+class SecurityCommandsUpdate(BaseModel):
+    custom_critical: list[str] = []
+    custom_high: list[str] = []
+    excluded_patterns: list[str] = []
+    blocked_commands: list[str] = []
+
+
+class SecuritySandboxUpdate(BaseModel):
+    enabled: bool | None = None
+    backend: str | None = None
+    sandbox_risk_levels: list[str] | None = None
+    exempt_commands: list[str] | None = None
+
+
+class SecurityConfirmRequest(BaseModel):
+    confirm_id: str
+    decision: str  # allow_once | allow_session | allow_always | deny | sandbox (legacy: allow)
+
+
 # ─── Routes ────────────────────────────────────────────────────────────
 
 
 @router.get("/api/config/workspace-info")
 async def workspace_info():
-    """Return current workspace path and basic info."""
+    """Return current workspace path and basic info.
+
+    路径脱敏：对外只返回相对路径，不暴露用户名和完整目录结构。
+    """
     root = _project_root()
+    ep_path = _endpoints_config_path()
     return {
-        "workspace_path": str(root),
+        "workspace_path": f"~/{root.name}",
         "workspace_name": root.name,
         "env_exists": (root / ".env").exists(),
-        "endpoints_exists": (root / "data" / "llm_endpoints.json").exists(),
+        "endpoints_exists": ep_path.exists(),
+        "endpoints_path": _sanitize_path(ep_path, root),
     }
+
+
+def _sanitize_path(full_path: Path, workspace_root: Path) -> str:
+    """将绝对路径转换为相对于工作区的路径，避免泄露系统目录结构。"""
+    try:
+        return str(full_path.relative_to(workspace_root))
+    except ValueError:
+        return full_path.name
 
 
 @router.get("/api/config/env")
 async def read_env():
-    """Read .env file content as key-value pairs."""
+    """Read .env file content as key-value pairs (plaintext)."""
     env_path = _project_root() / ".env"
     if not env_path.exists():
         return {"env": {}, "raw": ""}
     content = env_path.read_bytes().decode("utf-8", errors="replace")
     env = _parse_env(content)
-    # Mask sensitive values for display (keys containing TOKEN, SECRET, PASSWORD, KEY)
-    masked = {}
-    sensitive_pattern = re.compile(r"(TOKEN|SECRET|PASSWORD|KEY|APIKEY)", re.IGNORECASE)
-    for k, v in env.items():
-        if sensitive_pattern.search(k) and v:
-            masked[k] = v[:4] + "***" + v[-2:] if len(v) > 6 else "***"
-        else:
-            masked[k] = v
-    return {"env": env, "masked": masked, "raw": ""}
+    return {"env": env, "raw": content}
 
 
 @router.post("/api/config/env")
 async def write_env(body: EnvUpdateRequest):
-    """Update .env file with key-value entries (merge, preserving comments)."""
+    """Update .env file with key-value entries (merge, preserving comments).
+
+    - Non-empty values are upserted.
+    - Empty string values are ignored (original value preserved).
+    - Keys listed in ``delete_keys`` are explicitly removed.
+    """
     env_path = _project_root() / ".env"
     existing = ""
     if env_path.exists():
         existing = env_path.read_bytes().decode("utf-8", errors="replace")
-    import re as _re
-    _env_key_pattern = _re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
-    for key in body.entries:
-        if not _env_key_pattern.match(key):
-            from fastapi import HTTPException as _HE
-            raise _HE(status_code=400, detail=f"Invalid env key: {key}")
-
-    new_content = _update_env_content(existing, body.entries)
+    new_content = _update_env_content(existing, body.entries, delete_keys=set(body.delete_keys))
     env_path.write_text(new_content, encoding="utf-8")
     for key, value in body.entries.items():
         if value:
             os.environ[key] = value
-        elif key in os.environ:
-            del os.environ[key]
-    logger.info(f"[Config API] Updated .env with {len(body.entries)} entries")
-    return {"status": "ok", "updated_keys": list(body.entries.keys())}
+    for key in body.delete_keys:
+        os.environ.pop(key, None)
+    count = len([v for v in body.entries.values() if v]) + len(body.delete_keys)
+    logger.info(f"[Config API] Updated .env with {count} entries")
+
+    # Determine if any changed keys require a service restart
+    _RESTART_REQUIRED_PREFIXES = (
+        "TELEGRAM_",
+        "FEISHU_",
+        "DINGTALK_",
+        "WEWORK_",
+        "ONEBOT_",
+        "QQ_",
+        "WECHAT_",
+        "IM_",
+        "REDIS_",
+        "DATABASE_",
+        "SANDBOX_",
+    )
+    _HOT_RELOAD_PREFIXES = (
+        "OPENAI_",
+        "ANTHROPIC_",
+        "LLM_",
+        "DEFAULT_MODEL",
+        "TEMPERATURE",
+        "MAX_TOKENS",
+        "SYNAPSE_THEME",
+        "LANGUAGE",
+    )
+    changed_keys = {k for k, v in body.entries.items() if v} | set(body.delete_keys)
+    restart_required = any(
+        any(k.upper().startswith(p) for p in _RESTART_REQUIRED_PREFIXES) for k in changed_keys
+    )
+    hot_reloadable = (
+        all(
+            any(k.upper().startswith(p) for p in _HOT_RELOAD_PREFIXES)
+            or k.upper().startswith("SYNAPSE_")
+            for k in changed_keys
+        )
+        if changed_keys
+        else True
+    )
+
+    return {
+        "status": "ok",
+        "updated_keys": list(body.entries.keys()),
+        "restart_required": restart_required,
+        "hot_reloadable": hot_reloadable,
+    }
 
 
 @router.get("/api/config/endpoints")
 async def read_endpoints():
     """Read data/llm_endpoints.json."""
-    ep_path = _project_root() / "data" / "llm_endpoints.json"
+    ep_path = _endpoints_config_path()
     if not ep_path.exists():
         return {"endpoints": [], "raw": {}}
     try:
@@ -199,14 +335,122 @@ async def read_endpoints():
 @router.post("/api/config/endpoints")
 async def write_endpoints(body: EndpointsWriteRequest):
     """Write data/llm_endpoints.json."""
-    ep_path = _project_root() / "data" / "llm_endpoints.json"
+    ep_path = _endpoints_config_path()
     ep_path.parent.mkdir(parents=True, exist_ok=True)
     ep_path.write_text(
         json.dumps(body.content, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    logger.info("[Config API] Updated llm_endpoints.json")
+    logger.info("[Config API] Updated llm_endpoints.json (%s)", ep_path)
     return {"status": "ok"}
+
+
+def _get_endpoint_manager():
+    """Get or create the EndpointManager singleton for the current workspace."""
+    from synapse.llm.endpoint_manager import EndpointManager
+
+    root = _project_root()
+    _mgr = getattr(_get_endpoint_manager, "_instance", None)
+    if _mgr is None or _mgr._ws_dir != root:
+        _mgr = EndpointManager(root)
+        _get_endpoint_manager._instance = _mgr
+    return _mgr
+
+
+class SaveEndpointRequest(BaseModel):
+    endpoint: dict
+    api_key: str | None = None
+    endpoint_type: str = "endpoints"
+    expected_version: str | None = None
+
+
+class DeleteEndpointRequest(BaseModel):
+    endpoint_type: str = "endpoints"
+    clean_env: bool = True
+
+
+@router.post("/api/config/save-endpoint")
+async def save_endpoint(body: SaveEndpointRequest, request: Request):
+    """Save or update an LLM endpoint atomically.
+
+    Writes the API key to .env and the endpoint config to llm_endpoints.json
+    in a single coordinated operation. Then triggers hot-reload.
+    """
+    from synapse.llm.endpoint_manager import ConflictError
+
+    mgr = _get_endpoint_manager()
+    try:
+        result = mgr.save_endpoint(
+            endpoint=body.endpoint,
+            api_key=body.api_key,
+            endpoint_type=body.endpoint_type,
+            expected_version=body.expected_version,
+        )
+    except ConflictError as e:
+        return {"status": "conflict", "error": str(e), "current_version": e.current_version}
+    except (ValueError, Exception) as e:
+        logger.error("[Config API] save-endpoint failed: %s", e, exc_info=True)
+        return {"status": "error", "error": str(e)}
+
+    # Auto-reload running clients
+    _trigger_reload(request)
+
+    return {
+        "status": "ok",
+        "endpoint": result,
+        "version": mgr.get_version(),
+    }
+
+
+@router.delete("/api/config/endpoint/{name:path}")
+async def delete_endpoint_by_name(
+    name: str, request: Request, endpoint_type: str = "endpoints", clean_env: bool = True
+):
+    """Delete an LLM endpoint by name. Cleans up the .env key if no longer used."""
+    mgr = _get_endpoint_manager()
+    removed = mgr.delete_endpoint(name, endpoint_type=endpoint_type, clean_env=clean_env)
+    if removed is None:
+        return {"status": "not_found", "name": name}
+
+    _trigger_reload(request)
+    return {"status": "ok", "removed": removed, "version": mgr.get_version()}
+
+
+@router.get("/api/config/endpoint-status")
+async def endpoint_status():
+    """Return key presence status for all configured endpoints."""
+    mgr = _get_endpoint_manager()
+    return {"endpoints": mgr.get_endpoint_status()}
+
+
+def _trigger_reload(request: Request) -> bool:
+    """Trigger hot-reload of LLM clients after config change."""
+    agent = getattr(request.app.state, "agent", None)
+    if agent is None:
+        return False
+    brain = getattr(agent, "brain", None) or getattr(agent, "_local_agent", None)
+    if brain and hasattr(brain, "brain"):
+        brain = brain.brain
+    llm_client = getattr(brain, "_llm_client", None) if brain else None
+    if llm_client is None:
+        llm_client = getattr(agent, "_llm_client", None)
+    if llm_client is None:
+        return False
+    try:
+        llm_client.reload()
+        if brain and hasattr(brain, "reload_compiler_client"):
+            brain.reload_compiler_client()
+        gateway = getattr(request.app.state, "gateway", None)
+        if gateway and hasattr(gateway, "stt_client") and gateway.stt_client:
+            from synapse.llm.config import load_endpoints_config
+
+            _, _, stt_eps, _ = load_endpoints_config()
+            gateway.stt_client.reload(stt_eps)
+        logger.info("[Config API] Hot-reload triggered after config change")
+        return True
+    except Exception as e:
+        logger.error("[Config API] Hot-reload failed: %s", e, exc_info=True)
+        return False
 
 
 @router.post("/api/config/reload")
@@ -247,6 +491,7 @@ async def reload_config(request: Request):
         if gateway and hasattr(gateway, "stt_client") and gateway.stt_client:
             try:
                 from synapse.llm.config import load_endpoints_config
+
                 _, _, stt_eps, _ = load_endpoints_config()
                 gateway.stt_client.reload(stt_eps)
                 stt_reloaded = True
@@ -357,25 +602,32 @@ def _hot_patch_agent_tools(request: Request, *, enable: bool) -> None:
         return
     try:
         from synapse.tools.definitions.agent import AGENT_TOOLS
+        from synapse.tools.definitions.org_setup import ORG_SETUP_TOOLS
         from synapse.tools.handlers.agent import create_handler as create_agent_handler
-        tool_names = [t["name"] for t in AGENT_TOOLS]
+        from synapse.tools.handlers.org_setup import create_handler as create_org_setup_handler
+
+        all_tools = AGENT_TOOLS + ORG_SETUP_TOOLS
+        tool_names = [t["name"] for t in all_tools]
 
         if enable:
             existing = {t["name"] for t in agent._tools}
-            for t in AGENT_TOOLS:
+            for t in all_tools:
                 if t["name"] not in existing:
                     agent._tools.append(t)
                 agent.tool_catalog.add_tool(t)
-            agent.handler_registry.register(
-                "agent", create_agent_handler(agent), tool_names,
-            )
-            logger.info("[Config API] Agent tools hot-patched onto global agent")
+            agent.handler_registry.register("agent", create_agent_handler(agent))
+            agent.handler_registry.register("org_setup", create_org_setup_handler(agent))
+            logger.info("[Config API] Agent + org_setup tools hot-patched onto global agent")
         else:
             agent._tools = [t for t in agent._tools if t["name"] not in set(tool_names)]
             for name in tool_names:
                 agent.tool_catalog.remove_tool(name)
             agent.handler_registry.unregister("agent")
-            logger.info("[Config API] Agent tools removed from global agent")
+            try:
+                agent.handler_registry.unregister("org_setup")
+            except Exception:
+                pass
+            logger.info("[Config API] Agent + org_setup tools removed from global agent")
     except Exception as e:
         logger.warning(f"[Config API] Failed to hot-patch agent tools: {e}")
 
@@ -388,15 +640,15 @@ async def write_agent_mode(body: AgentModeRequest, request: Request):
     old = settings.multi_agent_enabled
     settings.multi_agent_enabled = body.enabled
     runtime_state.save()
-    logger.info(
-        f"[Config API] multi_agent_enabled: {old} -> {body.enabled}"
-    )
+    logger.info(f"[Config API] multi_agent_enabled: {old} -> {body.enabled}")
 
     if body.enabled and not old:
         try:
             from synapse.main import _init_orchestrator
+
             await _init_orchestrator()
             from synapse.main import _orchestrator
+
             if _orchestrator is not None:
                 request.app.state.orchestrator = _orchestrator
                 logger.info("[Config API] Orchestrator initialized and bound to app.state")
@@ -404,6 +656,7 @@ async def write_agent_mode(body: AgentModeRequest, request: Request):
             logger.warning(f"[Config API] Failed to init orchestrator on mode switch: {e}")
         try:
             from synapse.agents.presets import ensure_presets_on_mode_enable
+
             ensure_presets_on_mode_enable(settings.data_dir / "agents")
         except Exception as e:
             logger.warning(f"[Config API] Failed to deploy presets: {e}")
@@ -419,6 +672,56 @@ async def write_agent_mode(body: AgentModeRequest, request: Request):
         pool.notify_skills_changed()
 
     return {"status": "ok", "multi_agent_enabled": body.enabled}
+
+
+# ---------------------------------------------------------------------------
+# Tool Loading Configuration
+# ---------------------------------------------------------------------------
+
+
+class ToolLoadingRequest(BaseModel):
+    always_load_tools: list[str] = []
+    always_load_categories: list[str] = []
+
+
+@router.get("/api/config/tool-loading")
+async def read_tool_loading(request: Request):
+    """读取工具常驻加载配置。"""
+    from synapse.config import settings
+
+    available_categories: list[str] = []
+    agent = getattr(request.app.state, "agent", None)
+    if agent and hasattr(agent, "tool_catalog"):
+        try:
+            available_categories = sorted(agent.tool_catalog.get_tool_groups().keys())
+        except Exception:
+            pass
+
+    return {
+        "always_load_tools": settings.always_load_tools,
+        "always_load_categories": settings.always_load_categories,
+        "available_categories": available_categories,
+    }
+
+
+@router.post("/api/config/tool-loading")
+async def write_tool_loading(body: ToolLoadingRequest, request: Request):
+    """更新工具常驻加载配置。立即生效并持久化。"""
+    from synapse.config import runtime_state, settings
+
+    settings.always_load_tools = body.always_load_tools
+    settings.always_load_categories = body.always_load_categories
+    runtime_state.save()
+    logger.info(
+        "[Config API] tool-loading updated: tools=%s, categories=%s",
+        body.always_load_tools,
+        body.always_load_categories,
+    )
+    return {
+        "status": "ok",
+        "always_load_tools": body.always_load_tools,
+        "always_load_categories": body.always_load_categories,
+    }
 
 
 @router.get("/api/config/providers")
@@ -481,7 +784,7 @@ async def list_models_api(body: ListModelsRequest):
         if not api_key:
             api_key = "local"  # placeholder for local providers
 
-        if api_type == "openai":
+        if api_type in ("openai", "openai_responses"):
             models = await _list_models_openai(api_key, base_url, provider_slug)
         elif api_type == "anthropic":
             models = await _list_models_anthropic(api_key, base_url, provider_slug)
@@ -496,16 +799,577 @@ async def list_models_api(body: ListModelsRequest):
         friendly = str(e)
         if "errno 2" in raw or "no such file" in raw:
             friendly = "SSL 证书文件缺失，请重新安装或更新应用"
-        elif "connect" in raw or "connection refused" in raw or "no route" in raw or "unreachable" in raw:
+        elif (
+            "connect" in raw
+            or "connection refused" in raw
+            or "no route" in raw
+            or "unreachable" in raw
+        ):
             friendly = "无法连接到服务商，请检查 API 地址和网络连接"
-        elif "401" in raw or "unauthorized" in raw or "invalid api key" in raw or "authentication" in raw:
+            try:
+                from synapse.llm.providers.proxy_utils import format_proxy_hint
+
+                hint = format_proxy_hint()
+                if hint:
+                    friendly += hint
+            except Exception:
+                pass
+        elif (
+            "401" in raw
+            or "unauthorized" in raw
+            or "invalid api key" in raw
+            or "authentication" in raw
+        ):
             friendly = "API Key 无效或已过期，请检查后重试"
         elif "403" in raw or "forbidden" in raw or "permission" in raw:
             friendly = "API Key 权限不足，请确认已开通模型访问权限"
         elif "404" in raw or "not found" in raw:
-            friendly = "API 地址有误，服务商未返回模型列表接口"
+            friendly = "该服务商不支持模型列表查询，您可以手动输入模型名称"
         elif "timeout" in raw or "timed out" in raw:
             friendly = "请求超时，请检查网络或稍后重试"
         elif len(friendly) > 150:
             friendly = friendly[:150] + "…"
         return {"error": friendly, "models": []}
+
+
+# ─── Security Policy Routes ───────────────────────────────────────────
+
+
+def _read_policies_yaml() -> dict | None:
+    """Read identity/POLICIES.yaml as dict.
+
+    Returns None on parse error to distinguish from empty file ({}).
+    Callers must check for None before writing to prevent data loss (P1-9).
+    """
+    import yaml
+
+    policies_path = _project_root() / "identity" / "POLICIES.yaml"
+    if not policies_path.exists():
+        return {}
+    try:
+        return yaml.safe_load(policies_path.read_text(encoding="utf-8")) or {}
+    except Exception as e:
+        logger.error(f"[Config] 无法读取 POLICIES.yaml: {e}")
+        return None
+
+
+def _write_policies_yaml(data: dict) -> bool:
+    """Write dict to identity/POLICIES.yaml.
+
+    Returns False if the write was refused (P1-9: 防止配置文件覆盖丢失).
+    """
+    import yaml
+
+    existing = _read_policies_yaml()
+    if existing is None:
+        logger.error("[Config] 拒绝写入 POLICIES.yaml: 当前文件无法正确读取，写入可能导致数据丢失")
+        return False
+    policies_path = _project_root() / "identity" / "POLICIES.yaml"
+    policies_path.parent.mkdir(parents=True, exist_ok=True)
+    policies_path.write_text(
+        yaml.dump(data, allow_unicode=True, default_flow_style=False, sort_keys=False),
+        encoding="utf-8",
+    )
+    return True
+
+
+@router.get("/api/config/security")
+async def read_security_config():
+    """Read the full security policy configuration."""
+    data = _read_policies_yaml()
+    if data is None:
+        return {"security": {}, "_warning": "配置文件读取失败"}
+    return {"security": data.get("security", {})}
+
+
+@router.post("/api/config/security")
+async def write_security_config(body: SecurityConfigUpdate):
+    """Write the full security policy configuration."""
+    data = _read_policies_yaml()
+    if data is None:
+        return {"status": "error", "message": "无法读取当前配置文件，写入已取消以防止数据丢失"}
+    data["security"] = body.security
+    if not _write_policies_yaml(data):
+        return {"status": "error", "message": "配置写入失败"}
+    try:
+        from synapse.core.policy import reset_policy_engine
+
+        reset_policy_engine()
+    except Exception:
+        pass
+    logger.info("[Config API] Updated security policy")
+    return {"status": "ok"}
+
+
+@router.get("/api/config/security/zones")
+async def read_security_zones():
+    """Read zone path configuration."""
+    data = _read_policies_yaml() or {}
+    zones = data.get("security", {}).get("zones", {})
+    return {
+        "workspace": zones.get("workspace", []),
+        "controlled": zones.get("controlled", []),
+        "protected": zones.get("protected", []),
+        "forbidden": zones.get("forbidden", []),
+        "default_zone": zones.get("default_zone", "protected"),
+    }
+
+
+@router.post("/api/config/security/zones")
+async def write_security_zones(body: SecurityZonesUpdate):
+    """Update zone path configuration."""
+    data = _read_policies_yaml()
+    if data is None:
+        return {"status": "error", "message": "无法读取当前配置文件，写入已取消以防止数据丢失"}
+    if "security" not in data:
+        data["security"] = {}
+    if "zones" not in data["security"]:
+        data["security"]["zones"] = {}
+    z = data["security"]["zones"]
+    z["workspace"] = body.workspace
+    z["controlled"] = body.controlled
+    z["protected"] = body.protected
+    z["forbidden"] = body.forbidden
+    _write_policies_yaml(data)
+    try:
+        from synapse.core.policy import reset_policy_engine
+
+        reset_policy_engine()
+    except Exception:
+        pass
+    logger.info("[Config API] Updated security zones")
+    return {"status": "ok"}
+
+
+@router.get("/api/config/security/commands")
+async def read_security_commands():
+    """Read command pattern configuration."""
+    data = _read_policies_yaml() or {}
+    cp = data.get("security", {}).get("command_patterns", {})
+    return {
+        "custom_critical": cp.get("custom_critical", []),
+        "custom_high": cp.get("custom_high", []),
+        "excluded_patterns": cp.get("excluded_patterns", []),
+        "blocked_commands": cp.get("blocked_commands", []),
+    }
+
+
+@router.post("/api/config/security/commands")
+async def write_security_commands(body: SecurityCommandsUpdate):
+    """Update command pattern configuration."""
+    data = _read_policies_yaml()
+    if data is None:
+        return {"status": "error", "message": "无法读取当前配置文件，写入已取消以防止数据丢失"}
+    if "security" not in data:
+        data["security"] = {}
+    if "command_patterns" not in data["security"]:
+        data["security"]["command_patterns"] = {}
+    cp = data["security"]["command_patterns"]
+    cp["custom_critical"] = body.custom_critical
+    cp["custom_high"] = body.custom_high
+    cp["excluded_patterns"] = body.excluded_patterns
+    cp["blocked_commands"] = body.blocked_commands
+    _write_policies_yaml(data)
+    try:
+        from synapse.core.policy import reset_policy_engine
+
+        reset_policy_engine()
+    except Exception:
+        pass
+    logger.info("[Config API] Updated security commands")
+    return {"status": "ok"}
+
+
+@router.get("/api/config/security/sandbox")
+async def read_security_sandbox():
+    """Read sandbox configuration."""
+    data = _read_policies_yaml() or {}
+    sb = data.get("security", {}).get("sandbox", {})
+    return {
+        "enabled": sb.get("enabled", True),
+        "backend": sb.get("backend", "auto"),
+        "sandbox_risk_levels": sb.get("sandbox_risk_levels", ["HIGH"]),
+        "exempt_commands": sb.get("exempt_commands", []),
+        "network": sb.get("network", {}),
+    }
+
+
+@router.post("/api/config/security/sandbox")
+async def write_security_sandbox(body: SecuritySandboxUpdate):
+    """Update sandbox configuration."""
+    data = _read_policies_yaml()
+    if data is None:
+        return {"status": "error", "message": "无法读取当前配置文件，写入已取消以防止数据丢失"}
+    if "security" not in data:
+        data["security"] = {}
+    if "sandbox" not in data["security"]:
+        data["security"]["sandbox"] = {}
+    sb = data["security"]["sandbox"]
+    if body.enabled is not None:
+        sb["enabled"] = body.enabled
+    if body.backend is not None:
+        sb["backend"] = body.backend
+    if body.sandbox_risk_levels is not None:
+        sb["sandbox_risk_levels"] = body.sandbox_risk_levels
+    if body.exempt_commands is not None:
+        sb["exempt_commands"] = body.exempt_commands
+    _write_policies_yaml(data)
+    try:
+        from synapse.core.policy import reset_policy_engine
+
+        reset_policy_engine()
+    except Exception:
+        pass
+    logger.info("[Config API] Updated security sandbox")
+    return {"status": "ok"}
+
+
+@router.get("/api/config/permission-mode")
+async def read_permission_mode():
+    """读取当前安全模式（前端 cautious/smart/trust 与后端同步）。"""
+    try:
+        from synapse.core.policy import get_policy_engine
+
+        pe = get_policy_engine()
+        mode = getattr(pe, "_frontend_mode", "smart")
+        return {"mode": mode}
+    except Exception as e:
+        logger.debug(f"[Config API] permission-mode read fallback: {e}")
+        return {"mode": "smart"}
+
+
+class _PermissionModeBody(BaseModel):
+    mode: str = "smart"
+
+
+@router.post("/api/config/permission-mode")
+async def write_permission_mode(body: _PermissionModeBody):
+    """设置安全模式并持久化到 YAML。"""
+    mode = body.mode
+    # accept legacy "trust" as alias for "yolo"
+    if mode == "trust":
+        mode = "yolo"
+    if mode not in ("cautious", "smart", "yolo"):
+        return {"status": "error", "message": f"无效的安全模式: {mode}"}
+    try:
+        from synapse.core.policy import get_policy_engine
+
+        pe = get_policy_engine()
+        pe._frontend_mode = mode
+        pe._config.confirmation.mode = mode
+        pe._config.confirmation.auto_confirm = mode == "yolo"
+        # Persist to YAML
+        data = _read_policies_yaml()
+        if data is not None:
+            sec = data.setdefault("security", {})
+            conf = sec.setdefault("confirmation", {})
+            conf["mode"] = mode
+            conf.pop("auto_confirm", None)
+            _write_policies_yaml(data)
+        logger.info(f"[Config API] Permission mode set to: {mode}")
+        return {"status": "ok", "mode": mode}
+    except Exception as e:
+        logger.warning(f"[Config API] permission-mode write error: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@router.get("/api/config/security/audit")
+async def read_security_audit():
+    """Read recent audit log entries."""
+    try:
+        from synapse.core.audit_logger import get_audit_logger
+
+        entries = get_audit_logger().tail(50)
+        return {"entries": entries}
+    except Exception as e:
+        return {"entries": [], "error": str(e)}
+
+
+@router.get("/api/config/security/checkpoints")
+async def list_checkpoints():
+    """List recent file checkpoints."""
+    try:
+        from synapse.core.checkpoint import get_checkpoint_manager
+
+        checkpoints = get_checkpoint_manager().list_checkpoints(20)
+        return {"checkpoints": checkpoints}
+    except Exception as e:
+        return {"checkpoints": [], "error": str(e)}
+
+
+@router.post("/api/config/security/checkpoint/rewind")
+async def rewind_checkpoint(body: dict):
+    """Rewind to a specific checkpoint."""
+    checkpoint_id = body.get("checkpoint_id", "")
+    if not checkpoint_id:
+        return {"status": "error", "message": "checkpoint_id required"}
+    try:
+        from synapse.core.checkpoint import get_checkpoint_manager
+
+        success = get_checkpoint_manager().rewind_to_checkpoint(checkpoint_id)
+        return {"status": "ok" if success else "error"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.post("/api/chat/security-confirm")
+async def security_confirm(body: SecurityConfirmRequest):
+    """Handle security confirmation from UI.
+
+    Calls mark_confirmed() on the policy engine so that the agent's
+    subsequent retry of the same tool bypasses the CONFIRM gate.
+    """
+    logger.info(f"[Security] Confirmation received: {body.confirm_id} -> {body.decision}")
+    try:
+        from synapse.core.policy import get_policy_engine
+
+        engine = get_policy_engine()
+        found = engine.resolve_ui_confirm(body.confirm_id, body.decision)
+        if not found:
+            logger.warning(f"[Security] No pending confirm found for id={body.confirm_id}")
+    except Exception as e:
+        logger.warning(f"[Security] Failed to resolve confirmation: {e}")
+    return {"status": "ok", "confirm_id": body.confirm_id, "decision": body.decision}
+
+
+@router.post("/api/config/security/death-switch/reset")
+async def reset_death_switch():
+    """Reset the death switch (exit read-only mode)."""
+    try:
+        from synapse.core.policy import get_policy_engine
+
+        engine = get_policy_engine()
+        engine.reset_readonly_mode()
+        return {"status": "ok", "readonly_mode": False}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# ── Confirmation config CRUD ─────────────────────────────────────────
+
+
+@router.get("/api/config/security/confirmation")
+async def read_security_confirmation():
+    """Read confirmation config."""
+    data = _read_policies_yaml()
+    if data is None:
+        return {
+            "mode": "smart",
+            "timeout_seconds": 60,
+            "default_on_timeout": "deny",
+            "confirm_ttl": 120,
+        }
+    c = data.get("security", {}).get("confirmation", {})
+    return {
+        "mode": c.get("mode", "smart"),
+        "timeout_seconds": c.get("timeout_seconds", 60),
+        "default_on_timeout": c.get("default_on_timeout", "deny"),
+        "confirm_ttl": c.get("confirm_ttl", 120),
+    }
+
+
+class _ConfirmationUpdate(BaseModel):
+    mode: str | None = None
+    timeout_seconds: int | None = None
+    default_on_timeout: str | None = None
+    confirm_ttl: float | None = None
+
+
+@router.post("/api/config/security/confirmation")
+async def write_security_confirmation(body: _ConfirmationUpdate):
+    """Update confirmation config (PATCH semantics)."""
+    data = _read_policies_yaml()
+    if data is None:
+        return {"status": "error", "message": "无法读取配置"}
+    sec = data.setdefault("security", {})
+    conf = sec.setdefault("confirmation", {})
+    if body.mode is not None:
+        m = "yolo" if body.mode == "trust" else body.mode
+        if m not in ("cautious", "smart", "yolo"):
+            return {"status": "error", "message": f"无效 mode: {body.mode}"}
+        conf["mode"] = m
+        conf.pop("auto_confirm", None)
+    if body.timeout_seconds is not None:
+        conf["timeout_seconds"] = body.timeout_seconds
+    if body.default_on_timeout is not None:
+        conf["default_on_timeout"] = body.default_on_timeout
+    if body.confirm_ttl is not None:
+        conf["confirm_ttl"] = body.confirm_ttl
+    _write_policies_yaml(data)
+    try:
+        from synapse.core.policy import reset_policy_engine
+
+        reset_policy_engine()
+    except Exception:
+        pass
+    return {"status": "ok"}
+
+
+# ── Self-protection config CRUD ──────────────────────────────────────
+
+
+@router.get("/api/config/security/self-protection")
+async def read_self_protection():
+    """Read self-protection config."""
+    data = _read_policies_yaml()
+    if data is None:
+        return {}
+    sp = data.get("security", {}).get("self_protection", {})
+    try:
+        from synapse.core.policy import get_policy_engine
+
+        pe = get_policy_engine()
+        readonly = pe.readonly_mode
+    except Exception:
+        readonly = False
+    return {
+        "enabled": sp.get("enabled", True),
+        "protected_dirs": sp.get("protected_dirs", []),
+        "death_switch_threshold": sp.get("death_switch_threshold", 3),
+        "death_switch_total_multiplier": sp.get("death_switch_total_multiplier", 3),
+        "audit_to_file": sp.get("audit_to_file", True),
+        "audit_path": sp.get("audit_path", ""),
+        "readonly_mode": readonly,
+    }
+
+
+class _SelfProtectionUpdate(BaseModel):
+    enabled: bool | None = None
+    protected_dirs: list[str] | None = None
+    death_switch_threshold: int | None = None
+    death_switch_total_multiplier: int | None = None
+    audit_to_file: bool | None = None
+    audit_path: str | None = None
+
+
+@router.post("/api/config/security/self-protection")
+async def write_self_protection(body: _SelfProtectionUpdate):
+    """Update self-protection config (PATCH semantics)."""
+    data = _read_policies_yaml()
+    if data is None:
+        return {"status": "error", "message": "无法读取配置"}
+    sec = data.setdefault("security", {})
+    sp = sec.setdefault("self_protection", {})
+    if body.enabled is not None:
+        sp["enabled"] = body.enabled
+    if body.protected_dirs is not None:
+        sp["protected_dirs"] = body.protected_dirs
+    if body.death_switch_threshold is not None:
+        sp["death_switch_threshold"] = body.death_switch_threshold
+    if body.death_switch_total_multiplier is not None:
+        sp["death_switch_total_multiplier"] = body.death_switch_total_multiplier
+    if body.audit_to_file is not None:
+        sp["audit_to_file"] = body.audit_to_file
+    if body.audit_path is not None:
+        sp["audit_path"] = body.audit_path
+    _write_policies_yaml(data)
+    try:
+        from synapse.core.policy import reset_policy_engine
+
+        reset_policy_engine()
+    except Exception:
+        pass
+    return {"status": "ok"}
+
+
+# ── User allowlist CRUD ──────────────────────────────────────────────
+
+
+@router.get("/api/config/security/allowlist")
+async def read_user_allowlist():
+    """Read the persistent user allowlist."""
+    try:
+        from synapse.core.policy import get_policy_engine
+
+        return get_policy_engine().get_user_allowlist()
+    except Exception:
+        return {"commands": [], "tools": []}
+
+
+@router.post("/api/config/security/allowlist")
+async def add_allowlist_entry(body: dict):
+    """Add an entry to the persistent user allowlist."""
+    entry_type = body.get("type", "command")
+    entry = {k: v for k, v in body.items() if k != "type"}
+    try:
+        from synapse.core.policy import get_policy_engine
+
+        pe = get_policy_engine()
+        al = pe._config.user_allowlist
+        if entry_type == "command":
+            al.commands.append(entry)
+        else:
+            al.tools.append(entry)
+        pe._save_user_allowlist()
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.delete("/api/config/security/allowlist/{entry_type}/{index}")
+async def delete_allowlist_entry(entry_type: str, index: int):
+    """Remove an entry from the persistent user allowlist."""
+    try:
+        from synapse.core.policy import get_policy_engine
+
+        ok = get_policy_engine().remove_allowlist_entry(entry_type, index)
+        return {"status": "ok" if ok else "error", "message": "" if ok else "无效索引"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.get("/api/config/extensions")
+async def list_extensions():
+    """Return status of optional external CLI tool extensions."""
+    import os
+    import shutil
+
+    def _find_cli_anything() -> str | None:
+        for d in os.environ.get("PATH", "").split(os.pathsep):
+            try:
+                if not os.path.isdir(d):
+                    continue
+                for entry in os.listdir(d):
+                    if entry.lower().startswith("cli-anything-"):
+                        return os.path.join(d, entry)
+            except OSError:
+                continue
+        return None
+
+    oc_path = shutil.which("opencli")
+    ca_path = _find_cli_anything()
+
+    return {
+        "extensions": [
+            {
+                "id": "opencli",
+                "name": "OpenCLI",
+                "description": "Operate websites via CLI, reusing Chrome login sessions",
+                "description_zh": "将网站转化为 CLI 命令，复用 Chrome 登录态",
+                "category": "Web",
+                "installed": oc_path is not None,
+                "path": oc_path,
+                "install_cmd": "npm install -g opencli",
+                "upgrade_cmd": "npm update -g opencli",
+                "setup_cmd": "opencli setup",
+                "homepage": "https://github.com/anthropics/opencli",
+                "license": "MIT",
+                "author": "Anthropic / Jack Wener",
+            },
+            {
+                "id": "cli-anything",
+                "name": "CLI-Anything",
+                "description": "Control desktop software via auto-generated CLI interfaces",
+                "description_zh": "为桌面软件自动生成 CLI 接口（GIMP、Blender 等）",
+                "category": "Desktop",
+                "installed": ca_path is not None,
+                "path": ca_path,
+                "install_cmd": "pip install cli-anything-gimp",
+                "upgrade_cmd": "pip install --upgrade cli-anything-<app>",
+                "setup_cmd": None,
+                "homepage": "https://github.com/HKUDS/CLI-Anything",
+                "license": "MIT",
+                "author": "HKU Data Science Lab (HKUDS)",
+            },
+        ],
+    }

@@ -9,17 +9,30 @@
 """
 
 import logging
+import re
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import ClassVar
 
 from .types import MediaFile, OutgoingMessage, UnifiedMessage
 
 logger = logging.getLogger(__name__)
 
+# Windows 文件名非法字符 (: * ? " < > |)
+_UNSAFE_FILENAME_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def sanitize_filename(name: str) -> str:
+    """将文件名中的非法字符替换为下划线，确保跨平台兼容。"""
+    safe = _UNSAFE_FILENAME_RE.sub("_", name)
+    return safe.strip(". ") or "download"
+
+
 # 回调类型定义
 MessageCallback = Callable[[UnifiedMessage], Awaitable[None]]
 EventCallback = Callable[[str, dict], Awaitable[None]]
+FailureCallback = Callable[[str, str], None]  # (adapter_name, reason)
 
 
 class ChannelAdapter(ABC):
@@ -38,9 +51,32 @@ class ChannelAdapter(ABC):
     # 通道名称（子类必须覆盖）
     channel_name: str = "unknown"
 
-    def __init__(self, *, channel_name: str | None = None, bot_id: str | None = None, agent_profile_id: str = "default"):
+    STALE_MESSAGE_THRESHOLD_S: ClassVar[int] = 120
+
+    capabilities: ClassVar[dict[str, bool]] = {
+        "streaming": False,
+        "send_image": False,
+        "send_file": False,
+        "send_voice": False,
+        "delete_message": False,
+        "edit_message": False,
+        "get_chat_info": False,
+        "get_user_info": False,
+        "get_chat_members": False,
+        "get_recent_messages": False,
+        "markdown": False,
+    }
+
+    def __init__(
+        self,
+        *,
+        channel_name: str | None = None,
+        bot_id: str | None = None,
+        agent_profile_id: str = "default",
+    ):
         self._message_callback: MessageCallback | None = None
         self._event_callback: EventCallback | None = None
+        self._failure_callback: FailureCallback | None = None
         self._running = False
         if channel_name is not None:
             self.channel_name = channel_name
@@ -50,10 +86,56 @@ class ChannelAdapter(ABC):
             self.bot_id = self.channel_name
         self.agent_profile_id = agent_profile_id
 
+    def has_capability(self, name: str) -> bool:
+        return self.capabilities.get(name, False)
+
+    @property
+    def channel_type(self) -> str:
+        """Base channel platform type (e.g. 'feishu', 'qqbot').
+
+        When channel_name is a multi-bot instance like 'feishu:my-bot',
+        this returns 'feishu'.  For simple names it returns channel_name as-is.
+        """
+        return self.channel_name.split(":")[0]
+
     @property
     def is_running(self) -> bool:
         """是否运行中"""
         return self._running
+
+    def collect_warnings(self) -> list[str]:
+        """检查配置和运行状态，返回安全/配置告警列表。
+
+        子类可覆写此方法以添加平台特有的检查。
+        基类提供通用检查：
+        - 必填凭证是否疑似占位符
+        - 端口范围检查
+        """
+        warnings: list[str] = []
+        config = getattr(self, "config", None)
+        if config is None:
+            return warnings
+
+        placeholder_hints = ("your_", "xxx", "placeholder", "changeme", "test123")
+        for field_name in ("app_id", "app_key", "app_secret", "token", "secret", "bot_id"):
+            value = getattr(config, field_name, None)
+            if isinstance(value, str) and value:
+                lower = value.lower()
+                for hint in placeholder_hints:
+                    if lower.startswith(hint) or lower == hint:
+                        warnings.append(
+                            f"[{self.channel_name}] {field_name} 疑似占位符值 '{value[:20]}'，"
+                            f"请检查配置是否正确。"
+                        )
+                        break
+
+        port = getattr(config, "callback_port", None) or getattr(config, "webhook_port", None)
+        if isinstance(port, int) and port < 1024:
+            warnings.append(
+                f"[{self.channel_name}] 端口 {port} < 1024，可能需要 root 权限或 setcap 配置。"
+            )
+
+        return warnings
 
     # ==================== 生命周期 ====================
 
@@ -115,6 +197,14 @@ class ChannelAdapter(ABC):
         )
         return await self.send_message(message)
 
+    def format_final_footer(self, chat_id: str, thread_id: str | None = None) -> str | None:
+        """返回追加到最终回复末尾的 footer 文本（如耗时统计）。
+
+        默认返回 None（不追加）。子类可覆写此方法，返回的文本会被 gateway
+        拼接到最后一条分片消息末尾，并在调用后自动重置内部计时器。
+        """
+        return None
+
     # ==================== 媒体处理 ====================
 
     @abstractmethod
@@ -164,6 +254,18 @@ class ChannelAdapter(ABC):
         self._event_callback = callback
         logger.debug(f"{self.channel_name}: event callback registered")
 
+    def on_failure(self, callback: FailureCallback) -> None:
+        """注册致命失败回调，由网关设置以更新状态面板。"""
+        self._failure_callback = callback
+
+    def _report_failure(self, reason: str) -> None:
+        """通知网关本适配器已致命失败（认证错误等），使状态面板正确反映离线。"""
+        if self._failure_callback:
+            try:
+                self._failure_callback(self.channel_name, reason)
+            except Exception as e:
+                logger.error(f"{self.channel_name}: failure callback error: {e}")
+
     async def _emit_message(self, message: UnifiedMessage) -> None:
         """触发消息回调"""
         if self._message_callback:
@@ -199,6 +301,18 @@ class ChannelAdapter(ABC):
             {id, username, display_name, avatar_url, ...}
         """
         return None
+
+    async def get_chat_members(self, chat_id: str) -> list[dict]:
+        """获取群聊成员列表"""
+        return []
+
+    async def get_recent_messages(self, chat_id: str, limit: int = 20) -> list[dict]:
+        """获取最近消息列表"""
+        return []
+
+    def get_pending_events(self, chat_id: str) -> list[dict]:
+        """获取并清空待处理的重要事件（如群公告变更、@所有人等）"""
+        return []
 
     async def delete_message(self, chat_id: str, message_id: str) -> bool:
         """删除消息"""
@@ -257,25 +371,22 @@ class ChannelAdapter(ABC):
         """
         raise NotImplementedError(f"{self.channel_name} does not support send_voice")
 
-    async def send_typing(self, chat_id: str) -> None:
+    async def send_typing(self, chat_id: str, thread_id: str | None = None) -> None:
         """发送正在输入状态"""
         # 可选能力：默认实现为 no-op（部分平台不支持 typing 或无需实现）
         logger.debug(f"{self.channel_name}: typing (noop) chat_id={chat_id}")
 
-    @property
-    def supports_streaming(self) -> bool:
-        """是否支持流式卡片更新（CardKit 等）。支持的通道可在 Agent 处理期间逐步推送内容。"""
-        return False
+    async def clear_typing(self, chat_id: str, thread_id: str | None = None) -> None:
+        """清除 typing 状态提示（如有）。默认 no-op。"""
 
     # ==================== 辅助方法 ====================
 
     def _log_message(self, message: UnifiedMessage) -> None:
         """记录消息日志"""
+        text_preview = message.text[:80] if message.text else f"({message.message_type.value})"
         logger.info(
             f"{self.channel_name}: received message from {message.channel_user_id} "
-            f"in {message.chat_id}: {message.text}"
-            if message.text
-            else f"{self.channel_name}: received {message.message_type.value}"
+            f"in {message.chat_id}: {text_preview}"
         )
 
 

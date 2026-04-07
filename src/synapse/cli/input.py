@@ -2,7 +2,7 @@
 CLI input system powered by prompt_toolkit.
 
 Replaces rich.prompt.Prompt.ask with a full-featured input:
-- Persistent file history (~/.openakita/cli_history)
+- Persistent file history (~/.synapse/cli_history)
 - Slash command completion
 - Multi-line editing (Alt+Enter to send, Enter for newline in multi-line mode)
 - Ctrl+C clears current line; double Ctrl+C or /exit to quit
@@ -70,7 +70,7 @@ def create_cli_session(
 
     Returns (session, completer) so the completer can be updated later.
     """
-    history_dir = Path.home() / ".openakita"
+    history_dir = Path.home() / ".synapse"
     history_dir.mkdir(parents=True, exist_ok=True)
     history_path = history_dir / "cli_history"
 

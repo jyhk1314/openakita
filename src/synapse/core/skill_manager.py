@@ -9,17 +9,32 @@
 - 外部技能 allowlist 管理
 """
 
+import asyncio
 import contextlib
 import json
 import logging
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from ..config import settings
+from ..skills.source_url import (
+    RAW_GITHUB_RE,
+    has_yaml_frontmatter,
+    is_html_content,
+    parse_github_source,
+    parse_playbooks_source,
+)
+from ..tools.errors import ErrorType, ToolError
 
 logger = logging.getLogger(__name__)
+
+SKILL_GIT_CLONE_TIMEOUT_SECONDS = 120
+SKILL_INSTALL_CIRCUIT_THRESHOLD = 2
+SKILL_INSTALL_CIRCUIT_COOLDOWN_SECONDS = 300
 
 
 class SkillManager:
@@ -53,6 +68,9 @@ class SkillManager:
 
         # 缓存
         self._catalog_text: str = ""
+        self._failure_class_streaks: dict[str, int] = {}
+        self._failure_class_last_seen: dict[str, float] = {}
+        self._install_lock: asyncio.Lock | None = None
 
     @property
     def catalog_text(self) -> str:
@@ -81,10 +99,12 @@ class SkillManager:
                 if isinstance(al, list):
                     external_allowlist = {str(x).strip() for x in al if str(x).strip()}
             effective = self._loader.compute_effective_allowlist(external_allowlist)
-            from synapse.core.agent import _collect_preset_referenced_skills
-            agent_skills = _collect_preset_referenced_skills()
+            from synapse.skills.preset_utils import collect_preset_referenced_skills
+
+            agent_skills = collect_preset_referenced_skills()
             removed = self._loader.prune_external_by_allowlist(
-                effective, agent_referenced_skills=agent_skills,
+                effective,
+                agent_referenced_skills=agent_skills,
             )
             if removed:
                 logger.info(f"External skills filtered: {removed} disabled")
@@ -104,26 +124,66 @@ class SkillManager:
         """
         安装技能到当前工作区的技能目录。
 
-        支持:
-        1. Git 仓库 URL
-        2. 单个 SKILL.md 文件 URL
+        URL 解析优先级:
+        1. GitHub blob/tree/repo URL → git clone + subdir 提取
+        2. playbooks.com 市场页面 → 转换为 GitHub 源
+        3. raw.githubusercontent.com → 直接下载文件
+        4. 其他 Git 托管平台 URL → git clone
+        5. 其他 HTTP URL → 作为文件 URL 下载
 
         Args:
-            source: Git 仓库 URL 或 SKILL.md 文件 URL
+            source: Git 仓库 URL、SKILL.md 文件 URL 或技能市场 URL
             name: 技能名称
-            subdir: Git 仓库中技能所在的子目录
+            subdir: Git 仓库中技能所在的子目录 (会被 URL 中解析出的路径覆盖)
             extra_files: 额外文件 URL 列表
 
         Returns:
             安装结果消息
         """
+        if self._install_lock is None:
+            self._install_lock = asyncio.Lock()
+        async with self._install_lock:
+            return await self._install_skill_impl(source, name, subdir, extra_files)
+
+    async def _install_skill_impl(
+        self,
+        source: str,
+        name: str | None = None,
+        subdir: str | None = None,
+        extra_files: list[str] | None = None,
+    ) -> str:
         skills_dir = settings.skills_path
         skills_dir.mkdir(parents=True, exist_ok=True)
 
-        if self._is_git_url(source):
-            return await self._install_from_git(source, name, subdir, skills_dir)
-        else:
+        # 1. GitHub URL（含 blob/tree 路径的精确解析）
+        gh = parse_github_source(source)
+        if gh:
+            clone_url = f"https://github.com/{gh.owner}/{gh.repo}.git"
+            effective_subdir = subdir or gh.subdir
+            return await self._install_from_git(clone_url, name, effective_subdir, skills_dir)
+
+        # 2. playbooks.com 技能市场页面 → 转为 GitHub 源
+        pb = parse_playbooks_source(source)
+        if pb:
+            clone_url = f"https://github.com/{pb.owner}/{pb.repo}.git"
+            effective_subdir = subdir or pb.subdir
+            return await self._install_from_git(
+                clone_url,
+                name or pb.subdir,
+                effective_subdir,
+                skills_dir,
+            )
+
+        # 3. raw.githubusercontent.com → 作为文件 URL 直接下载
+        if RAW_GITHUB_RE.match(source):
             return await self._install_from_url(source, name, extra_files, skills_dir)
+
+        # 4. 其他 Git 托管平台
+        if self._is_git_platform_url(source):
+            return await self._install_from_git(source, name, subdir, skills_dir)
+
+        # 5. 兜底：普通 HTTP URL
+        return await self._install_from_url(source, name, extra_files, skills_dir)
 
     def update_shell_tool_description(self, tools: list[dict]) -> None:
         """动态更新 shell 工具描述，包含当前操作系统信息"""
@@ -150,17 +210,96 @@ class SkillManager:
 
     # ==================== 私有方法 ====================
 
-    def _is_git_url(self, url: str) -> bool:
-        """判断是否为 Git 仓库 URL"""
-        git_patterns = [
+    @staticmethod
+    def _is_git_platform_url(url: str) -> bool:
+        """判断是否为非 GitHub 的 Git 托管平台 URL（GitHub 由 _parse_github_source 处理）。"""
+        patterns = [
             r"^git@",
             r"\.git$",
-            r"^https?://github\.com/",
             r"^https?://gitlab\.com/",
             r"^https?://bitbucket\.org/",
             r"^https?://gitee\.com/",
         ]
-        return any(re.search(pattern, url) for pattern in git_patterns)
+        return any(re.search(p, url) for p in patterns)
+
+    @staticmethod
+    def _is_shell_timeout_result(result: Any) -> bool:
+        """Best-effort detection for shell timeout failures."""
+        if getattr(result, "returncode", None) != -1:
+            return False
+        output = f"{getattr(result, 'stdout', '')}\n{getattr(result, 'stderr', '')}".lower()
+        return "timed out" in output or "timeout" in output
+
+    @staticmethod
+    def _build_install_skill_error(
+        *,
+        error_type: ErrorType,
+        message: str,
+        source: str,
+        failure_class: str,
+        retry_suggestion: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> str:
+        """Return a structured ToolError payload for install_skill."""
+        payload = {
+            "source": source,
+            "failure_class": failure_class,
+        }
+        if details:
+            payload.update(details)
+        return ToolError(
+            error_type=error_type,
+            tool_name="install_skill",
+            message=message,
+            retry_suggestion=retry_suggestion,
+            details=payload,
+        ).to_tool_result()
+
+    @staticmethod
+    def _classify_git_clone_failure(output: str) -> tuple[ErrorType, str]:
+        lower = output.lower()
+        if any(
+            k in lower
+            for k in ("timed out", "timeout", "could not resolve", "connection", "network")
+        ):
+            return ErrorType.TRANSIENT, "git_network_failure"
+        if any(k in lower for k in ("repository not found", "not found", "404")):
+            return ErrorType.RESOURCE_NOT_FOUND, "git_repo_not_found"
+        if any(k in lower for k in ("permission denied", "authentication failed", "access denied")):
+            return ErrorType.PERMISSION, "git_permission_denied"
+        if any(
+            k in lower for k in ("not recognized", "command not found", "no such file or directory")
+        ):
+            return ErrorType.DEPENDENCY, "git_dependency_missing"
+        return ErrorType.PERMANENT, "git_clone_failed"
+
+    def _is_failure_class_circuit_open(self, failure_class: str) -> bool:
+        count = self._failure_class_streaks.get(failure_class, 0)
+        if count < SKILL_INSTALL_CIRCUIT_THRESHOLD:
+            return False
+        last_seen = self._failure_class_last_seen.get(failure_class, 0.0)
+        if time.time() - last_seen > SKILL_INSTALL_CIRCUIT_COOLDOWN_SECONDS:
+            self._failure_class_streaks.pop(failure_class, None)
+            self._failure_class_last_seen.pop(failure_class, None)
+            return False
+        return True
+
+    def _record_failure_class(self, failure_class: str) -> None:
+        self._failure_class_streaks[failure_class] = (
+            self._failure_class_streaks.get(failure_class, 0) + 1
+        )
+        self._failure_class_last_seen[failure_class] = time.time()
+
+    def _reset_failure_streaks(self) -> None:
+        self._failure_class_streaks.clear()
+        self._failure_class_last_seen.clear()
+
+    @staticmethod
+    def _git_host(url: str) -> str:
+        try:
+            return urlparse(url).netloc or "unknown"
+        except Exception:
+            return "unknown"
 
     async def _install_from_git(
         self, git_url: str, name: str | None, subdir: str | None, skills_dir: Path
@@ -171,11 +310,61 @@ class SkillManager:
 
         temp_dir = None
         try:
+            for failure_class in ("skill_install_network_timeout", "git_network_failure"):
+                if self._is_failure_class_circuit_open(failure_class):
+                    return self._build_install_skill_error(
+                        error_type=ErrorType.PERMANENT,
+                        message="install_skill circuit breaker is open for repeated network failures",
+                        source=git_url,
+                        failure_class="skill_install_circuit_open",
+                        retry_suggestion=(
+                            "Pause retries and ask the user to fix network/proxy first, "
+                            "or install from local directory/ZIP."
+                        ),
+                        details={
+                            "blocked_by": failure_class,
+                            "host": self._git_host(git_url),
+                            "failure_count": self._failure_class_streaks.get(failure_class, 0),
+                            "cooldown_seconds": SKILL_INSTALL_CIRCUIT_COOLDOWN_SECONDS,
+                        },
+                    )
+
             temp_dir = Path(tempfile.mkdtemp(prefix="skill_install_"))
-            result = await self._shell_tool.run(f'git clone --depth 1 "{git_url}" "{temp_dir}"')
+            result = await self._shell_tool.run(
+                f'git clone --depth 1 "{git_url}" "{temp_dir}"',
+                timeout=SKILL_GIT_CLONE_TIMEOUT_SECONDS,
+            )
 
             if not result.success:
-                return f"❌ Git 克隆失败:\n{result.output}"
+                if self._is_shell_timeout_result(result):
+                    self._record_failure_class("skill_install_network_timeout")
+                    return self._build_install_skill_error(
+                        error_type=ErrorType.TIMEOUT,
+                        message="Git clone timed out while installing skill",
+                        source=git_url,
+                        failure_class="skill_install_network_timeout",
+                        retry_suggestion=(
+                            "Network access to the git host is unstable. "
+                            "Do not keep retrying mirror variants automatically."
+                        ),
+                        details={
+                            "timeout_seconds": SKILL_GIT_CLONE_TIMEOUT_SECONDS,
+                            "raw_output": result.output[:2000],
+                        },
+                    )
+                error_type, failure_class = self._classify_git_clone_failure(result.output)
+                self._record_failure_class(failure_class)
+                return self._build_install_skill_error(
+                    error_type=error_type,
+                    message="Git clone failed while installing skill",
+                    source=git_url,
+                    failure_class=failure_class,
+                    retry_suggestion=(
+                        "Check repository URL and network/proxy settings, "
+                        "or install from local directory/ZIP."
+                    ),
+                    details={"raw_output": result.output[:2000]},
+                )
 
             search_dir = temp_dir / subdir if subdir else temp_dir
             skill_md_path = self._find_skill_md(search_dir)
@@ -196,7 +385,11 @@ class SkillManager:
             target_dir = skills_dir / skill_name
             if target_dir.exists():
                 shutil.rmtree(target_dir)
-            shutil.copytree(skill_source_dir, target_dir)
+            try:
+                shutil.copytree(skill_source_dir, target_dir)
+            except Exception as copy_err:
+                self._cleanup_broken_skill_dir(target_dir)
+                raise RuntimeError(f"copytree failed: {copy_err}") from copy_err
             self._ensure_skill_structure(target_dir)
 
             try:
@@ -205,9 +398,14 @@ class SkillManager:
                     self._catalog_text = self._catalog.generate_catalog()
                     if self._on_skill_loaded:
                         self._on_skill_loaded()
+                    self._reset_failure_streaks()
                     logger.info(f"Skill installed from git: {skill_name}")
+                else:
+                    raise RuntimeError("loader 未返回有效技能")
             except Exception as e:
                 logger.error(f"Failed to load installed skill: {e}")
+                self._cleanup_broken_skill_dir(target_dir)
+                return f"❌ 技能文件已复制但加载失败: {e}"
 
             return (
                 f"✅ 技能从 Git 安装成功！\n\n"
@@ -220,30 +418,53 @@ class SkillManager:
 
         except Exception as e:
             logger.error(f"Failed to install skill from git: {e}")
-            return f"❌ Git 安装失败: {str(e)}"
+            return self._build_install_skill_error(
+                error_type=ErrorType.PERMANENT,
+                message=f"Unexpected failure while installing skill from git: {e}",
+                source=git_url,
+                failure_class="skill_install_unexpected",
+            )
         finally:
             if temp_dir and temp_dir.exists():
                 with contextlib.suppress(BaseException):
                     import shutil
+
                     shutil.rmtree(temp_dir)
 
     async def _install_from_url(
         self, url: str, name: str | None, extra_files: list[str] | None, skills_dir: Path
     ) -> str:
-        """从 URL 安装技能"""
+        """从 URL 安装技能（仅接受 raw SKILL.md 文件）"""
         import httpx
 
+        skill_dir: Path | None = None
         try:
             async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
                 response = await client.get(url)
                 response.raise_for_status()
                 skill_content = response.text
 
+            # ---- 内容校验：拒绝 HTML、要求 YAML frontmatter ----
+            if is_html_content(skill_content):
+                return (
+                    f"❌ URL 返回了 HTML 网页而非 SKILL.md: {url}\n\n"
+                    "请改用以下格式:\n"
+                    "- GitHub 仓库: `https://github.com/owner/repo`\n"
+                    "- Raw 文件: `https://raw.githubusercontent.com/owner/repo/main/path/SKILL.md`\n"
+                    "- 简写: `owner/repo@skill-name`"
+                )
+            if not has_yaml_frontmatter(skill_content):
+                return (
+                    f"❌ 下载内容不是有效的 SKILL.md（缺少 YAML frontmatter）: {url}\n\n"
+                    "有效的 SKILL.md 必须以 `---` 开头的 YAML 元数据块开始。"
+                )
+
             extracted_name = self._extract_skill_name(skill_content)
             skill_name = name or extracted_name
 
             if not skill_name:
                 from urllib.parse import urlparse
+
                 path = urlparse(url).path
                 skill_name = path.split("/")[-1].replace(".md", "").replace("skill", "").strip("-_")
 
@@ -259,8 +480,9 @@ class SkillManager:
                 async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
                     for file_url in extra_files:
                         try:
-                            from urllib.parse import urlparse
-                            file_name = urlparse(file_url).path.split("/")[-1]
+                            from urllib.parse import urlparse as _urlparse
+
+                            file_name = _urlparse(file_url).path.split("/")[-1]
                             if not file_name:
                                 continue
                             resp = await client.get(file_url)
@@ -283,9 +505,14 @@ class SkillManager:
                     self._catalog_text = self._catalog.generate_catalog()
                     if self._on_skill_loaded:
                         self._on_skill_loaded()
+                    self._reset_failure_streaks()
                     logger.info(f"Skill installed from URL: {skill_name}")
+                else:
+                    raise RuntimeError("loader 未返回有效技能")
             except Exception as e:
                 logger.error(f"Failed to load installed skill: {e}")
+                self._cleanup_broken_skill_dir(skill_dir)
+                return f"❌ 技能文件已下载但加载失败: {e}"
 
             return (
                 f"✅ 技能安装成功！\n\n"
@@ -297,7 +524,19 @@ class SkillManager:
 
         except Exception as e:
             logger.error(f"Failed to install skill from URL: {e}")
+            if skill_dir:
+                self._cleanup_broken_skill_dir(skill_dir)
             return f"❌ URL 安装失败: {str(e)}"
+
+    @staticmethod
+    def _cleanup_broken_skill_dir(skill_dir: Path) -> None:
+        """清理安装失败的残留目录。"""
+        import shutil
+
+        if skill_dir and skill_dir.exists():
+            with contextlib.suppress(Exception):
+                shutil.rmtree(skill_dir)
+                logger.info(f"Cleaned up broken skill dir: {skill_dir}")
 
     def _extract_skill_name(self, content: str) -> str | None:
         """从 SKILL.md 内容提取技能名称"""
@@ -322,13 +561,12 @@ class SkillManager:
         return name or "custom-skill"
 
     def _find_skill_md(self, search_dir: Path) -> Path | None:
-        """在目录中查找 SKILL.md"""
+        """在目录中查找 SKILL.md，优先根目录，其次按路径深度确定性选择。"""
         skill_md = search_dir / "SKILL.md"
         if skill_md.exists():
             return skill_md
-        for path in search_dir.rglob("SKILL.md"):
-            return path
-        return None
+        candidates = sorted(search_dir.rglob("SKILL.md"), key=lambda p: len(p.parts))
+        return candidates[0] if candidates else None
 
     def _list_skill_candidates(self, base_dir: Path) -> list[str]:
         """列出可能包含技能的目录"""

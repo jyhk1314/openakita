@@ -16,7 +16,8 @@ import asyncio
 import logging
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ def _notify_scheduler_change(action: str = "update") -> None:
     """Fire-and-forget WS broadcast for scheduler state changes."""
     try:
         from synapse.api.routes.websocket import broadcast_event
+
         asyncio.ensure_future(broadcast_event("scheduler:task_update", {"action": action}))
     except Exception:
         pass
@@ -48,7 +50,7 @@ class TaskCreateRequest(BaseModel):
     name: str
     task_type: str = "reminder"  # reminder | task
     trigger_type: str = "once"  # once | interval | cron
-    trigger_config: dict = {}
+    trigger_config: dict = Field(default_factory=dict)
     reminder_message: str | None = None
     prompt: str = ""
     channel_id: str | None = None
@@ -69,16 +71,27 @@ class TaskUpdateRequest(BaseModel):
 
 
 @router.get("/api/scheduler/tasks")
-async def list_tasks(request: Request):
-    """List all scheduled tasks."""
+async def list_tasks(
+    request: Request,
+    offset: int = 0,
+    limit: int = 50,
+    enabled_only: bool = False,
+):
+    """List scheduled tasks with pagination."""
     scheduler = _get_scheduler(request)
     if scheduler is None:
         return {"error": "Agent not initialized", "tasks": []}
 
-    tasks = scheduler.list_tasks()
+    offset = max(0, offset)
+    limit = max(1, min(limit, 200))
+    all_tasks = scheduler.list_tasks(enabled_only=enabled_only)
+    total = len(all_tasks)
+    page = all_tasks[offset : offset + limit]
     return {
-        "tasks": [t.to_dict() for t in tasks],
-        "total": len(tasks),
+        "tasks": [t.to_dict() for t in page],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
     }
 
 
@@ -87,11 +100,11 @@ async def get_task(request: Request, task_id: str):
     """Get a single task by ID."""
     scheduler = _get_scheduler(request)
     if scheduler is None:
-        return {"error": "Agent not initialized"}
+        return JSONResponse(status_code=503, content={"error": "Agent not initialized"})
 
     task = scheduler.get_task(task_id)
     if task is None:
-        return {"error": "Task not found"}
+        return JSONResponse(status_code=404, content={"error": "Task not found"})
 
     return {"task": task.to_dict()}
 
@@ -101,19 +114,23 @@ async def create_task(request: Request, body: TaskCreateRequest):
     """Create a new scheduled task."""
     scheduler = _get_scheduler(request)
     if scheduler is None:
-        return {"error": "Agent not initialized"}
+        return JSONResponse(status_code=503, content={"error": "Agent not initialized"})
 
-    from synapse.scheduler.task import ScheduledTask, TaskType, TriggerType
+    from synapse.scheduler.task import ScheduledTask, TaskSource, TaskType, TriggerType
 
     try:
         trigger_type = TriggerType(body.trigger_type)
     except ValueError:
-        return {"error": f"Invalid trigger_type: {body.trigger_type}"}
+        return JSONResponse(
+            status_code=422, content={"error": f"Invalid trigger_type: {body.trigger_type}"}
+        )
 
     try:
         task_type = TaskType(body.task_type)
     except ValueError:
-        return {"error": f"Invalid task_type: {body.task_type}"}
+        return JSONResponse(
+            status_code=422, content={"error": f"Invalid task_type: {body.task_type}"}
+        )
 
     description = body.reminder_message or body.prompt or body.name
     task = ScheduledTask.create(
@@ -125,11 +142,15 @@ async def create_task(request: Request, body: TaskCreateRequest):
         reminder_message=body.reminder_message,
         prompt=body.prompt,
     )
+    task.task_source = TaskSource.MANUAL
     task.channel_id = body.channel_id or None
     task.chat_id = body.chat_id or None
     task.enabled = body.enabled
 
-    task_id = await scheduler.add_task(task)
+    try:
+        task_id = await scheduler.add_task(task)
+    except ValueError as e:
+        return JSONResponse(status_code=422, content={"error": str(e)})
     _notify_scheduler_change("create")
     return {"status": "ok", "task_id": task_id, "task": task.to_dict()}
 
@@ -139,11 +160,11 @@ async def update_task(request: Request, task_id: str, body: TaskUpdateRequest):
     """Update an existing scheduled task."""
     scheduler = _get_scheduler(request)
     if scheduler is None:
-        return {"error": "Agent not initialized"}
+        return JSONResponse(status_code=503, content={"error": "Agent not initialized"})
 
     task = scheduler.get_task(task_id)
     if task is None:
-        return {"error": "Task not found"}
+        return JSONResponse(status_code=404, content={"error": "Task not found"})
 
     updates: dict = {}
 
@@ -160,17 +181,23 @@ async def update_task(request: Request, task_id: str, body: TaskUpdateRequest):
 
     if body.task_type is not None:
         from synapse.scheduler.task import TaskType
+
         try:
             updates["task_type"] = TaskType(body.task_type)
         except ValueError:
-            return {"error": f"Invalid task_type: {body.task_type}"}
+            return JSONResponse(
+                status_code=422, content={"error": f"Invalid task_type: {body.task_type}"}
+            )
 
     if body.trigger_type is not None:
         from synapse.scheduler.task import TriggerType
+
         try:
             updates["trigger_type"] = TriggerType(body.trigger_type)
         except ValueError:
-            return {"error": f"Invalid trigger_type: {body.trigger_type}"}
+            return JSONResponse(
+                status_code=422, content={"error": f"Invalid trigger_type: {body.trigger_type}"}
+            )
 
     if body.trigger_config is not None:
         updates["trigger_config"] = body.trigger_config
@@ -186,7 +213,7 @@ async def update_task(request: Request, task_id: str, body: TaskUpdateRequest):
     if updates:
         success = await scheduler.update_task(task_id, updates)
         if not success:
-            return {"error": "Update failed"}
+            return JSONResponse(status_code=500, content={"error": "Update failed"})
 
     if body.enabled is not None:
         if body.enabled:
@@ -204,18 +231,24 @@ async def delete_task(request: Request, task_id: str):
     """Delete a scheduled task."""
     scheduler = _get_scheduler(request)
     if scheduler is None:
-        return {"error": "Agent not initialized"}
+        return JSONResponse(status_code=503, content={"error": "Agent not initialized"})
 
     task = scheduler.get_task(task_id)
     if task is None:
-        return {"error": "Task not found"}
+        return JSONResponse(status_code=404, content={"error": "Task not found"})
 
     if not task.deletable:
-        return {"error": "System task cannot be deleted, use disable instead"}
+        return JSONResponse(
+            status_code=403, content={"error": "System task cannot be deleted, use disable instead"}
+        )
 
-    success = await scheduler.remove_task(task_id)
-    if not success:
-        return {"error": "Delete failed"}
+    result = await scheduler.remove_task(task_id)
+    if result == "system_task":
+        return JSONResponse(
+            status_code=403, content={"error": "System task cannot be deleted, use disable instead"}
+        )
+    if result == "not_found":
+        return JSONResponse(status_code=404, content={"error": "Task not found"})
 
     _notify_scheduler_change("delete")
     return {"status": "ok", "task_id": task_id}
@@ -226,11 +259,11 @@ async def toggle_task(request: Request, task_id: str):
     """Toggle task enabled/disabled."""
     scheduler = _get_scheduler(request)
     if scheduler is None:
-        return {"error": "Agent not initialized"}
+        return JSONResponse(status_code=503, content={"error": "Agent not initialized"})
 
     task = scheduler.get_task(task_id)
     if task is None:
-        return {"error": "Task not found"}
+        return JSONResponse(status_code=404, content={"error": "Task not found"})
 
     if task.enabled:
         await scheduler.disable_task(task_id)
@@ -247,16 +280,61 @@ async def trigger_task(request: Request, task_id: str):
     """Trigger a task to run immediately."""
     scheduler = _get_scheduler(request)
     if scheduler is None:
-        return {"error": "Agent not initialized"}
+        return JSONResponse(status_code=503, content={"error": "Agent not initialized"})
 
     from synapse.core.engine_bridge import to_engine
 
     execution = await to_engine(scheduler.trigger_now(task_id))
     if execution is None:
-        return {"error": "Task not found or trigger failed"}
+        return JSONResponse(status_code=404, content={"error": "Task not found or trigger failed"})
 
     _notify_scheduler_change("trigger")
     return {"status": "ok", "execution": execution.to_dict()}
+
+
+@router.get("/api/scheduler/executions")
+async def list_executions(
+    request: Request,
+    task_id: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    """List execution history, optionally filtered by task_id."""
+    scheduler = _get_scheduler(request)
+    if scheduler is None:
+        return {"error": "Agent not initialized", "executions": []}
+
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    all_execs = scheduler.get_executions(task_id=task_id)
+    total = len(all_execs)
+    all_execs_reversed = list(reversed(all_execs))
+    page = all_execs_reversed[offset : offset + limit]
+    return {
+        "executions": [e.to_dict() for e in page],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+@router.get("/api/scheduler/tasks/{task_id}/executions")
+async def list_task_executions(
+    request: Request,
+    task_id: str,
+    limit: int = 20,
+):
+    """List execution history for a specific task."""
+    scheduler = _get_scheduler(request)
+    if scheduler is None:
+        return {"error": "Agent not initialized", "executions": []}
+
+    limit = max(1, min(limit, 100))
+    execs = scheduler.get_executions(task_id=task_id, limit=limit)
+    return {
+        "executions": [e.to_dict() for e in reversed(execs)],
+        "total": len(execs),
+    }
 
 
 @router.get("/api/scheduler/channels")
@@ -279,18 +357,32 @@ async def list_channels(request: Request):
     from datetime import datetime as dt
 
     results: list[dict] = []
-    seen: set[tuple[str, str]] = set()
+    seen: dict[tuple[str, str], int] = {}
     session_manager = getattr(gateway, "session_manager", None)
 
     skip_channels = {"desktop"}
+
+    def _add_or_merge(entry: dict) -> None:
+        """Add a channel entry, merging chat_name into existing if needed."""
+        pair = (entry["channel_id"], entry["chat_id"])
+        if pair in seen:
+            idx = seen[pair]
+            existing = results[idx]
+            if not existing.get("chat_name") and entry.get("chat_name"):
+                existing["chat_name"] = entry["chat_name"]
+            if not existing.get("chat_type") and entry.get("chat_type"):
+                existing["chat_type"] = entry["chat_type"]
+            if not existing.get("display_name") and entry.get("display_name"):
+                existing["display_name"] = entry["display_name"]
+            return
+        seen[pair] = len(results)
+        results.append(entry)
 
     if session_manager:
         # 1. Active memory sessions
         sessions = session_manager.list_sessions()
         if sessions:
-            sessions.sort(
-                key=lambda s: getattr(s, "last_active", dt.min), reverse=True
-            )
+            sessions.sort(key=lambda s: getattr(s, "last_active", dt.min), reverse=True)
             for s in sessions:
                 if getattr(s, "state", None) and str(s.state.value) == "closed":
                     continue
@@ -298,16 +390,17 @@ async def list_channels(request: Request):
                 cid = getattr(s, "chat_id", None)
                 if not ch or not cid or ch in skip_channels:
                     continue
-                pair = (ch, cid)
-                if pair in seen:
-                    continue
-                seen.add(pair)
-                results.append({
-                    "channel_id": ch,
-                    "chat_id": cid,
-                    "user_id": getattr(s, "user_id", None),
-                    "last_active": getattr(s, "last_active", dt.min).isoformat(),
-                })
+                _add_or_merge(
+                    {
+                        "channel_id": ch,
+                        "chat_id": cid,
+                        "user_id": getattr(s, "user_id", None),
+                        "last_active": getattr(s, "last_active", dt.min).isoformat(),
+                        "chat_name": getattr(s, "chat_name", "") or "",
+                        "chat_type": getattr(s, "chat_type", "private") or "private",
+                        "display_name": getattr(s, "display_name", "") or "",
+                    }
+                )
 
         # 2. Persisted sessions from file
         sessions_file = getattr(session_manager, "storage_path", None)
@@ -324,16 +417,17 @@ async def list_channels(request: Request):
                         state = s.get("state", "")
                         if not ch or not cid or state == "closed" or ch in skip_channels:
                             continue
-                        pair = (ch, cid)
-                        if pair in seen:
-                            continue
-                        seen.add(pair)
-                        results.append({
-                            "channel_id": ch,
-                            "chat_id": cid,
-                            "user_id": s.get("user_id"),
-                            "last_active": s.get("last_active", ""),
-                        })
+                        _add_or_merge(
+                            {
+                                "channel_id": ch,
+                                "chat_id": cid,
+                                "user_id": s.get("user_id"),
+                                "last_active": s.get("last_active", ""),
+                                "chat_name": s.get("chat_name", ""),
+                                "chat_type": s.get("chat_type", "private"),
+                                "display_name": s.get("display_name", ""),
+                            }
+                        )
                 except Exception as e:
                     logger.warning(f"Failed to read sessions file: {e}")
 
@@ -344,7 +438,9 @@ async def list_channels(request: Request):
                 if ch in skip_channels:
                     continue
                 # 兼容新格式（list of dicts）和旧格式（单 dict）
-                items = entry if isinstance(entry, list) else [entry] if isinstance(entry, dict) else []
+                items = (
+                    entry if isinstance(entry, list) else [entry] if isinstance(entry, dict) else []
+                )
                 for item in items:
                     if not isinstance(item, dict):
                         continue
@@ -354,13 +450,69 @@ async def list_channels(request: Request):
                     pair = (ch, cid)
                     if pair in seen:
                         continue
-                    seen.add(pair)
-                    results.append({
-                        "channel_id": ch,
-                        "chat_id": cid,
-                        "user_id": item.get("user_id"),
-                        "last_active": item.get("last_seen", ""),
-                    })
+                    _add_or_merge(
+                        {
+                            "channel_id": ch,
+                            "chat_id": cid,
+                            "user_id": item.get("user_id"),
+                            "last_active": item.get("last_seen", ""),
+                            "chat_name": "",
+                            "chat_type": "private",
+                            "display_name": "",
+                        }
+                    )
+
+    # 4. Running gateway adapters — show configured bots even without sessions
+    adapters = getattr(gateway, "_adapters", {})
+    started = getattr(gateway, "_started_adapters", set())
+    for adapter_name, adapter in adapters.items():
+        if adapter_name in skip_channels:
+            continue
+        if not getattr(adapter, "is_running", False) and adapter_name not in started:
+            continue
+        already_listed = any(adapter_name == entry["channel_id"] for entry in results)
+        if already_listed:
+            continue
+        fallback_chat_id = ""
+        if session_manager:
+            target = session_manager.get_known_channel_target(adapter_name)
+            if target:
+                fallback_chat_id = target[1]
+        _add_or_merge(
+            {
+                "channel_id": adapter_name,
+                "chat_id": fallback_chat_id,
+                "user_id": None,
+                "last_active": "",
+                "chat_name": "",
+                "chat_type": "private",
+                "display_name": "",
+            }
+        )
+
+    alias_store = getattr(gateway, "chat_aliases", None)
+    if alias_store:
+        for entry in results:
+            ch = entry.get("channel_id", "")
+            cid = entry.get("chat_id", "")
+            if ch and cid:
+                a = alias_store.get_alias(ch, cid)
+                if a:
+                    entry["alias"] = a
+
+    # Enrich with bot display names from settings
+    from synapse.config import settings
+
+    bot_name_map: dict[str, str] = {}
+    for b in getattr(settings, "im_bots", []):
+        if isinstance(b, dict) and b.get("id") and b.get("name"):
+            bot_name_map[b["id"]] = b["name"]
+    for entry in results:
+        ch = entry.get("channel_id", "")
+        parts = ch.split(":", 1)
+        bot_id = parts[1] if len(parts) > 1 else ch
+        if bot_id in bot_name_map:
+            entry["bot_display_name"] = bot_name_map[bot_id]
 
     return {"channels": results}
 
@@ -370,6 +522,6 @@ async def scheduler_stats(request: Request):
     """Get scheduler statistics."""
     scheduler = _get_scheduler(request)
     if scheduler is None:
-        return {"error": "Agent not initialized"}
+        return JSONResponse(status_code=503, content={"error": "Agent not initialized"})
 
     return scheduler.get_stats()

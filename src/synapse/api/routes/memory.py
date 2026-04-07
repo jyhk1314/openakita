@@ -6,15 +6,26 @@ Provides HTTP API for the frontend Memory Management Panel.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from synapse.memory.types import MemoryType, SemanticMemory
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/memories", tags=["memory"])
+
+# In-process review task state (single-task, no need for DB persistence)
+_review_task: asyncio.Task | None = None
+_review_cancel: asyncio.Event | None = None
+_review_progress: dict = {}
+_review_lock = asyncio.Lock()
 
 
 def _get_store(request: Request):
@@ -105,6 +116,34 @@ def _serialize(mem: Any) -> dict:
     }
 
 
+@router.post("")
+async def create_memory(request: Request, body: MemoryCreateRequest):
+    """Create a new memory entry from the chat UI."""
+    store = _get_store(request)
+    if not store:
+        raise HTTPException(503, "Memory store not available")
+    try:
+        mem_type = MemoryType.FACT
+        try:
+            mem_type = MemoryType(body.type)
+        except ValueError:
+            pass
+        mem = SemanticMemory(
+            type=mem_type,
+            content=body.content,
+            source="chat_ui",
+            subject=body.subject or "",
+            predicate=body.predicate or "",
+            importance_score=body.importance_score,
+            tags=body.tags or [],
+        )
+        mem_id = store.save_semantic(mem)
+        _sync_json(request)
+        return {"status": "ok", "id": mem_id}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to save memory: {e}")
+
+
 @router.get("")
 async def list_memories(
     request: Request,
@@ -122,10 +161,14 @@ async def list_memories(
     else:
         results = store.load_all_memories()
         if type:
-            results = [m for m in results if (m.type.value if hasattr(m.type, "value") else str(m.type)) == type]
+            results = [
+                m
+                for m in results
+                if (m.type.value if hasattr(m.type, "value") else str(m.type)) == type
+            ]
         if min_score > 0:
             results = [m for m in results if m.importance_score >= min_score]
-        results.sort(key=lambda m: m.importance_score, reverse=True)
+        results.sort(key=lambda m: (m.importance_score, m.created_at or datetime.min), reverse=True)
         results = results[:limit]
 
     return {
@@ -152,6 +195,225 @@ async def memory_stats(request: Request):
         "total": len(all_mems),
         "by_type": by_type,
         "avg_score": round(total_score / len(all_mems), 2) if all_mems else 0,
+    }
+
+
+@router.post("/review")
+async def trigger_review(request: Request):
+    """Start async LLM-driven memory review. Returns immediately with task status."""
+    global _review_task, _review_cancel, _review_progress
+
+    async with _review_lock:
+        if _review_task and not _review_task.done():
+            return {"ok": True, "status": "already_running", "progress": _review_progress}
+
+        lifecycle = _get_lifecycle(request)
+        if not lifecycle:
+            raise HTTPException(503, "Lifecycle manager not available")
+
+        _review_cancel = asyncio.Event()
+        _review_progress = {
+            "status": "running",
+            "batch": 0,
+            "total_batches": 0,
+            "total_memories": 0,
+            "processed": 0,
+            "report": {"deleted": 0, "updated": 0, "merged": 0, "kept": 0, "errors": 0},
+            "started_at": time.time(),
+        }
+
+        def on_progress(data: dict) -> None:
+            _review_progress.update(data)
+
+        async def _run_review() -> None:
+            global _review_progress
+            try:
+                result = await lifecycle.review_memories_with_llm(
+                    progress_callback=on_progress,
+                    cancel_event=_review_cancel,
+                )
+
+                _review_progress["status"] = (
+                    "cancelled" if _review_progress.get("cancelled") else "done"
+                )
+                _review_progress["report"] = result
+                _review_progress["finished_at"] = time.time()
+
+                try:
+                    if lifecycle.identity_dir:
+                        lifecycle.refresh_memory_md(lifecycle.identity_dir)
+                    lifecycle._sync_vector_store()
+                    _sync_json(request)
+                except Exception as e:
+                    logger.warning(f"[MemoryAPI] Post-review sync failed: {e}")
+            except Exception as e:
+                logger.error(f"[MemoryAPI] Background review failed: {e}")
+                _review_progress["status"] = "error"
+                _review_progress["error"] = str(e)
+                _review_progress["finished_at"] = time.time()
+
+        _review_task = asyncio.create_task(_run_review())
+
+    return {"ok": True, "status": "started", "progress": _review_progress}
+
+
+@router.get("/review/status")
+async def review_status():
+    """Poll current review task progress."""
+    if not _review_task:
+        return {"status": "idle"}
+    return {"status": _review_progress.get("status", "unknown"), "progress": _review_progress}
+
+
+@router.post("/review/cancel")
+async def cancel_review():
+    """Request cancellation of the running review task."""
+    if not _review_task or _review_task.done():
+        return {"ok": False, "reason": "no_running_task"}
+    if _review_cancel:
+        _review_cancel.set()
+    return {"ok": True}
+
+
+@router.post("/batch-delete")
+async def batch_delete(request: Request):
+    data = await request.json()
+    ids = data.get("ids", [])
+    if not ids:
+        raise HTTPException(400, "No IDs provided")
+
+    store = _get_store(request)
+    if not store:
+        raise HTTPException(503, "Memory store not available")
+
+    deleted = 0
+    for mid in ids:
+        if store.delete_semantic(mid):
+            deleted += 1
+
+    _sync_json(request)
+    return {"deleted": deleted, "total": len(ids)}
+
+
+@router.get("/graph")
+async def get_memory_graph(request: Request, limit: int = 500):
+    """Return the relational memory graph for 3D visualization."""
+    mm = _get_manager(request)
+    if not mm:
+        raise HTTPException(503, "Memory manager not available")
+
+    nodes_out: list[dict] = []
+    links_out: list[dict] = []
+    mode = "mode1"
+
+    mode_cfg = mm._get_memory_mode()
+    if mode_cfg != "mode1" and mm._ensure_relational() and mm.relational_store:
+        rs = mm.relational_store
+        mode = "mode2"
+        raw_nodes = rs.get_all_nodes(limit=limit)
+        node_ids = {n.id for n in raw_nodes}
+
+        for n in raw_nodes:
+            ents = [{"name": e.name, "type": e.type} for e in n.entities[:5]]
+            group = f"entity:{ents[0]['name']}" if ents else f"type:{n.node_type.value}"
+            nodes_out.append(
+                {
+                    "id": n.id,
+                    "content": n.content[:200],
+                    "node_type": n.node_type.value.upper(),
+                    "importance": n.importance,
+                    "entities": ents,
+                    "action_category": n.action_category,
+                    "occurred_at": n.occurred_at.isoformat() if n.occurred_at else None,
+                    "session_id": n.session_id,
+                    "project": n.project,
+                    "group": group,
+                }
+            )
+
+        raw_edges = rs.get_all_edges(node_ids)
+        for e in raw_edges:
+            if e.source_id in node_ids and e.target_id in node_ids:
+                links_out.append(
+                    {
+                        "source": e.source_id,
+                        "target": e.target_id,
+                        "edge_type": e.edge_type.value,
+                        "dimension": e.dimension.value,
+                        "weight": e.weight,
+                    }
+                )
+    else:
+        store = _get_store(request)
+        if store:
+            import json as _json
+            from collections import defaultdict
+
+            all_mems = store.load_all_memories()[:limit]
+            subject_map: dict[str, list[str]] = defaultdict(list)
+            for m in all_mems:
+                nodes_out.append(
+                    {
+                        "id": m.id,
+                        "content": (m.content or "")[:200],
+                        "node_type": (m.type.value if hasattr(m.type, "value") else "FACT").upper(),
+                        "importance": m.importance_score,
+                        "entities": [],
+                        "action_category": "",
+                        "occurred_at": m.created_at.isoformat() if m.created_at else None,
+                        "session_id": "",
+                        "project": "",
+                        "group": f"type:{m.type.value if hasattr(m.type, 'value') else 'fact'}",
+                    }
+                )
+                if m.subject:
+                    subject_map[m.subject].append(m.id)
+
+                linked_ids = getattr(m, "linked_memory_ids", None)
+                if not linked_ids:
+                    meta = getattr(m, "metadata", {}) or {}
+                    if isinstance(meta, str):
+                        try:
+                            meta = _json.loads(meta)
+                        except Exception:
+                            meta = {}
+                    linked_ids = meta.get("linked_memory_ids", [])
+                if isinstance(linked_ids, list):
+                    node_set = {n["id"] for n in nodes_out}
+                    for lid in linked_ids:
+                        if lid in node_set:
+                            links_out.append(
+                                {
+                                    "source": m.id,
+                                    "target": lid,
+                                    "edge_type": "linked",
+                                    "dimension": "context",
+                                    "weight": 0.5,
+                                }
+                            )
+
+            for _subj, ids in subject_map.items():
+                if len(ids) >= 2:
+                    for i in range(len(ids)):
+                        for j in range(i + 1, min(i + 3, len(ids))):
+                            links_out.append(
+                                {
+                                    "source": ids[i],
+                                    "target": ids[j],
+                                    "edge_type": "same_subject",
+                                    "dimension": "entity",
+                                    "weight": 0.4,
+                                }
+                            )
+
+    return {
+        "nodes": nodes_out,
+        "links": links_out,
+        "meta": {
+            "total_nodes": len(nodes_out),
+            "total_edges": len(links_out),
+            "mode": mode,
+        },
     }
 
 
@@ -202,47 +464,6 @@ async def delete_memory(request: Request, memory_id: str):
         raise HTTPException(404, "Memory not found")
     _sync_json(request)
     return {"ok": True}
-
-
-@router.post("/batch-delete")
-async def batch_delete(request: Request):
-    data = await request.json()
-    ids = data.get("ids", [])
-    if not ids:
-        raise HTTPException(400, "No IDs provided")
-
-    store = _get_store(request)
-    if not store:
-        raise HTTPException(503, "Memory store not available")
-
-    deleted = 0
-    for mid in ids:
-        if store.delete_semantic(mid):
-            deleted += 1
-
-    _sync_json(request)
-    return {"deleted": deleted, "total": len(ids)}
-
-
-@router.post("/review")
-async def trigger_review(request: Request):
-    """Trigger LLM-driven memory review (same as consolidate_memories tool)."""
-    lifecycle = _get_lifecycle(request)
-    if not lifecycle:
-        raise HTTPException(503, "Lifecycle manager not available")
-
-    result = await lifecycle.review_memories_with_llm()
-
-    if lifecycle.identity_dir:
-        lifecycle.refresh_memory_md(lifecycle.identity_dir)
-
-    lifecycle._sync_vector_store()
-    _sync_json(request)
-
-    return {
-        "ok": True,
-        "review": result,
-    }
 
 
 @router.post("/refresh-md")

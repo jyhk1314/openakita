@@ -28,7 +28,7 @@ class SendGridAdapter(BaseAPIAdapter):
         self.base_url = "https://api.sendgrid.com/v3"
         self.api_key = config.get("api_key")
         self.from_email = config.get("from_email")
-        self.from_name = config.get("from_name", "OpenAkita")
+        self.from_name = config.get("from_name", "Synapse")
         self._session: aiohttp.ClientSession | None = None
 
     async def authenticate(self) -> bool:

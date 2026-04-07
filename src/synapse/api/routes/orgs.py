@@ -6,16 +6,20 @@ CRUD + 模板 + 节点管理 + 生命周期 + 命令 + 记忆 + 事件
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import json
 import logging
 import time
+import uuid
 from datetime import UTC
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse
 
 from synapse.core.engine_bridge import to_engine
+from synapse.memory.types import normalize_tags
 
 ALLOWED_AVATAR_TYPES = {"image/png", "image/jpeg", "image/jpg", "image/webp", "image/svg+xml"}
 MAX_AVATAR_SIZE = 2 * 1024 * 1024  # 2 MB
@@ -24,6 +28,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/orgs", tags=["组织编排"])
 
 _VALID_DECISIONS = {"approve", "reject", "批准", "拒绝"}
+
+# In-memory store for async command tracking.
+# Keys are command_id (str), values are dicts with status/result/progress.
+_command_store: dict[str, dict[str, Any]] = {}
+_CMD_TTL = 3600  # purge commands older than 1 hour
 
 
 def _safe_int(value: str | None, default: int) -> int:
@@ -52,6 +61,7 @@ def _get_runtime(request: Request):
 
 # ---- Organization CRUD ----
 
+
 @router.get("")
 async def list_orgs(request: Request, include_archived: bool = False):
     mgr = _get_manager(request)
@@ -69,6 +79,7 @@ async def create_org(request: Request):
 @router.get("/avatar-presets")
 async def get_avatar_presets():
     from synapse.orgs.tool_categories import list_avatar_presets
+
     return list_avatar_presets()
 
 
@@ -90,14 +101,18 @@ async def upload_avatar(request: Request, file: UploadFile = _FILE_FIELD):
         raise HTTPException(400, f"File too large (max {MAX_AVATAR_SIZE // 1024}KB)")
 
     ext_map = {
-        "image/png": ".png", "image/jpeg": ".jpg", "image/jpg": ".jpg",
-        "image/webp": ".webp", "image/svg+xml": ".svg",
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/webp": ".webp",
+        "image/svg+xml": ".svg",
     }
     ext = ext_map.get(file.content_type, ".png")
     digest = hashlib.md5(data).hexdigest()[:12]
     filename = f"{digest}_{int(time.time())}{ext}"
 
     from synapse.config import settings
+
     avatar_dir = settings.data_dir / "avatars"
     avatar_dir.mkdir(parents=True, exist_ok=True)
     dest = avatar_dir / filename
@@ -137,6 +152,64 @@ async def create_from_template(request: Request):
     return org.to_dict()
 
 
+@router.post("/import", status_code=201)
+async def import_org(request: Request, file: UploadFile = File(...)):
+    """Import an organization from .json / .akita-org file with name dedup."""
+    mgr = _get_manager(request)
+
+    content = await file.read()
+    try:
+        data = json.loads(content)
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        raise HTTPException(400, f"无效的文件格式: {e}")
+
+    org_data = data.get("organization")
+    if not org_data or not isinstance(org_data, dict):
+        raise HTTPException(400, "文件缺少 organization 字段")
+
+    org_data.pop("id", None)
+    org_data["status"] = "dormant"
+    org_data["total_tasks_completed"] = 0
+    org_data["total_messages_exchanged"] = 0
+
+    existing_names = {o["name"] for o in mgr.list_orgs()}
+    orig_name = org_data.get("name", "")
+    if orig_name in existing_names:
+        suffix = 2
+        while f"{orig_name} ({suffix})" in existing_names:
+            suffix += 1
+        org_data["name"] = f"{orig_name} ({suffix})"
+
+    try:
+        org = mgr.create(org_data)
+    except Exception as e:
+        raise HTTPException(400, f"导入失败: {e}")
+
+    files_data: dict = data.get("files", {})
+    if files_data:
+        org_dir = mgr._org_dir(org.id)
+        for rel_path, file_content in files_data.items():
+            if ".." in rel_path:
+                continue
+            target = org_dir / rel_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                target.write_text(file_content, encoding="utf-8")
+            except Exception:
+                pass
+
+    renamed = org_data["name"] != orig_name
+    msg = f"组织「{org_data['name']}」导入成功"
+    if renamed:
+        msg += f"（原名「{orig_name}」已存在，已重命名）"
+
+    return {
+        "message": msg,
+        "organization": org.to_dict(),
+        "renamed": renamed,
+    }
+
+
 @router.get("/{org_id}")
 async def get_org(request: Request, org_id: str):
     mgr = _get_manager(request)
@@ -156,14 +229,20 @@ async def update_org(request: Request, org_id: str):
         org = mgr.update(org_id, body)
     except (ValueError, TypeError, KeyError) as e:
         raise HTTPException(400, f"Invalid org data: {e}")
+    rt = getattr(request.app.state, "org_runtime", None)
+    if rt and hasattr(rt, "_active_orgs") and org_id in rt._active_orgs:
+        rt._active_orgs[org_id] = org
     return org.to_dict()
 
 
 @router.delete("/{org_id}")
 async def delete_org(request: Request, org_id: str):
-    mgr = _get_manager(request)
-    if not mgr.delete(org_id):
+    rt = _get_runtime(request)
+    try:
+        await to_engine(rt.delete_org(org_id))
+    except ValueError:
         raise HTTPException(404, f"Organization not found: {org_id}")
+    _project_stores.pop(org_id, None)
     return {"ok": True}
 
 
@@ -208,12 +287,25 @@ async def save_as_template(request: Request, org_id: str):
 
 @router.post("/{org_id}/export")
 async def export_org(request: Request, org_id: str):
+    """Export org as JSON. If body has output_path, write to that path."""
     mgr = _get_manager(request)
     org = mgr.get(org_id)
     if org is None:
         raise HTTPException(404, f"Organization not found: {org_id}")
+
+    body: dict = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+
     org_dir = mgr._org_dir(org_id)
-    export_data: dict[str, Any] = {"organization": org.to_dict(), "files": {}}
+    export_data: dict[str, Any] = {
+        "format": "akita-org",
+        "version": "1.0",
+        "organization": org.to_dict(),
+        "files": {},
+    }
     for sub in ("memory", "events", "logs", "reports", "policies"):
         sub_dir = org_dir / sub
         if sub_dir.is_dir():
@@ -224,10 +316,25 @@ async def export_org(request: Request, org_id: str):
                         export_data["files"][rel] = f.read_text(encoding="utf-8")[:50000]
                     except Exception:
                         pass
-    return export_data
+
+    output_path = body.get("output_path", "")
+    if output_path:
+        data_dir = mgr._orgs_dir.parent
+        safe_base = (data_dir / "exports").resolve()
+        out = (safe_base / output_path).resolve()
+        try:
+            out.relative_to(safe_base)
+        except ValueError:
+            raise HTTPException(400, "Invalid output path")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(export_data, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {"ok": True, "path": str(out)}
+
+    return JSONResponse(content=export_data)
 
 
 # ---- Node Schedules ----
+
 
 @router.get("/{org_id}/nodes/{node_id}/schedules")
 async def list_node_schedules(request: Request, org_id: str, node_id: str):
@@ -251,15 +358,14 @@ async def create_node_schedule(request: Request, org_id: str, node_id: str):
         raise HTTPException(404, f"Node not found: {node_id}")
     body = await request.json()
     from synapse.orgs.models import NodeSchedule
+
     schedule = NodeSchedule.from_dict(body)
     mgr.add_node_schedule(org_id, node_id, schedule)
     return schedule.to_dict()
 
 
 @router.put("/{org_id}/nodes/{node_id}/schedules/{schedule_id}")
-async def update_node_schedule(
-    request: Request, org_id: str, node_id: str, schedule_id: str
-):
+async def update_node_schedule(request: Request, org_id: str, node_id: str, schedule_id: str):
     mgr = _get_manager(request)
     body = await request.json()
     result = mgr.update_node_schedule(org_id, node_id, schedule_id, body)
@@ -269,9 +375,7 @@ async def update_node_schedule(
 
 
 @router.delete("/{org_id}/nodes/{node_id}/schedules/{schedule_id}")
-async def delete_node_schedule(
-    request: Request, org_id: str, node_id: str, schedule_id: str
-):
+async def delete_node_schedule(request: Request, org_id: str, node_id: str, schedule_id: str):
     mgr = _get_manager(request)
     if not mgr.delete_node_schedule(org_id, node_id, schedule_id):
         raise HTTPException(404, f"Schedule not found: {schedule_id}")
@@ -279,6 +383,7 @@ async def delete_node_schedule(
 
 
 # ---- Node Identity (read/write) ----
+
 
 @router.get("/{org_id}/nodes/{node_id}/identity")
 async def get_node_identity(request: Request, org_id: str, node_id: str):
@@ -320,6 +425,7 @@ async def update_node_identity(request: Request, org_id: str, node_id: str):
 
 # ---- Node MCP Config ----
 
+
 @router.get("/{org_id}/nodes/{node_id}/mcp")
 async def get_node_mcp(request: Request, org_id: str, node_id: str):
     mgr = _get_manager(request)
@@ -329,6 +435,7 @@ async def get_node_mcp(request: Request, org_id: str, node_id: str):
     if org.get_node(node_id) is None:
         raise HTTPException(404)
     import json
+
     p = mgr._node_dir(org_id, node_id) / "mcp_config.json"
     if not p.is_file():
         return {"mode": "inherit"}
@@ -344,6 +451,7 @@ async def update_node_mcp(request: Request, org_id: str, node_id: str):
     if org.get_node(node_id) is None:
         raise HTTPException(404)
     import json
+
     body = await request.json()
     p = mgr._node_dir(org_id, node_id) / "mcp_config.json"
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -352,6 +460,7 @@ async def update_node_mcp(request: Request, org_id: str, node_id: str):
 
 
 # ---- Lifecycle ----
+
 
 @router.post("/{org_id}/start")
 async def start_org(request: Request, org_id: str):
@@ -403,21 +512,143 @@ async def reset_org(request: Request, org_id: str):
         raise HTTPException(400, str(e))
 
 
-# ---- User commands ----
+# ---- User commands (async) ----
+
+
+def _purge_old_commands() -> None:
+    """Remove finished commands older than _CMD_TTL."""
+    now = time.time()
+    stale = [
+        cid
+        for cid, cmd in _command_store.items()
+        if cmd["status"] in ("done", "error") and now - cmd["created_at"] > _CMD_TTL
+    ]
+    for cid in stale:
+        _command_store.pop(cid, None)
+
+
+def _bridge_command_to_session(
+    sm,
+    org_id: str,
+    target_node_id: str | None,
+    content: str,
+    result: dict,
+) -> None:
+    """Write user command + result to SessionManager so OrgChatPanel can restore history."""
+    if not sm:
+        return
+    # Must match frontend OrgChatPanel.sessionId():
+    #   nodeId ? `org_${orgId}_node_${nodeId}` : `org_${orgId}`
+    # Use the frontend-requested target_node_id (not the internally-routed node)
+    # to ensure the bridge writes to the same session the UI reads from.
+    frontend_chat_id = f"org_{org_id}_node_{target_node_id}" if target_node_id else f"org_{org_id}"
+    try:
+        session = sm.get_session(
+            channel="desktop",
+            chat_id=frontend_chat_id,
+            user_id="desktop_user",
+            create_if_missing=True,
+        )
+        if not session:
+            return
+        session.add_message("user", content)
+        if result.get("error"):
+            session.add_message("system", f"命令执行失败: {result['error']}")
+        elif result.get("result"):
+            text = result["result"]
+            if isinstance(text, dict):
+                text = text.get("result") or text.get("error") or str(text)
+            session.add_message("assistant", str(text))
+        sm.mark_dirty()
+    except Exception as exc:
+        logger.debug(f"[OrgCmd] session bridge failed: {exc}")
+
 
 @router.post("/{org_id}/command")
 async def send_command(request: Request, org_id: str):
+    """Submit a command to the organization. Returns immediately with a
+    command_id that the frontend can use to poll for progress / result."""
     rt = _get_runtime(request)
     body = await request.json()
     content = body.get("content", "")
     target_node = body.get("target_node_id")
     if not content:
         raise HTTPException(400, "content is required")
-    try:
-        result = await to_engine(rt.send_command(org_id, target_node, content))
-        return result
-    except ValueError as e:
-        raise HTTPException(400, str(e))
+
+    _purge_old_commands()
+
+    command_id = uuid.uuid4().hex[:12]
+    _command_store[command_id] = {
+        "command_id": command_id,
+        "org_id": org_id,
+        "status": "running",
+        "result": None,
+        "error": None,
+        "created_at": time.time(),
+        "updated_at": time.time(),
+    }
+
+    sm = getattr(request.app.state, "session_manager", None)
+
+    async def _run() -> None:
+        from synapse.api.routes.websocket import broadcast_event
+
+        try:
+            result = await rt.send_command(org_id, target_node, content)
+            _command_store[command_id].update(status="done", result=result, updated_at=time.time())
+            _bridge_command_to_session(sm, org_id, target_node, content, result)
+            await broadcast_event(
+                "org:command_done",
+                {
+                    "org_id": org_id,
+                    "command_id": command_id,
+                    "result": result,
+                },
+            )
+        except Exception as exc:
+            _command_store[command_id].update(
+                status="error", error=str(exc), updated_at=time.time()
+            )
+            _bridge_command_to_session(
+                sm,
+                org_id,
+                target_node,
+                content,
+                {"error": str(exc)},
+            )
+            await broadcast_event(
+                "org:command_done",
+                {
+                    "org_id": org_id,
+                    "command_id": command_id,
+                    "error": str(exc),
+                },
+            )
+
+    from synapse.core.engine_bridge import get_engine_loop
+
+    engine_loop = get_engine_loop()
+    if engine_loop is not None:
+        asyncio.run_coroutine_threadsafe(_run(), engine_loop)
+    else:
+        asyncio.create_task(_run())
+
+    return {"command_id": command_id, "status": "running"}
+
+
+@router.get("/{org_id}/commands/{command_id}")
+async def get_command_status(request: Request, org_id: str, command_id: str):
+    """Poll the status of an async command."""
+    cmd = _command_store.get(command_id)
+    if not cmd or cmd["org_id"] != org_id:
+        raise HTTPException(404, "Command not found")
+    return {
+        "command_id": cmd["command_id"],
+        "status": cmd["status"],
+        "result": cmd["result"],
+        "error": cmd["error"],
+        "elapsed_s": round(time.time() - cmd["created_at"], 1),
+    }
 
 
 @router.post("/{org_id}/broadcast")
@@ -427,15 +658,19 @@ async def broadcast_to_org(request: Request, org_id: str):
     content = body.get("content", "")
     if not content:
         raise HTTPException(400, "content is required")
-    result = await to_engine(rt.handle_org_tool(
-        "org_broadcast",
-        {"content": content, "scope": "organization"},
-        org_id, "user",
-    ))
+    result = await to_engine(
+        rt.handle_org_tool(
+            "org_broadcast",
+            {"content": content, "scope": "organization"},
+            org_id,
+            "user",
+        )
+    )
     return {"result": result}
 
 
 # ---- Node management ----
+
 
 @router.get("/{org_id}/nodes/{node_id}/status")
 async def get_node_status(request: Request, org_id: str, node_id: str):
@@ -459,6 +694,7 @@ async def get_node_status(request: Request, org_id: str, node_id: str):
         "frozen_at": node.frozen_at,
     }
 
+
 @router.get("/{org_id}/nodes/{node_id}/thinking")
 async def get_node_thinking(request: Request, org_id: str, node_id: str):
     """Get a node's recent thinking process: events, messages, and tool calls."""
@@ -480,6 +716,7 @@ async def get_node_thinking(request: Request, org_id: str, node_id: str):
     messages: list[dict] = []
     if comm_log.is_file():
         import json as _json
+
         try:
             lines = comm_log.read_text(encoding="utf-8").strip().split("\n")
             for line in reversed(lines):
@@ -499,21 +736,27 @@ async def get_node_thinking(request: Request, org_id: str, node_id: str):
 
     timeline: list[dict] = []
     for evt in events:
-        timeline.append({
-            "type": "event",
-            "timestamp": evt.get("timestamp", ""),
-            "event_type": evt.get("event_type", ""),
-            "data": evt.get("data", {}),
-        })
+        timeline.append(
+            {
+                "type": "event",
+                "timestamp": evt.get("timestamp", ""),
+                "event_type": evt.get("event_type", ""),
+                "data": evt.get("data", {}),
+            }
+        )
     for msg in messages:
-        timeline.append({
-            "type": "message",
-            "timestamp": msg.get("timestamp", msg.get("created_at", "")),
-            "direction": "out" if msg.get("from_node") == node_id else "in",
-            "peer": msg.get("to_node") if msg.get("from_node") == node_id else msg.get("from_node"),
-            "msg_type": msg.get("msg_type", ""),
-            "content": msg.get("content", "")[:500],
-        })
+        timeline.append(
+            {
+                "type": "message",
+                "timestamp": msg.get("timestamp", msg.get("created_at", "")),
+                "direction": "out" if msg.get("from_node") == node_id else "in",
+                "peer": msg.get("to_node")
+                if msg.get("from_node") == node_id
+                else msg.get("from_node"),
+                "msg_type": msg.get("msg_type", ""),
+                "content": msg.get("content", "")[:500],
+            }
+        )
     timeline.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
 
     return {
@@ -543,19 +786,52 @@ async def preview_node_prompt(request: Request, org_id: str, node_id: str):
     dept_summary = bb.get_dept_summary(node.department) if bb and node.department else ""
     node_summary = bb.get_node_summary(node.id) if bb else ""
 
-    full_prompt = identity.build_org_context_prompt(
-        node, org, resolved,
+    org_context_prompt = identity.build_org_context_prompt(
+        node,
+        org,
+        resolved,
         blackboard_summary=blackboard_summary,
         dept_summary=dept_summary,
         node_summary=node_summary,
     )
 
+    from synapse.orgs.tool_categories import expand_tool_categories
+
+    _ORG_CONFLICT = {"delegate_to_agent", "spawn_agent", "delegate_parallel", "create_agent"}
+    _KEEP = {"get_tool_info", "create_todo", "update_todo_step", "get_todo_status", "complete_todo"}
+    allowed_external = expand_tool_categories(node.external_tools) - _ORG_CONFLICT
+
+    tool_summary = {
+        "org_tools": "(org_* 系列 — 运行时自动注入)",
+        "keep_tools": sorted(_KEEP),
+        "external_tools_config": node.external_tools or [],
+        "external_tools_expanded": sorted(allowed_external),
+        "blocked_conflict_tools": sorted(_ORG_CONFLICT),
+    }
+
     return {
         "node_id": node_id,
         "identity_level": resolved.level,
+        "identity_level_desc": {
+            0: "Level 0: 无 ROLE.md（使用 custom_prompt / AgentProfile / 自动生成）",
+            1: "Level 1: 有 ROLE.md",
+            2: "Level 2: 有 ROLE.md + AGENT.md",
+            3: "Level 3: 有 ROLE.md + AGENT.md + SOUL.md",
+        }.get(resolved.level, f"Level {resolved.level}"),
         "role_text": resolved.role or "(auto-generated)",
-        "full_prompt": full_prompt,
-        "char_count": len(full_prompt),
+        "soul_agent_injected": False,
+        "soul_agent_note": ("组织模式使用精简协作身份，不注入 SOUL.md / AGENT.md 全文"),
+        "full_prompt": org_context_prompt,
+        "char_count": len(org_context_prompt),
+        "lean_prompt_structure": [
+            "1. 组织上下文（上方 full_prompt 内容）",
+            "2. 运行环境（时间、OS、Shell — 自动注入）",
+            "3. org_* 工具清单（运行时生成）",
+            "4. 外部执行工具清单（运行时生成）" if allowed_external else None,
+            "5. 行为准则（协作规则 + 交付流程）",
+            "6. 核心策略红线",
+        ],
+        "tool_summary": tool_summary,
     }
 
 
@@ -563,20 +839,28 @@ async def preview_node_prompt(request: Request, org_id: str, node_id: str):
 async def freeze_node(request: Request, org_id: str, node_id: str):
     rt = _get_runtime(request)
     body = await request.json() if request.headers.get("content-length", "0") != "0" else {}
-    result = await to_engine(rt.handle_org_tool(
-        "org_freeze_node",
-        {"node_id": node_id, "reason": body.get("reason", "用户操作")},
-        org_id, "user",
-    ))
+    result = await to_engine(
+        rt.handle_org_tool(
+            "org_freeze_node",
+            {"node_id": node_id, "reason": body.get("reason", "用户操作")},
+            org_id,
+            "user",
+        )
+    )
     return {"result": result}
 
 
 @router.post("/{org_id}/nodes/{node_id}/unfreeze")
 async def unfreeze_node(request: Request, org_id: str, node_id: str):
     rt = _get_runtime(request)
-    result = await to_engine(rt.handle_org_tool(
-        "org_unfreeze_node", {"node_id": node_id}, org_id, "user",
-    ))
+    result = await to_engine(
+        rt.handle_org_tool(
+            "org_unfreeze_node",
+            {"node_id": node_id},
+            org_id,
+            "user",
+        )
+    )
     return {"result": result}
 
 
@@ -590,8 +874,9 @@ async def set_node_offline(request: Request, org_id: str, node_id: str):
     if not node:
         raise HTTPException(404, f"Node not found: {node_id}")
     from synapse.orgs.models import NodeStatus
+
     node.status = NodeStatus.OFFLINE
-    rt._save_org(org)
+    await rt._save_org(org)
     rt.get_event_store(org_id).emit("node_deactivated", "user", {"node_id": node_id})
     return {"ok": True, "status": "offline"}
 
@@ -606,15 +891,17 @@ async def set_node_online(request: Request, org_id: str, node_id: str):
     if not node:
         raise HTTPException(404, f"Node not found: {node_id}")
     from synapse.orgs.models import NodeStatus
+
     if node.status != NodeStatus.OFFLINE:
         raise HTTPException(400, f"Node is not offline (current: {node.status.value})")
     node.status = NodeStatus.IDLE
-    rt._save_org(org)
+    await rt._save_org(org)
     rt.get_event_store(org_id).emit("node_activated", "user", {"node_id": node_id})
     return {"ok": True, "status": "idle"}
 
 
 # ---- Memory ----
+
 
 @router.get("/{org_id}/memory")
 async def query_memory(request: Request, org_id: str):
@@ -624,6 +911,7 @@ async def query_memory(request: Request, org_id: str):
         mgr = _get_manager(request)
         org_dir = mgr._org_dir(org_id)
         from synapse.orgs.blackboard import OrgBlackboard
+
         bb = OrgBlackboard(org_dir, org_id)
 
     scope = request.query_params.get("scope")
@@ -632,6 +920,7 @@ async def query_memory(request: Request, org_id: str):
     limit = _safe_int(request.query_params.get("limit"), 50)
 
     from synapse.orgs.models import MemoryScope, MemoryType
+
     try:
         scope_enum = MemoryScope(scope) if scope else None
         type_enum = MemoryType(memory_type) if memory_type else None
@@ -649,9 +938,11 @@ async def add_memory(request: Request, org_id: str):
     if not bb:
         mgr = _get_manager(request)
         from synapse.orgs.blackboard import OrgBlackboard
+
         bb = OrgBlackboard(mgr._org_dir(org_id), org_id)
     body = await request.json()
     from synapse.orgs.models import MemoryScope, MemoryType
+
     try:
         scope = MemoryScope(body.get("scope", "org"))
         mt = MemoryType(body.get("memory_type", "fact"))
@@ -661,20 +952,36 @@ async def add_memory(request: Request, org_id: str):
     if not content:
         raise HTTPException(400, "content is required")
     if scope == MemoryScope.ORG:
-        entry = bb.write_org(content, source_node="user", memory_type=mt,
-                             tags=body.get("tags", []), importance=body.get("importance", 0.5))
+        entry = bb.write_org(
+            content,
+            source_node="user",
+            memory_type=mt,
+            tags=normalize_tags(body.get("tags")),
+            importance=body.get("importance", 0.5),
+        )
     elif scope == MemoryScope.DEPARTMENT:
         dept = body.get("scope_owner", "")
         if not dept:
             raise HTTPException(400, "scope_owner (department) required for department scope")
-        entry = bb.write_department(dept, content, "user", memory_type=mt,
-                                    tags=body.get("tags", []), importance=body.get("importance", 0.5))
+        entry = bb.write_department(
+            dept,
+            content,
+            "user",
+            memory_type=mt,
+            tags=normalize_tags(body.get("tags")),
+            importance=body.get("importance", 0.5),
+        )
     else:
         node_id = body.get("scope_owner", "")
         if not node_id:
             raise HTTPException(400, "scope_owner (node_id) required for node scope")
-        entry = bb.write_node(node_id, content, memory_type=mt,
-                              tags=body.get("tags", []), importance=body.get("importance", 0.5))
+        entry = bb.write_node(
+            node_id,
+            content,
+            memory_type=mt,
+            tags=normalize_tags(body.get("tags")),
+            importance=body.get("importance", 0.5),
+        )
     return entry.to_dict()
 
 
@@ -692,6 +999,7 @@ async def delete_memory(request: Request, org_id: str, memory_id: str):
 
 # ---- Events ----
 
+
 @router.get("/{org_id}/events")
 async def query_events(request: Request, org_id: str):
     rt = _get_runtime(request)
@@ -700,15 +1008,23 @@ async def query_events(request: Request, org_id: str):
     actor = request.query_params.get("actor")
     since = request.query_params.get("since")
     until = request.query_params.get("until")
+    chain_id = request.query_params.get("chain_id")
+    task_id = request.query_params.get("task_id")
     limit = _safe_int(request.query_params.get("limit"), 100)
     events = es.query(
-        event_type=event_type, actor=actor,
-        since=since, until=until, limit=limit,
+        event_type=event_type,
+        actor=actor,
+        since=since,
+        until=until,
+        chain_id=chain_id,
+        task_id=task_id,
+        limit=limit,
     )
     return events
 
 
 # ---- Messages (communication log) ----
+
 
 @router.get("/{org_id}/messages")
 async def query_messages(request: Request, org_id: str):
@@ -718,6 +1034,7 @@ async def query_messages(request: Request, org_id: str):
     if not comm_log.is_file():
         return {"messages": [], "count": 0}
     import json as _json
+
     messages: list[dict] = []
     limit = _safe_int(request.query_params.get("limit"), 100)
     from_node = request.query_params.get("from_node")
@@ -744,6 +1061,7 @@ async def query_messages(request: Request, org_id: str):
 
 
 # ---- Policies ----
+
 
 @router.get("/{org_id}/policies")
 async def list_policies(request: Request, org_id: str):
@@ -806,6 +1124,7 @@ async def delete_policy(request: Request, org_id: str, filename: str):
 
 # ---- Inbox ----
 
+
 @router.get("/{org_id}/inbox")
 async def list_inbox(request: Request, org_id: str):
     rt = _get_runtime(request)
@@ -857,7 +1176,9 @@ async def resolve_inbox_approval(request: Request, org_id: str, msg_id: str):
     if not decision:
         raise HTTPException(400, "decision is required")
     if decision not in _VALID_DECISIONS:
-        raise HTTPException(400, f"Invalid decision. Must be one of: {', '.join(sorted(_VALID_DECISIONS))}")
+        raise HTTPException(
+            400, f"Invalid decision. Must be one of: {', '.join(sorted(_VALID_DECISIONS))}"
+        )
     msg = inbox.resolve_approval(org_id, msg_id, decision, by="user")
     if not msg:
         raise HTTPException(404, "Message not found or not an approval")
@@ -865,6 +1186,7 @@ async def resolve_inbox_approval(request: Request, org_id: str, msg_id: str):
 
 
 # ---- Scaling ----
+
 
 @router.get("/{org_id}/scaling/requests")
 async def list_scaling_requests(request: Request, org_id: str):
@@ -891,7 +1213,7 @@ async def approve_scaling(request: Request, org_id: str, request_id: str):
     rt = _get_runtime(request)
     scaler = rt.get_scaler()
     try:
-        req = scaler.approve_request(org_id, request_id, approved_by="user")
+        req = await scaler.approve_request(org_id, request_id, approved_by="user")
         return {
             "id": req.id,
             "status": req.status,
@@ -908,8 +1230,10 @@ async def reject_scaling(request: Request, org_id: str, request_id: str):
     body = await request.json() if request.headers.get("content-length", "0") != "0" else {}
     try:
         req = scaler.reject_request(
-            org_id, request_id,
-            rejected_by="user", reason=body.get("reason", ""),
+            org_id,
+            request_id,
+            rejected_by="user",
+            reason=body.get("reason", ""),
         )
         return {"id": req.id, "status": req.status}
     except ValueError as e:
@@ -925,7 +1249,7 @@ async def scale_clone(request: Request, org_id: str):
     if not source_node_id:
         raise HTTPException(400, "source_node_id is required")
     try:
-        req = scaler.request_clone(
+        req = await scaler.request_clone(
             org_id=org_id,
             requester="user",
             source_node_id=source_node_id,
@@ -969,13 +1293,14 @@ async def scale_recruit(request: Request, org_id: str):
 async def dismiss_node(request: Request, org_id: str, node_id: str):
     rt = _get_runtime(request)
     scaler = rt.get_scaler()
-    ok = scaler.dismiss_node(org_id, node_id, by="user")
+    ok = await scaler.dismiss_node(org_id, node_id, by="user")
     if not ok:
         raise HTTPException(400, "Cannot dismiss this node (non-ephemeral or not found)")
     return {"ok": True}
 
 
 # ---- SSE Status Stream ----
+
 
 @router.get("/{org_id}/status")
 async def org_status_stream(request: Request, org_id: str):
@@ -1000,7 +1325,7 @@ async def org_status_stream(request: Request, org_id: str):
                 try:
                     msg = await _asyncio.wait_for(q.get(), timeout=30.0)
                     yield f"data: {_json.dumps({'type': 'inbox', 'message': msg.to_dict()}, ensure_ascii=False)}\n\n"
-                except TimeoutError:
+                except (asyncio.TimeoutError, TimeoutError):
                     current = rt.get_org(org_id)
                     if not current:
                         break
@@ -1020,6 +1345,7 @@ async def org_status_stream(request: Request, org_id: str):
 
 # ---- Heartbeat / Standup ----
 
+
 @router.post("/{org_id}/heartbeat/trigger")
 async def trigger_heartbeat(request: Request, org_id: str):
     rt = _get_runtime(request)
@@ -1038,10 +1364,9 @@ async def trigger_standup(request: Request, org_id: str):
 
 # ---- Schedules trigger ----
 
+
 @router.post("/{org_id}/nodes/{node_id}/schedules/{schedule_id}/trigger")
-async def trigger_schedule(
-    request: Request, org_id: str, node_id: str, schedule_id: str
-):
+async def trigger_schedule(request: Request, org_id: str, node_id: str, schedule_id: str):
     rt = _get_runtime(request)
     scheduler = rt.get_scheduler()
     result = await scheduler.trigger_once(org_id, node_id, schedule_id)
@@ -1049,6 +1374,7 @@ async def trigger_schedule(
 
 
 # ---- Reports ----
+
 
 @router.get("/{org_id}/reports/summary")
 async def get_report_summary(request: Request, org_id: str):
@@ -1078,6 +1404,7 @@ async def get_audit_log(request: Request, org_id: str):
 
 # ---- Reports list ----
 
+
 @router.get("/{org_id}/reports")
 async def list_reports(request: Request, org_id: str):
     mgr = _get_manager(request)
@@ -1086,15 +1413,18 @@ async def list_reports(request: Request, org_id: str):
         return []
     result = []
     for f in sorted(reports_dir.glob("*.md"), reverse=True):
-        result.append({
-            "filename": f.name,
-            "size": f.stat().st_size,
-            "modified": f.stat().st_mtime,
-        })
+        result.append(
+            {
+                "filename": f.name,
+                "size": f.stat().st_size,
+                "modified": f.stat().st_mtime,
+            }
+        )
     return result
 
 
 # ---- IM Notification Reply ----
+
 
 @router.post("/{org_id}/im-reply")
 async def handle_im_reply(request: Request, org_id: str):
@@ -1110,6 +1440,7 @@ async def handle_im_reply(request: Request, org_id: str):
 
 
 # ---- Event Replay (for log playback) ----
+
 
 @router.get("/{org_id}/events/replay")
 async def replay_events(request: Request, org_id: str):
@@ -1131,17 +1462,20 @@ async def replay_events(request: Request, org_id: str):
 
     timeline: list[dict] = []
     for evt in events:
-        timeline.append({
-            "t": evt.get("timestamp"),
-            "type": evt.get("event_type"),
-            "actor": evt.get("actor"),
-            "data": evt.get("data", {}),
-        })
+        timeline.append(
+            {
+                "t": evt.get("timestamp"),
+                "type": evt.get("event_type"),
+                "actor": evt.get("actor"),
+                "data": evt.get("data", {}),
+            }
+        )
 
     return {"events": timeline, "count": len(timeline)}
 
 
 # ---- Organization stats ----
+
 
 @router.get("/{org_id}/stats")
 async def get_org_stats(request: Request, org_id: str):
@@ -1171,6 +1505,7 @@ async def get_org_stats(request: Request, org_id: str):
     per_node: list[dict] = []
     anomalies: list[dict] = []
     agent_cache = getattr(rt, "_agent_cache", None) or {}
+    store = _get_project_store(request, org_id)
     for n in org.nodes:
         cache_key = f"{org_id}:{n.id}"
         cached = agent_cache.get(cache_key) if isinstance(agent_cache, dict) else None
@@ -1183,6 +1518,26 @@ async def get_org_stats(request: Request, org_id: str):
             except Exception:
                 pass
         node_pending = messenger.get_pending_count(n.id) if messenger else 0
+
+        assigned = store.all_tasks(assignee=n.id)
+        delegated = store.all_tasks(delegated_by=n.id)
+        active_assigned = [t for t in assigned if t.get("status") == "in_progress"]
+        current_task_title = active_assigned[0].get("title") if active_assigned else None
+        plan_progress = None
+        if active_assigned:
+            steps = active_assigned[0].get("plan_steps") or []
+            if steps:
+                completed = sum(1 for s in steps if s.get("status") == "completed")
+                plan_progress = {"completed": completed, "total": len(steps)}
+        in_progress_d = sum(1 for t in delegated if t.get("status") == "in_progress")
+        completed_d = sum(1 for t in delegated if t.get("status") in ("accepted", "completed"))
+        delegated_summary = {
+            "in_progress": in_progress_d,
+            "completed": completed_d,
+            "total": len(delegated),
+        }
+        external_tools = list(getattr(n, "external_tools", []) or [])
+
         entry = {
             "id": n.id,
             "role_title": n.role_title,
@@ -1191,23 +1546,56 @@ async def get_org_stats(request: Request, org_id: str):
             "pending_messages": node_pending,
             "idle_seconds": round(idle_secs) if idle_secs is not None else None,
             "current_task": getattr(n, "_current_task_desc", None),
+            "current_task_title": current_task_title,
+            "plan_progress": plan_progress,
+            "delegated_summary": delegated_summary,
+            "external_tools": external_tools,
             "is_clone": n.is_clone,
             "frozen": n.frozen_by is not None,
         }
         per_node.append(entry)
 
         if n.status.value == "error":
-            anomalies.append({"node_id": n.id, "role_title": n.role_title, "type": "error",
-                              "message": "节点处于错误状态"})
+            anomalies.append(
+                {
+                    "node_id": n.id,
+                    "role_title": n.role_title,
+                    "type": "error",
+                    "message": "节点处于错误状态",
+                }
+            )
         elif n.status.value == "busy" and idle_secs is not None and idle_secs > 600:
-            anomalies.append({"node_id": n.id, "role_title": n.role_title, "type": "stuck",
-                              "message": f"节点标记为忙碌但已 {round(idle_secs / 60)} 分钟无活动"})
-        elif n.status.value == "idle" and idle_secs is not None and idle_secs > 300 and not n.is_clone:
-            anomalies.append({"node_id": n.id, "role_title": n.role_title, "type": "long_idle",
-                              "message": f"空闲超过 {round(idle_secs / 60)} 分钟"})
+            anomalies.append(
+                {
+                    "node_id": n.id,
+                    "role_title": n.role_title,
+                    "type": "stuck",
+                    "message": f"节点标记为忙碌但已 {round(idle_secs / 60)} 分钟无活动",
+                }
+            )
+        elif (
+            n.status.value == "idle"
+            and idle_secs is not None
+            and idle_secs > 300
+            and not n.is_clone
+        ):
+            anomalies.append(
+                {
+                    "node_id": n.id,
+                    "role_title": n.role_title,
+                    "type": "long_idle",
+                    "message": f"空闲超过 {round(idle_secs / 60)} 分钟",
+                }
+            )
         if node_pending > 5:
-            anomalies.append({"node_id": n.id, "role_title": n.role_title, "type": "backlog",
-                              "message": f"待处理消息积压 {node_pending} 条"})
+            anomalies.append(
+                {
+                    "node_id": n.id,
+                    "role_title": n.role_title,
+                    "type": "backlog",
+                    "message": f"待处理消息积压 {node_pending} 条",
+                }
+            )
 
     bb = rt.get_blackboard(org_id)
     recent_bb: list[dict] = []
@@ -1215,13 +1603,17 @@ async def get_org_stats(request: Request, org_id: str):
         try:
             entries = bb.read_org(limit=5)
             for e in entries:
-                recent_bb.append({
-                    "content": (e.content[:120] + "…") if len(e.content) > 120 else e.content,
-                    "source_node": e.source_node,
-                    "memory_type": e.memory_type.value if hasattr(e.memory_type, "value") else str(e.memory_type),
-                    "timestamp": e.created_at,
-                    "tags": e.tags[:3] if e.tags else [],
-                })
+                recent_bb.append(
+                    {
+                        "content": (e.content[:120] + "…") if len(e.content) > 120 else e.content,
+                        "source_node": e.source_node,
+                        "memory_type": e.memory_type.value
+                        if hasattr(e.memory_type, "value")
+                        else str(e.memory_type),
+                        "timestamp": e.created_at,
+                        "tags": e.tags[:3],
+                    }
+                )
         except Exception:
             pass
 
@@ -1229,6 +1621,7 @@ async def get_org_stats(request: Request, org_id: str):
     if org.created_at:
         try:
             from datetime import datetime
+
             start = datetime.fromisoformat(org.created_at.replace("Z", "+00:00"))
             uptime_s = round((datetime.now(UTC) - start).total_seconds())
         except Exception:
@@ -1241,6 +1634,56 @@ async def get_org_stats(request: Request, org_id: str):
         health = "warning"
     elif len(anomalies) > 0:
         health = "attention"
+
+    # Aggregate recent task flow from event store
+    recent_tasks: list[dict] = []
+    try:
+        es = rt.get_event_store(org_id)
+        task_events = es.query(limit=30)
+        for evt in task_events:
+            et = evt.get("event_type", "")
+            if et not in (
+                "task_delegated",
+                "task_delivered",
+                "task_accepted",
+                "task_rejected",
+                "task_timeout",
+            ):
+                continue
+            d = evt.get("data", {})
+            recent_tasks.append(
+                {
+                    "t": evt.get("timestamp"),
+                    "type": et,
+                    "from": d.get("from_node") or evt.get("actor", ""),
+                    "to": d.get("to_node", ""),
+                    "task": (d.get("task") or d.get("content") or "")[:80],
+                    "status": (
+                        "accepted"
+                        if et == "task_accepted"
+                        else "rejected"
+                        if et == "task_rejected"
+                        else "timeout"
+                        if et == "task_timeout"
+                        else "delivered"
+                        if et == "task_delivered"
+                        else "running"
+                    ),
+                }
+            )
+        recent_tasks = recent_tasks[:15]
+    except Exception:
+        pass
+
+    # Department workload (count busy + recent tasks per department)
+    dept_workload: dict[str, dict[str, int]] = {}
+    for n in org.nodes:
+        dep = n.department or "未分组"
+        if dep not in dept_workload:
+            dept_workload[dep] = {"total": 0, "busy": 0}
+        dept_workload[dep]["total"] += 1
+        if n.status.value == "busy":
+            dept_workload[dep]["busy"] += 1
 
     return {
         "org_id": org.id,
@@ -1261,6 +1704,301 @@ async def get_org_stats(request: Request, org_id: str):
         "per_node": per_node,
         "anomalies": anomalies,
         "recent_blackboard": recent_bb,
+        "recent_tasks": recent_tasks,
+        "department_workload": dept_workload,
+    }
+
+
+# ---- Project Board API ----
+
+_project_stores: dict[str, Any] = {}
+
+
+def _get_project_store(request: Request, org_id: str, *, must_exist: bool = False):
+    from synapse.orgs.project_store import ProjectStore
+
+    if must_exist:
+        mgr = _get_manager(request)
+        if not mgr.get(org_id):
+            raise HTTPException(404, "Organization not found")
+    if org_id not in _project_stores:
+        mgr = _get_manager(request)
+        org_dir = mgr._org_dir(org_id)
+        _project_stores[org_id] = ProjectStore(org_dir)
+    return _project_stores[org_id]
+
+
+@router.get("/{org_id}/projects")
+async def list_projects(request: Request, org_id: str):
+    store = _get_project_store(request, org_id)
+    return [p.to_dict() for p in store.list_projects()]
+
+
+@router.post("/{org_id}/projects")
+async def create_project(request: Request, org_id: str):
+    from synapse.orgs.models import OrgProject, ProjectStatus, ProjectType
+
+    body = await request.json()
+    proj = OrgProject(
+        org_id=org_id,
+        name=body.get("name", ""),
+        description=body.get("description", ""),
+        project_type=ProjectType(body.get("project_type", "temporary")),
+        status=ProjectStatus(body.get("status", "planning")),
+        owner_node_id=body.get("owner_node_id"),
+    )
+    store = _get_project_store(request, org_id, must_exist=True)
+    return store.create_project(proj).to_dict()
+
+
+@router.get("/{org_id}/projects/{project_id}")
+async def get_project(request: Request, org_id: str, project_id: str):
+    store = _get_project_store(request, org_id)
+    proj = store.get_project(project_id)
+    if not proj:
+        raise HTTPException(404, "Project not found")
+    return proj.to_dict()
+
+
+@router.put("/{org_id}/projects/{project_id}")
+async def update_project(request: Request, org_id: str, project_id: str):
+    body = await request.json()
+    store = _get_project_store(request, org_id)
+    from synapse.orgs.models import ProjectStatus, ProjectType
+
+    updates: dict[str, Any] = {}
+    for key in ("name", "description", "owner_node_id", "completed_at"):
+        if key in body:
+            updates[key] = body[key]
+    if "status" in body:
+        updates["status"] = ProjectStatus(body["status"])
+    if "project_type" in body:
+        updates["project_type"] = ProjectType(body["project_type"])
+    proj = store.update_project(project_id, updates)
+    if not proj:
+        raise HTTPException(404, "Project not found")
+    return proj.to_dict()
+
+
+@router.delete("/{org_id}/projects/{project_id}")
+async def delete_project(request: Request, org_id: str, project_id: str):
+    store = _get_project_store(request, org_id)
+    if not store.delete_project(project_id):
+        raise HTTPException(404, "Project not found")
+    return {"ok": True}
+
+
+@router.post("/{org_id}/projects/{project_id}/tasks")
+async def create_task(request: Request, org_id: str, project_id: str):
+    from synapse.orgs.models import ProjectTask, TaskStatus
+
+    body = await request.json()
+    task = ProjectTask(
+        project_id=project_id,
+        title=body.get("title", ""),
+        description=body.get("description", ""),
+        status=TaskStatus(body.get("status", "todo")),
+        assignee_node_id=body.get("assignee_node_id"),
+        delegated_by=body.get("delegated_by"),
+        chain_id=body.get("chain_id"),
+        priority=body.get("priority", 0),
+    )
+    store = _get_project_store(request, org_id)
+    result = store.add_task(project_id, task)
+    if not result:
+        raise HTTPException(404, "Project not found")
+    return result.to_dict()
+
+
+@router.post("/{org_id}/projects/{project_id}/tasks/{task_id}/dispatch")
+async def dispatch_task(request: Request, org_id: str, project_id: str, task_id: str):
+    """Dispatch a user-created task to the organization for execution."""
+    store = _get_project_store(request, org_id)
+    task_data, proj_data = store.get_task(task_id)
+    if not task_data:
+        raise HTTPException(404, "Task not found")
+    if task_data.project_id != project_id:
+        raise HTTPException(404, "Task not found in this project")
+
+    runtime = _get_runtime(request)
+    org = runtime.get_org(org_id)
+    if not org:
+        raise HTTPException(404, "Organization not found or not running")
+
+    prompt = (
+        f"请执行以下项目任务:\n"
+        f"任务ID: {task_data.id}\n"
+        f"标题: {task_data.title}\n"
+        f"描述: {task_data.description}"
+    )
+
+    store.update_task(project_id, task_id, {"status": "in_progress"})
+
+    chain_id = f"dispatch:{task_id}:{uuid.uuid4().hex[:8]}"
+    store.update_task(project_id, task_id, {"chain_id": chain_id})
+
+    import asyncio
+
+    asyncio.ensure_future(to_engine(runtime.send_command(org_id, None, prompt, chain_id=chain_id)))
+
+    return {"ok": True, "task_id": task_id, "chain_id": chain_id, "dispatched": True}
+
+
+@router.put("/{org_id}/projects/{project_id}/tasks/{task_id}")
+async def update_task(request: Request, org_id: str, project_id: str, task_id: str):
+    from synapse.orgs.models import TaskStatus
+
+    body = await request.json()
+    updates: dict[str, Any] = {}
+    for key in (
+        "title",
+        "description",
+        "assignee_node_id",
+        "delegated_by",
+        "chain_id",
+        "priority",
+        "progress_pct",
+        "started_at",
+        "delivered_at",
+        "completed_at",
+    ):
+        if key in body:
+            updates[key] = body[key]
+    if "status" in body:
+        updates["status"] = TaskStatus(body["status"])
+    store = _get_project_store(request, org_id)
+    task = store.update_task(project_id, task_id, updates)
+    if not task:
+        raise HTTPException(404, "Task not found")
+    return task.to_dict()
+
+
+@router.delete("/{org_id}/projects/{project_id}/tasks/{task_id}")
+async def delete_task(request: Request, org_id: str, project_id: str, task_id: str):
+    store = _get_project_store(request, org_id)
+    if not store.delete_task(project_id, task_id):
+        raise HTTPException(404, "Task not found")
+    return {"ok": True}
+
+
+@router.get("/{org_id}/tasks")
+async def list_all_tasks(request: Request, org_id: str):
+    """Cross-project task aggregation with filters."""
+    store = _get_project_store(request, org_id)
+    status = request.query_params.get("status")
+    assignee = request.query_params.get("assignee")
+    chain_id = request.query_params.get("chain_id")
+    parent_task_id = request.query_params.get("parent_task_id")
+    root_only = request.query_params.get("root_only", "").lower() == "true"
+    project_id = request.query_params.get("project_id")
+    return store.all_tasks(
+        status=status,
+        assignee=assignee,
+        chain_id=chain_id,
+        parent_task_id=parent_task_id,
+        root_only=root_only,
+        project_id=project_id,
+    )
+
+
+@router.get("/{org_id}/tasks/{task_id}")
+async def get_task_detail(request: Request, org_id: str, task_id: str):
+    """Get single task with full details including subtasks, plan, timeline."""
+    store = _get_project_store(request, org_id)
+    task_data, _ = store.get_task(task_id)
+    if not task_data:
+        raise HTTPException(404, "Task not found")
+    result = task_data.to_dict()
+    result["subtasks"] = [t.to_dict() for t in store.get_subtasks(task_id)]
+    result["ancestors"] = [t.to_dict() for t in store.get_ancestors(task_id)]
+    return result
+
+
+@router.get("/{org_id}/tasks/{task_id}/tree")
+async def get_task_tree(request: Request, org_id: str, task_id: str):
+    """Get recursive subtask tree."""
+    store = _get_project_store(request, org_id)
+    tree = store.get_task_tree(task_id)
+    if not tree:
+        raise HTTPException(404, "Task not found")
+    return tree
+
+
+@router.get("/{org_id}/tasks/{task_id}/timeline")
+async def get_task_timeline(request: Request, org_id: str, task_id: str):
+    """Get task execution timeline from execution_log + events."""
+    store = _get_project_store(request, org_id)
+    task_data, _ = store.get_task(task_id)
+    if not task_data:
+        raise HTTPException(404, "Task not found")
+    timeline: list[dict] = []
+    for entry in task_data.execution_log or []:
+        e = entry if isinstance(entry, dict) else {}
+        timeline.append(
+            {
+                "ts": e.get("at", e.get("ts", "")),
+                "event": e.get("event", "execution"),
+                "actor": e.get("by", e.get("actor", "")),
+                "detail": e.get("entry", e.get("detail", "")),
+            }
+        )
+    runtime = _get_runtime(request)
+    event_store = runtime.get_event_store(org_id)
+    if event_store:
+        chain_id = task_data.chain_id
+        events = event_store.query(
+            chain_id=chain_id,
+            task_id=task_id if not chain_id else None,
+            limit=100,
+        )
+        for ev in events:
+            timeline.append(
+                {
+                    "ts": ev.get("timestamp", ""),
+                    "event": ev.get("event_type", ""),
+                    "actor": ev.get("actor", ""),
+                    "detail": str(ev.get("data", "")),
+                }
+            )
+    timeline.sort(key=lambda x: x.get("ts", ""))
+    return {"task_id": task_id, "timeline": timeline}
+
+
+@router.get("/{org_id}/nodes/{node_id}/tasks")
+async def get_node_tasks(request: Request, org_id: str, node_id: str):
+    """Get all tasks for a node (assigned + delegated)."""
+    mgr = _get_manager(request)
+    org = mgr.get(org_id)
+    if org is None:
+        raise HTTPException(404, "Organization not found")
+    if org.get_node(node_id) is None:
+        raise HTTPException(404, f"Node not found: {node_id}")
+    store = _get_project_store(request, org_id)
+    assigned = store.all_tasks(assignee=node_id)
+    delegated = store.all_tasks(delegated_by=node_id)
+    return {"assigned": assigned, "delegated": delegated}
+
+
+@router.get("/{org_id}/nodes/{node_id}/active-plan")
+async def get_node_active_plan(request: Request, org_id: str, node_id: str):
+    """Get the active plan for a node's current task."""
+    mgr = _get_manager(request)
+    org = mgr.get(org_id)
+    if org is None:
+        raise HTTPException(404, "Organization not found")
+    if org.get_node(node_id) is None:
+        raise HTTPException(404, f"Node not found: {node_id}")
+    store = _get_project_store(request, org_id)
+    tasks = store.all_tasks(assignee=node_id)
+    active = [t for t in tasks if t.get("status") == "in_progress" and t.get("plan_steps")]
+    if not active:
+        return {"plan": None}
+    task = active[0]
+    return {
+        "task_id": task.get("id"),
+        "title": task.get("title"),
+        "plan_steps": task.get("plan_steps", []),
+        "progress_pct": task.get("progress_pct", 0),
     }
 
 
@@ -1296,7 +2034,7 @@ async def global_inbox(request: Request):
 
     all_messages.sort(key=lambda x: x.get("created_at", ""), reverse=True)
     total = len(all_messages)
-    page = all_messages[offset: offset + limit]
+    page = all_messages[offset : offset + limit]
     return {"messages": page, "total": total}
 
 
@@ -1352,7 +2090,9 @@ async def global_inbox_act(request: Request, msg_id: str):
     if not decision:
         raise HTTPException(400, "decision is required")
     if decision not in _VALID_DECISIONS:
-        raise HTTPException(400, f"Invalid decision. Must be one of: {', '.join(sorted(_VALID_DECISIONS))}")
+        raise HTTPException(
+            400, f"Invalid decision. Must be one of: {', '.join(sorted(_VALID_DECISIONS))}"
+        )
     for info in mgr.list_orgs(include_archived=False):
         oid = info["id"]
         inbox = rt.get_inbox(oid)

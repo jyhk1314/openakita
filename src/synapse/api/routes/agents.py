@@ -1,7 +1,9 @@
 """Agent profile API routes."""
 
+import asyncio
 import logging
 from datetime import datetime, timedelta
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -9,65 +11,68 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+_deleting_bot_ids: set[str] = set()
+_deleting_lock = asyncio.Lock()
+
 # Valid IM bot types
-VALID_BOT_TYPES = frozenset({"feishu", "telegram", "dingtalk", "wework", "onebot", "qqbot"})
+VALID_BOT_TYPES = frozenset(
+    {
+        "feishu",
+        "telegram",
+        "dingtalk",
+        "wework",
+        "wework_ws",
+        "onebot",
+        "onebot_reverse",
+        "qqbot",
+        "wechat",
+    }
+)
 
 
-def _bot_channel_name(bot: dict) -> str:
-    """Derive the channel_name for a bot config dict."""
-    bot_type = bot.get("type", "")
-    bot_id = bot.get("id", "")
-    return f"{bot_type}:{bot_id}" if bot_id else bot_type
+def _invalidate_bot_agent_sessions(bot_cfg: dict) -> None:
+    """Clear ``_bot_default_agent`` metadata on sessions belonging to *bot_cfg*.
 
-
-async def _hot_register_bot(request: Request, bot: dict) -> None:
-    """Create an adapter and register it in the running gateway (if available)."""
-    gateway = getattr(request.app.state, "gateway", None)
-    if gateway is None:
-        logger.info("[Agents API] No running gateway, bot will activate on next restart")
-        return
+    This forces ``_apply_bot_agent_profile`` to re-apply the (new)
+    ``agent_profile_id`` on the next message for each affected session.
+    """
     try:
-        from synapse.main import _create_bot_adapter
+        from synapse.main import _bot_channel_name, get_message_gateway
 
-        channel_name = _bot_channel_name(bot)
-        bot_id = bot.get("id", "")
-        agent_id = bot.get("agent_profile_id", "default")
-        adapter = _create_bot_adapter(
-            bot.get("type", ""), bot.get("credentials", {}),
-            channel_name=channel_name, bot_id=bot_id, agent_profile_id=agent_id,
-        )
-        if adapter:
-            from synapse.core.engine_bridge import to_engine
-
-            await to_engine(gateway.register_adapter(adapter))
-            logger.info(f"[Agents API] Hot-registered adapter: {channel_name}")
+        gw = get_message_gateway()
+        if gw is None or gw.session_manager is None:
+            return
+        channel_name = _bot_channel_name(bot_cfg)
+        sessions = gw.session_manager.list_sessions(channel=channel_name)
+        cleared = 0
+        for s in sessions:
+            if s.get_metadata("_bot_default_agent") is not None:
+                s.metadata.pop("_bot_default_agent", None)
+                cleared += 1
+        if cleared:
+            gw.session_manager.mark_dirty()
+            logger.info(
+                f"[Agents API] Cleared _bot_default_agent on {cleared} sessions for {channel_name}"
+            )
     except Exception as e:
-        logger.warning(f"[Agents API] Hot-register failed (will activate on restart): {e}")
+        logger.warning(f"[Agents API] Failed to invalidate bot agent sessions: {e}")
 
 
-async def _hot_unregister_bot(request: Request, bot: dict) -> None:
-    """Stop and remove an adapter from the running gateway."""
-    gateway = getattr(request.app.state, "gateway", None)
-    if gateway is None:
-        return
-    channel_name = _bot_channel_name(bot)
-    adapters = getattr(gateway, "_adapters", {})
-    adapter = adapters.pop(channel_name, None)
-    if adapter:
-        try:
-            from synapse.core.engine_bridge import to_engine
-
-            await to_engine(adapter.stop())
-            logger.info(f"[Agents API] Hot-unregistered adapter: {channel_name}")
-        except Exception as e:
-            logger.warning(f"[Agents API] Failed to stop adapter {channel_name}: {e}")
-
-
-async def _hot_update_bot(request: Request, bot: dict) -> None:
-    """Replace a running adapter with a new one (stop old → register new)."""
-    await _hot_unregister_bot(request, bot)
-    if bot.get("enabled", True):
-        await _hot_register_bot(request, bot)
+def _invalidate_profile_agents(request: Request, profile_id: str) -> None:
+    """Drop pooled Agent instances for *profile_id* so edits apply next turn."""
+    for pool_attr in ("agent_pool", "orchestrator"):
+        obj = getattr(request.app.state, pool_attr, None)
+        if obj is None:
+            continue
+        pool = getattr(obj, "_pool", obj)
+        if hasattr(pool, "invalidate_profile"):
+            try:
+                pool.invalidate_profile(profile_id)
+            except Exception as e:
+                logger.warning(
+                    f"[Agents API] Failed to invalidate profile pool "
+                    f"({pool_attr}, profile={profile_id}): {e}"
+                )
 
 
 # ─── Pydantic models ─────────────────────────────────────────────────────
@@ -83,6 +88,7 @@ class BotCreateRequest(BaseModel):
 
 
 class BotUpdateRequest(BaseModel):
+    type: str | None = None
     name: str | None = None
     agent_profile_id: str | None = None
     enabled: bool | None = None
@@ -101,8 +107,18 @@ class ProfileCreateRequest(BaseModel):
     color: str = Field("#6b7280", max_length=20)
     skills: list[str] = Field(default_factory=list)
     skills_mode: str = Field("all")
+    tools: list[str] = Field(default_factory=list)
+    tools_mode: str = Field("all")
+    mcp_servers: list[str] = Field(default_factory=list)
+    mcp_mode: str = Field("all")
+    plugins: list[str] = Field(default_factory=list)
+    plugins_mode: str = Field("all")
     custom_prompt: str = Field("", max_length=5000)
     category: str = Field("", max_length=30)
+    preferred_endpoint: str | None = Field(None, max_length=200)
+    identity_mode: Literal["shared", "custom"] = "shared"
+    memory_mode: Literal["shared", "isolated"] = "shared"
+    memory_inherit_global: bool = True
 
 
 class ProfileUpdateRequest(BaseModel):
@@ -112,8 +128,18 @@ class ProfileUpdateRequest(BaseModel):
     color: str | None = Field(None, max_length=20)
     skills: list[str] | None = None
     skills_mode: str | None = None
+    tools: list[str] | None = None
+    tools_mode: str | None = None
+    mcp_servers: list[str] | None = None
+    mcp_mode: str | None = None
+    plugins: list[str] | None = None
+    plugins_mode: str | None = None
     custom_prompt: str | None = Field(None, max_length=5000)
     category: str | None = Field(None, max_length=30)
+    preferred_endpoint: str | None = Field(None, max_length=200)
+    identity_mode: Literal["shared", "custom"] | None = None
+    memory_mode: Literal["shared", "isolated"] | None = None
+    memory_inherit_global: bool | None = None
 
 
 class ProfileVisibilityRequest(BaseModel):
@@ -132,7 +158,7 @@ async def list_bots():
 
 
 @router.post("/api/agents/bots")
-async def create_bot(body: BotCreateRequest, request: Request):
+async def create_bot(body: BotCreateRequest):
     """Add a new bot. Validates id uniqueness and type."""
     from synapse.config import runtime_state, settings
 
@@ -162,24 +188,36 @@ async def create_bot(body: BotCreateRequest, request: Request):
     runtime_state.save()
     logger.info(f"[Agents API] Created bot: {body.id}")
 
-    # 热注册：如果 gateway 正在运行且 bot 已启用，立即创建并注册 adapter
-    if body.enabled:
-        await _hot_register_bot(request, bot)
+    if bot.get("enabled", True):
+        from synapse.main import apply_im_bot
+
+        await apply_im_bot(bot)
 
     return {"status": "ok", "bot": bot}
 
 
 @router.put("/api/agents/bots/{bot_id}")
-async def update_bot(bot_id: str, body: BotUpdateRequest, request: Request):
+async def update_bot(bot_id: str, body: BotUpdateRequest):
     """Update an existing bot. Partial update (only provided fields are changed)."""
     from synapse.config import runtime_state, settings
 
     bots = list(settings.im_bots)
-    idx = next((i for i, b in enumerate(bots) if isinstance(b, dict) and b.get("id") == bot_id), None)
+    idx = next(
+        (i for i, b in enumerate(bots) if isinstance(b, dict) and b.get("id") == bot_id), None
+    )
     if idx is None:
         raise HTTPException(status_code=404, detail=f"bot '{bot_id}' not found")
 
     bot = dict(bots[idx])
+    old_agent_profile = bot.get("agent_profile_id", "default")
+
+    if body.type is not None:
+        if body.type not in VALID_BOT_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"type must be one of: {', '.join(sorted(VALID_BOT_TYPES))}",
+            )
+        bot["type"] = body.type
     if body.name is not None:
         bot["name"] = body.name
     if body.agent_profile_id is not None:
@@ -194,41 +232,70 @@ async def update_bot(bot_id: str, body: BotUpdateRequest, request: Request):
     runtime_state.save()
     logger.info(f"[Agents API] Updated bot: {bot_id}")
 
-    # 热更新：停掉旧 adapter 并重新注册（凭据或绑定可能变化）
-    await _hot_update_bot(request, bot)
+    new_agent_profile = bot.get("agent_profile_id", "default")
+    if new_agent_profile != old_agent_profile:
+        _invalidate_bot_agent_sessions(bot)
+
+    from synapse.main import apply_im_bot, remove_im_bot
+
+    if bot.get("enabled", True):
+        await apply_im_bot(bot)
+    else:
+        await remove_im_bot(bot)
 
     return {"status": "ok", "bot": bot}
 
 
 @router.delete("/api/agents/bots/{bot_id}")
-async def delete_bot(bot_id: str, request: Request):
-    """Remove a bot."""
-    from synapse.config import runtime_state, settings
+async def delete_bot(bot_id: str):
+    """Remove a bot (idempotent & mutex-protected)."""
+    async with _deleting_lock:
+        if bot_id in _deleting_bot_ids:
+            return {"status": "ok", "detail": "already deleting"}
+        _deleting_bot_ids.add(bot_id)
 
-    bots = list(settings.im_bots)
-    target = next((b for b in bots if isinstance(b, dict) and b.get("id") == bot_id), None)
-    new_bots = [b for b in bots if isinstance(b, dict) and b.get("id") != bot_id]
-    if len(new_bots) == len(bots):
-        raise HTTPException(status_code=404, detail=f"bot '{bot_id}' not found")
+    try:
+        from synapse.config import runtime_state, settings
 
-    settings.im_bots = new_bots
-    runtime_state.save()
-    logger.info(f"[Agents API] Deleted bot: {bot_id}")
+        bots = list(settings.im_bots)
+        deleted = [b for b in bots if isinstance(b, dict) and b.get("id") == bot_id]
+        new_bots = [b for b in bots if isinstance(b, dict) and b.get("id") != bot_id]
+        if len(new_bots) == len(bots):
+            return {"status": "ok", "detail": "bot already removed"}
 
-    # 热注销：停止并移除运行中的 adapter
-    if target:
-        await _hot_unregister_bot(request, target)
+        settings.im_bots = new_bots
+        runtime_state.save()
+        logger.info(f"[Agents API] Deleted bot: {bot_id}")
 
-    return {"status": "ok"}
+        if deleted:
+            from synapse.main import _bot_channel_name, get_message_gateway, remove_im_bot
+
+            await remove_im_bot(deleted[0])
+
+            channel_name = _bot_channel_name(deleted[0])
+            gw = get_message_gateway()
+            if gw and gw.session_manager:
+                purged = gw.session_manager.purge_channel(channel_name)
+                if purged:
+                    logger.info(
+                        f"[Agents API] Purged {purged} sessions for deleted bot: {channel_name}"
+                    )
+
+        return {"status": "ok"}
+    finally:
+        async with _deleting_lock:
+            _deleting_bot_ids.discard(bot_id)
 
 
 @router.post("/api/agents/bots/{bot_id}/toggle")
-async def toggle_bot(bot_id: str, body: BotToggleRequest, request: Request):
+async def toggle_bot(bot_id: str, body: BotToggleRequest):
     """Enable or disable a bot."""
     from synapse.config import runtime_state, settings
 
     bots = list(settings.im_bots)
-    idx = next((i for i, b in enumerate(bots) if isinstance(b, dict) and b.get("id") == bot_id), None)
+    idx = next(
+        (i for i, b in enumerate(bots) if isinstance(b, dict) and b.get("id") == bot_id), None
+    )
     if idx is None:
         raise HTTPException(status_code=404, detail=f"bot '{bot_id}' not found")
 
@@ -239,183 +306,14 @@ async def toggle_bot(bot_id: str, body: BotToggleRequest, request: Request):
     runtime_state.save()
     logger.info(f"[Agents API] Toggled bot {bot_id}: enabled={body.enabled}")
 
-    # 热切换：enable 时注册，disable 时注销
+    from synapse.main import apply_im_bot, remove_im_bot
+
     if body.enabled:
-        await _hot_register_bot(request, bot)
+        await apply_im_bot(bot)
     else:
-        await _hot_unregister_bot(request, bot)
+        await remove_im_bot(bot)
 
     return {"status": "ok", "bot": bot}
-
-
-# ─── Env-bot introspection & migration ───────────────────────────────────
-
-
-def _collect_env_bots() -> list[dict]:
-    """Return a list of bots currently configured via .env (not in im_bots)."""
-    from synapse.config import settings
-
-    existing_types = {
-        b.get("type") for b in settings.im_bots if isinstance(b, dict)
-    }
-
-    env_bots: list[dict] = []
-
-    if settings.telegram_enabled and settings.telegram_bot_token:
-        env_bots.append({
-            "type": "telegram",
-            "env_enabled": True,
-            "migrated": "telegram" in existing_types,
-            "credentials": {
-                "bot_token": settings.telegram_bot_token,
-                "webhook_url": settings.telegram_webhook_url or "",
-                "proxy": settings.telegram_proxy or "",
-                "pairing_code": settings.telegram_pairing_code or "",
-                "require_pairing": str(settings.telegram_require_pairing).lower(),
-            },
-        })
-
-    if settings.feishu_enabled and settings.feishu_app_id:
-        env_bots.append({
-            "type": "feishu",
-            "env_enabled": True,
-            "migrated": "feishu" in existing_types,
-            "credentials": {
-                "app_id": settings.feishu_app_id,
-                "app_secret": settings.feishu_app_secret,
-            },
-        })
-
-    if settings.wework_enabled and settings.wework_corp_id:
-        env_bots.append({
-            "type": "wework",
-            "env_enabled": True,
-            "migrated": "wework" in existing_types,
-            "credentials": {
-                "corp_id": settings.wework_corp_id,
-                "token": settings.wework_token,
-                "encoding_aes_key": settings.wework_encoding_aes_key,
-                "callback_port": str(settings.wework_callback_port),
-                "callback_host": settings.wework_callback_host,
-            },
-        })
-
-    if settings.dingtalk_enabled and settings.dingtalk_client_id:
-        env_bots.append({
-            "type": "dingtalk",
-            "env_enabled": True,
-            "migrated": "dingtalk" in existing_types,
-            "credentials": {
-                "client_id": settings.dingtalk_client_id,
-                "client_secret": settings.dingtalk_client_secret,
-            },
-        })
-
-    if settings.onebot_enabled and settings.onebot_ws_url:
-        env_bots.append({
-            "type": "onebot",
-            "env_enabled": True,
-            "migrated": "onebot" in existing_types,
-            "credentials": {
-                "ws_url": settings.onebot_ws_url,
-                "access_token": settings.onebot_access_token or "",
-            },
-        })
-
-    if settings.qqbot_enabled and settings.qqbot_app_id:
-        env_bots.append({
-            "type": "qqbot",
-            "env_enabled": True,
-            "migrated": "qqbot" in existing_types,
-            "credentials": {
-                "app_id": settings.qqbot_app_id,
-                "app_secret": settings.qqbot_app_secret,
-                "sandbox": str(settings.qqbot_sandbox).lower(),
-                "mode": settings.qqbot_mode,
-                "webhook_port": str(settings.qqbot_webhook_port),
-                "webhook_path": settings.qqbot_webhook_path,
-            },
-        })
-
-    return env_bots
-
-
-@router.get("/api/agents/env-bots")
-async def list_env_bots():
-    """List bots configured via .env that haven't been migrated to im_bots yet."""
-    return {"env_bots": _collect_env_bots()}
-
-
-BOT_TYPE_LABELS = {
-    "telegram": "Telegram",
-    "feishu": "飞书",
-    "dingtalk": "钉钉",
-    "wework": "企业微信",
-    "onebot": "OneBot",
-    "qqbot": "QQ Bot",
-}
-
-
-@router.post("/api/agents/bots/migrate-from-env")
-async def migrate_env_bots(request: Request):
-    """Migrate .env-configured bots into im_bots for unified management."""
-    from synapse.config import runtime_state, settings
-
-    env_bots = _collect_env_bots()
-    migrated = []
-    skipped = []
-
-    for eb in env_bots:
-        bot_type = eb["type"]
-        if eb["migrated"]:
-            skipped.append(bot_type)
-            continue
-
-        bot_id = f"{bot_type}-env"
-        existing_ids = {b.get("id") for b in settings.im_bots if isinstance(b, dict)}
-        suffix = 0
-        final_id = bot_id
-        while final_id in existing_ids:
-            suffix += 1
-            final_id = f"{bot_id}-{suffix}"
-
-        bot = {
-            "id": final_id,
-            "type": bot_type,
-            "name": BOT_TYPE_LABELS.get(bot_type, bot_type),
-            "agent_profile_id": "default",
-            "enabled": True,
-            "credentials": eb["credentials"],
-        }
-        settings.im_bots = list(settings.im_bots) + [bot]
-        migrated.append(bot)
-
-        # Unregister old .env adapter (channel_name = bot_type) before
-        # registering the new im_bots adapter to avoid duplicate adapters
-        gateway = getattr(request.app.state, "gateway", None)
-        if gateway:
-            adapters = getattr(gateway, "_adapters", {})
-            old_adapter = adapters.pop(bot_type, None)
-            if old_adapter:
-                try:
-                    await old_adapter.stop()
-                    logger.info(f"[Migration] Stopped old .env adapter: {bot_type}")
-                except Exception as e:
-                    logger.warning(f"[Migration] Failed to stop old adapter {bot_type}: {e}")
-
-        if bot["enabled"]:
-            await _hot_register_bot(request, bot)
-
-    if migrated:
-        runtime_state.save()
-        logger.info(f"[Migration] Migrated {len(migrated)} env bots: "
-                     f"{[b['id'] for b in migrated]}")
-
-    return {
-        "status": "ok",
-        "migrated": migrated,
-        "skipped": skipped,
-    }
 
 
 # ─── Agent category routes ───────────────────────────────────────────────
@@ -430,20 +328,18 @@ class CategoryCreateRequest(BaseModel):
 @router.get("/api/agents/categories")
 async def list_categories():
     """Return all agent categories (builtin + custom) with agent counts."""
-    from synapse.agents.profile import ProfileStore
-    from synapse.config import settings
+    from synapse.agents.profile import get_profile_store
 
-    store = ProfileStore(settings.data_dir / "agents")
+    store = get_profile_store()
     return {"categories": store.list_categories()}
 
 
 @router.post("/api/agents/categories")
 async def create_category(body: CategoryCreateRequest):
     """Create a custom agent category."""
-    from synapse.agents.profile import ProfileStore
-    from synapse.config import settings
+    from synapse.agents.profile import get_profile_store
 
-    store = ProfileStore(settings.data_dir / "agents")
+    store = get_profile_store()
     try:
         cat = store.add_category(body.id, body.label, body.color)
     except ValueError as e:
@@ -456,10 +352,9 @@ async def create_category(body: CategoryCreateRequest):
 @router.delete("/api/agents/categories/{category_id}")
 async def delete_category(category_id: str):
     """Delete a custom agent category. Rejects if builtin or has agents."""
-    from synapse.agents.profile import ProfileStore
-    from synapse.config import settings
+    from synapse.agents.profile import get_profile_store
 
-    store = ProfileStore(settings.data_dir / "agents")
+    store = get_profile_store()
     try:
         removed = store.remove_category(category_id)
     except PermissionError as e:
@@ -485,13 +380,13 @@ async def list_agent_profiles(include_hidden: bool = False):
         include_hidden: if True, also return hidden profiles (default False).
     """
     from synapse.agents.presets import SYSTEM_PRESETS
-    from synapse.agents.profile import ProfileStore
+    from synapse.agents.profile import get_profile_store
     from synapse.config import settings
 
     if not settings.multi_agent_enabled:
         return {"profiles": [], "multi_agent_enabled": False}
 
-    store = ProfileStore(settings.data_dir / "agents")
+    store = get_profile_store()
     stored_map = {p.id: p for p in store.list_all(include_hidden=True)}
 
     preset_order = [p.id for p in SYSTEM_PRESETS]
@@ -522,7 +417,7 @@ async def list_agent_profiles(include_hidden: bool = False):
 @router.post("/api/agents/profiles")
 async def create_agent_profile(body: ProfileCreateRequest):
     """Create a new custom agent profile."""
-    from synapse.agents.profile import AgentProfile, AgentType, ProfileStore, SkillsMode
+    from synapse.agents.profile import AgentProfile, AgentType, SkillsMode, get_profile_store
     from synapse.config import settings
 
     if not settings.multi_agent_enabled:
@@ -530,12 +425,23 @@ async def create_agent_profile(body: ProfileCreateRequest):
 
     valid_modes = {"all", "inclusive", "exclusive"}
     if body.skills_mode not in valid_modes:
-        raise HTTPException(status_code=400, detail=f"skills_mode must be one of: {', '.join(valid_modes)}")
+        raise HTTPException(
+            status_code=400, detail=f"skills_mode must be one of: {', '.join(valid_modes)}"
+        )
 
-    store = ProfileStore(settings.data_dir / "agents")
+    store = get_profile_store()
 
     if store.exists(body.id):
         raise HTTPException(status_code=400, detail=f"Profile '{body.id}' already exists")
+
+    valid_mode_values = {"all", "inclusive", "exclusive"}
+    for field_name in ("tools_mode", "mcp_mode", "plugins_mode"):
+        val = getattr(body, field_name)
+        if val not in valid_mode_values:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{field_name} must be one of: {', '.join(valid_mode_values)}",
+            )
 
     profile = AgentProfile(
         id=body.id,
@@ -544,10 +450,20 @@ async def create_agent_profile(body: ProfileCreateRequest):
         type=AgentType.CUSTOM,
         skills=body.skills,
         skills_mode=SkillsMode(body.skills_mode),
+        tools=body.tools,
+        tools_mode=body.tools_mode,
+        mcp_servers=body.mcp_servers,
+        mcp_mode=body.mcp_mode,
+        plugins=body.plugins,
+        plugins_mode=body.plugins_mode,
         custom_prompt=body.custom_prompt,
         icon=body.icon,
         color=body.color,
         category=body.category,
+        preferred_endpoint=body.preferred_endpoint,
+        identity_mode=body.identity_mode,
+        memory_mode=body.memory_mode,
+        memory_inherit_global=body.memory_inherit_global,
         created_by="user",
     )
 
@@ -557,9 +473,9 @@ async def create_agent_profile(body: ProfileCreateRequest):
 
 
 @router.put("/api/agents/profiles/{profile_id}")
-async def update_agent_profile(profile_id: str, body: ProfileUpdateRequest):
+async def update_agent_profile(profile_id: str, body: ProfileUpdateRequest, request: Request):
     """Update a custom agent profile (system profiles have restricted updates)."""
-    from synapse.agents.profile import ProfileStore
+    from synapse.agents.profile import get_profile_store
     from synapse.config import settings
 
     if not settings.multi_agent_enabled:
@@ -568,10 +484,12 @@ async def update_agent_profile(profile_id: str, body: ProfileUpdateRequest):
     if body.skills_mode is not None:
         valid_modes = {"all", "inclusive", "exclusive"}
         if body.skills_mode not in valid_modes:
-            raise HTTPException(status_code=400, detail=f"skills_mode must be one of: {', '.join(valid_modes)}")
+            raise HTTPException(
+                status_code=400, detail=f"skills_mode must be one of: {', '.join(valid_modes)}"
+            )
 
-    store = ProfileStore(settings.data_dir / "agents")
-    update_data = body.model_dump(exclude_none=True)
+    store = get_profile_store()
+    update_data = body.model_dump(exclude_unset=True)
 
     try:
         updated = store.update(profile_id, update_data)
@@ -580,6 +498,7 @@ async def update_agent_profile(profile_id: str, body: ProfileUpdateRequest):
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
+    _invalidate_profile_agents(request, profile_id)
     logger.info(f"[Agents API] Updated profile: {profile_id}")
     return {"status": "ok", "profile": updated.to_dict()}
 
@@ -587,13 +506,13 @@ async def update_agent_profile(profile_id: str, body: ProfileUpdateRequest):
 @router.delete("/api/agents/profiles/{profile_id}")
 async def delete_agent_profile(profile_id: str):
     """Delete a custom agent profile."""
-    from synapse.agents.profile import ProfileStore
+    from synapse.agents.profile import get_profile_store
     from synapse.config import settings
 
     if not settings.multi_agent_enabled:
         raise HTTPException(status_code=400, detail="Multi-agent mode is not enabled")
 
-    store = ProfileStore(settings.data_dir / "agents")
+    store = get_profile_store()
 
     try:
         deleted = store.delete(profile_id)
@@ -608,10 +527,10 @@ async def delete_agent_profile(profile_id: str):
 
 
 @router.post("/api/agents/profiles/{profile_id}/reset")
-async def reset_agent_profile(profile_id: str):
+async def reset_agent_profile(profile_id: str, request: Request):
     """Reset a system agent profile to its factory defaults."""
     from synapse.agents.presets import get_preset_by_id
-    from synapse.agents.profile import ProfileStore
+    from synapse.agents.profile import get_profile_store
     from synapse.config import settings
 
     if not settings.multi_agent_enabled:
@@ -621,7 +540,7 @@ async def reset_agent_profile(profile_id: str):
     if preset is None:
         raise HTTPException(status_code=404, detail=f"No system preset found for '{profile_id}'")
 
-    store = ProfileStore(settings.data_dir / "agents")
+    store = get_profile_store()
     existing = store.get(profile_id)
     if existing is None:
         store.save(preset)
@@ -632,10 +551,12 @@ async def reset_agent_profile(profile_id: str):
             reset_data[field] = getattr(existing, field, getattr(preset, field))
         reset_data["user_customized"] = False
         from synapse.agents.profile import AgentProfile
+
         profile = AgentProfile.from_dict(reset_data)
         store._cache[profile_id] = profile
         store._persist(profile)
 
+    _invalidate_profile_agents(request, profile_id)
     logger.info(f"[Agents API] Reset profile to defaults: {profile_id}")
     result = store.get(profile_id)
     return {"status": "ok", "profile": result.to_dict() if result else {}}
@@ -644,13 +565,13 @@ async def reset_agent_profile(profile_id: str):
 @router.patch("/api/agents/profiles/{profile_id}/visibility")
 async def update_profile_visibility(profile_id: str, body: ProfileVisibilityRequest):
     """Show or hide an agent profile (works for both SYSTEM and CUSTOM)."""
-    from synapse.agents.profile import ProfileStore
+    from synapse.agents.profile import get_profile_store
     from synapse.config import settings
 
     if not settings.multi_agent_enabled:
         raise HTTPException(status_code=400, detail="Multi-agent mode is not enabled")
 
-    store = ProfileStore(settings.data_dir / "agents")
+    store = get_profile_store()
     try:
         updated = store.update(profile_id, {"hidden": body.hidden})
     except KeyError:
@@ -660,11 +581,163 @@ async def update_profile_visibility(profile_id: str, body: ProfileVisibilityRequ
     return {"status": "ok", "profile": updated.to_dict()}
 
 
+# ─── Profile identity & memory isolation routes ─────────────────────────
+
+
+class IdentityFileRequest(BaseModel):
+    content: str = ""
+
+
+_ALLOWED_IDENTITY_FILES = frozenset({"SOUL.md", "AGENT.md", "USER.md", "MEMORY.md"})
+
+
+@router.post("/api/agents/profiles/{profile_id}/identity/init")
+async def init_profile_identity(profile_id: str):
+    """Initialize the profile-specific identity directory."""
+    from synapse.agents.profile import get_profile_store
+
+    store = get_profile_store()
+    profile = store.get(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Profile '{profile_id}' not found")
+
+    profile_dir = store.ensure_profile_dir(profile_id)
+    identity_dir = profile_dir / "identity"
+
+    from synapse.agents.identity_resolver import ProfileIdentityResolver
+    from synapse.config import settings
+
+    resolver = ProfileIdentityResolver(identity_dir, settings.identity_path)
+    resolver.ensure_independent_files()
+
+    return {"status": "ok", "identity_dir": str(identity_dir)}
+
+
+@router.get("/api/agents/profiles/{profile_id}/identity/{filename}")
+async def read_profile_identity_file(profile_id: str, filename: str):
+    """Read a profile-specific identity file. Returns global content if profile has none."""
+    if filename not in _ALLOWED_IDENTITY_FILES:
+        raise HTTPException(status_code=400, detail=f"Invalid identity file: {filename}")
+
+    from synapse.agents.profile import get_profile_store
+    from synapse.config import settings
+
+    store = get_profile_store()
+    profile = store.get(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Profile '{profile_id}' not found")
+
+    profile_dir = store.get_profile_dir(profile_id)
+    profile_path = profile_dir / "identity" / filename
+    global_path = settings.identity_path / filename
+
+    content = ""
+    source = "global"
+    if profile_path.exists():
+        content = profile_path.read_text(encoding="utf-8")
+        source = "profile"
+    elif global_path.exists():
+        content = global_path.read_text(encoding="utf-8")
+        source = "global"
+
+    return {"content": content, "source": source, "filename": filename}
+
+
+@router.put("/api/agents/profiles/{profile_id}/identity/{filename}")
+async def write_profile_identity_file(profile_id: str, filename: str, body: IdentityFileRequest):
+    """Write a profile-specific identity file."""
+    if filename not in _ALLOWED_IDENTITY_FILES:
+        raise HTTPException(status_code=400, detail=f"Invalid identity file: {filename}")
+
+    from synapse.agents.profile import get_profile_store
+
+    store = get_profile_store()
+    profile = store.get(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Profile '{profile_id}' not found")
+
+    profile_dir = store.ensure_profile_dir(profile_id)
+    identity_dir = profile_dir / "identity"
+    identity_dir.mkdir(parents=True, exist_ok=True)
+
+    fp = identity_dir / filename
+    fp.write_text(body.content, encoding="utf-8")
+
+    logger.info(f"[Agents API] Wrote identity file {filename} for profile {profile_id}")
+    return {"status": "ok", "filename": filename}
+
+
+@router.get("/api/agents/profiles/{profile_id}/memory/stats")
+async def get_profile_memory_stats(profile_id: str):
+    """Get memory statistics for an isolated profile."""
+    from synapse.agents.profile import get_profile_store
+
+    store = get_profile_store()
+    profile = store.get(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Profile '{profile_id}' not found")
+
+    profile_dir = store.get_profile_dir(profile_id)
+    memory_dir = profile_dir / "memory"
+    db_path = memory_dir / "synapse.db"
+
+    if not db_path.exists():
+        return {"exists": False, "semantic_count": 0, "db_size_bytes": 0}
+
+    import aiosqlite
+
+    semantic_count = 0
+    try:
+        async with aiosqlite.connect(str(db_path)) as db:
+            cursor = await db.execute("SELECT COUNT(*) FROM semantic_memories")
+            row = await cursor.fetchone()
+            semantic_count = row[0] if row else 0
+    except Exception:
+        pass
+
+    return {
+        "exists": True,
+        "semantic_count": semantic_count,
+        "db_size_bytes": db_path.stat().st_size,
+    }
+
+
+@router.delete("/api/agents/profiles/{profile_id}/data")
+async def delete_profile_data(profile_id: str, request: Request):
+    """Delete the profile-specific data directory (identity + memory)."""
+    import shutil
+
+    from synapse.agents.profile import get_profile_store
+
+    store = get_profile_store()
+    profile = store.get(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Profile '{profile_id}' not found")
+
+    profile_dir = store.get_profile_dir(profile_id)
+    if profile_dir.is_dir():
+        shutil.rmtree(profile_dir, ignore_errors=True)
+
+    store.update(
+        profile_id,
+        {
+            "identity_mode": "shared",
+            "memory_mode": "shared",
+            "memory_inherit_global": True,
+        },
+    )
+
+    _invalidate_profile_agents(request, profile_id)
+    logger.info(f"[Agents API] Deleted profile data dir for {profile_id}")
+    return {"status": "ok"}
+
+
 @router.get("/api/agents/health")
 async def get_agent_health():
     """Get health metrics from the orchestrator."""
     try:
         from synapse.main import _orchestrator
+
         if _orchestrator:
             return {"health": _orchestrator.get_health_stats()}
     except Exception:
@@ -679,29 +752,56 @@ async def get_topology(request: Request):
     Single endpoint for the neural-network dashboard to poll.
     """
     from synapse.agents.presets import SYSTEM_PRESETS
-    from synapse.agents.profile import ProfileStore
-    from synapse.config import settings
+    from synapse.agents.profile import get_profile_store
 
     pool = getattr(request.app.state, "agent_pool", None)
-    orchestrator = getattr(request.app.state, "orchestrator", None)
-    if orchestrator is None:
-        try:
-            from synapse.main import _orchestrator
-            orchestrator = _orchestrator
-        except (ImportError, AttributeError):
-            pass
     session_manager = getattr(request.app.state, "session_manager", None)
 
-    profile_map: dict[str, dict] = {}
-    for p in SYSTEM_PRESETS:
-        profile_map[p.id] = {"name": p.name, "icon": p.icon or "🤖", "color": p.color or "#6b7280"}
+    # Always prefer the module-level _orchestrator — AgentToolHandler writes
+    # sub-agent states to this instance, so we must read from the same one.
+    orchestrator = None
     try:
-        store = ProfileStore(settings.data_dir / "agents")
-        for p in store.list_all():
-            if p.id not in profile_map:
-                profile_map[p.id] = {"name": p.name, "icon": p.icon or "🤖", "color": p.color or "#6b7280"}
+        from synapse.main import _orchestrator
+
+        orchestrator = _orchestrator
+    except (ImportError, AttributeError):
+        pass
+    if orchestrator is None:
+        orchestrator = getattr(request.app.state, "orchestrator", None)
+
+    profile_map: dict[str, dict] = {}
+    hidden_profile_ids: set[str] = set()
+    stored_profiles: dict[str, object] = {}
+    try:
+        store = get_profile_store()
+        stored_profiles = {p.id: p for p in store.list_all(include_hidden=True)}
     except Exception:
         pass
+    for p in SYSTEM_PRESETS:
+        sp = stored_profiles.get(p.id)
+        if sp and getattr(sp, "hidden", False):
+            hidden_profile_ids.add(p.id)
+        if sp:
+            profile_map[p.id] = {
+                "name": getattr(sp, "name", None) or p.name,
+                "icon": getattr(sp, "icon", None) or p.icon or "🤖",
+                "color": getattr(sp, "color", None) or p.color or "#6b7280",
+            }
+        else:
+            profile_map[p.id] = {
+                "name": p.name,
+                "icon": p.icon or "🤖",
+                "color": p.color or "#6b7280",
+            }
+    for pid, p in stored_profiles.items():
+        if getattr(p, "hidden", False):
+            hidden_profile_ids.add(pid)
+        if pid not in profile_map:
+            profile_map[pid] = {
+                "name": p.name,
+                "icon": p.icon or "🤖",
+                "color": getattr(p, "color", None) or "#6b7280",
+            }
 
     nodes: list[dict] = []
     edges: list[dict] = []
@@ -711,7 +811,9 @@ async def get_topology(request: Request):
         stats = pool.get_stats()
         for entry in stats.get("sessions", []):
             sid = entry["session_id"]
-            agents_in_session = entry.get("agents", [{"profile_id": entry.get("profile_id", "default")}])
+            agents_in_session = entry.get(
+                "agents", [{"profile_id": entry.get("profile_id", "default")}]
+            )
 
             for agent_info in agents_in_session:
                 pid = agent_info["profile_id"]
@@ -731,43 +833,54 @@ async def get_topology(request: Request):
                 if agent_inst is not None:
                     astate = getattr(agent_inst, "agent_state", None)
                     if astate:
-                        task = astate.get_task_for_session(sid) or astate.current_task
+                        task = astate.get_task_for_session(sid)
+                        if task is None:
+                            task = astate.current_task
                         if task and task.is_active:
                             status = "running"
                             iteration = task.iteration
-                            tools_executed = list(task.tools_executed[-5:]) if task.tools_executed else []
+                            tools_executed = (
+                                list(task.tools_executed[-5:]) if task.tools_executed else []
+                            )
                             tools_total = len(task.tools_executed)
                             if hasattr(task, "started_at") and task.started_at:
                                 import time
+
                                 elapsed_s = int(time.time() - task.started_at)
 
                 conv_title = ""
                 if session_manager:
                     try:
-                        sess = session_manager.get_session("desktop", sid, "desktop_user", create_if_missing=False)
+                        sess = session_manager.get_session(
+                            "desktop", sid, "desktop_user", create_if_missing=False
+                        )
                         if sess and hasattr(sess, "context"):
-                            msgs = sess.context.messages if hasattr(sess.context, "messages") else []
+                            msgs = (
+                                sess.context.messages if hasattr(sess.context, "messages") else []
+                            )
                             for m in msgs:
                                 if m.get("role") == "user":
                                     conv_title = (m.get("content") or "")[:60]
                     except Exception:
                         pass
 
-                nodes.append({
-                    "id": node_id,
-                    "profile_id": pid,
-                    "name": pinfo["name"],
-                    "icon": pinfo["icon"],
-                    "color": pinfo["color"],
-                    "status": status,
-                    "is_sub_agent": False,
-                    "parent_id": None,
-                    "iteration": iteration,
-                    "tools_executed": tools_executed,
-                    "tools_total": tools_total,
-                    "elapsed_s": elapsed_s,
-                    "conversation_title": conv_title,
-                })
+                nodes.append(
+                    {
+                        "id": node_id,
+                        "profile_id": pid,
+                        "name": pinfo["name"],
+                        "icon": pinfo["icon"],
+                        "color": pinfo["color"],
+                        "status": status,
+                        "is_sub_agent": False,
+                        "parent_id": None,
+                        "iteration": iteration,
+                        "tools_executed": tools_executed,
+                        "tools_total": tools_total,
+                        "elapsed_s": elapsed_s,
+                        "conversation_title": conv_title,
+                    }
+                )
 
     # Sub-agent states from orchestrator
     if orchestrator and pool:
@@ -780,40 +893,63 @@ async def get_topology(request: Request):
                     if sub_id not in seen_ids:
                         seen_ids.add(sub_id)
                         sub_pid = sub.get("profile_id", "")
-                        pinfo = profile_map.get(sub_pid, {"name": sub.get("name", sub_pid), "icon": sub.get("icon", "🤖"), "color": "#6b7280"})
+                        pinfo = profile_map.get(
+                            sub_pid,
+                            {
+                                "name": sub.get("name", sub_pid),
+                                "icon": sub.get("icon", "🤖"),
+                                "color": "#6b7280",
+                            },
+                        )
                         sub_status = sub.get("status", "running")
                         if sub_status == "starting":
                             sub_status = "running"
+
+                        _VALID_SUB_STATUSES = {
+                            "running",
+                            "completed",
+                            "error",
+                            "idle",
+                            "cancelled",
+                            "timeout",
+                            "interrupted",
+                        }
 
                         from_agent = sub.get("from_agent", "")
                         parent_node_id = sid
                         if from_agent and f"{sid}::{from_agent}" in seen_ids:
                             parent_node_id = f"{sid}::{from_agent}"
 
-                        nodes.append({
-                            "id": sub_id,
-                            "profile_id": sub_pid,
-                            "name": sub.get("name", pinfo["name"]),
-                            "icon": sub.get("icon", pinfo["icon"]),
-                            "color": pinfo["color"],
-                            "status": sub_status if sub_status in ("running", "completed", "error", "idle") else "running",
-                            "is_sub_agent": True,
-                            "parent_id": parent_node_id,
-                            "iteration": sub.get("iteration", 0),
-                            "tools_executed": sub.get("tools_executed", [])[-5:],
-                            "tools_total": sub.get("tools_total", 0),
-                            "elapsed_s": sub.get("elapsed_s", 0),
-                            "conversation_title": "",
-                        })
+                        nodes.append(
+                            {
+                                "id": sub_id,
+                                "profile_id": sub_pid,
+                                "name": sub.get("name", pinfo["name"]),
+                                "icon": sub.get("icon", pinfo["icon"]),
+                                "color": pinfo["color"],
+                                "status": sub_status
+                                if sub_status in _VALID_SUB_STATUSES
+                                else "running",
+                                "is_sub_agent": True,
+                                "parent_id": parent_node_id,
+                                "iteration": sub.get("iteration", 0),
+                                "tools_executed": sub.get("tools_executed", [])[-5:],
+                                "tools_total": sub.get("tools_total", 0),
+                                "elapsed_s": sub.get("elapsed_s", 0),
+                                "conversation_title": "",
+                            }
+                        )
                         edges.append({"from": parent_node_id, "to": sub_id, "type": "delegate"})
             except Exception as exc:
-                logger.debug(f"[Topology] sub-agent states error for {sid}: {exc}")
+                logger.warning(f"[Topology] sub-agent states error for {sid}: {exc}")
 
     # Include sessions from session_manager that aren't in the pool
     # (e.g. conversations whose agent instances were reaped due to idle timeout).
     # Use chat_id as node ID to stay consistent with pool-based nodes (which use
     # conversation_id), ensuring the frontend sees stable node IDs.
-    pool_session_ids = {n["id"].split("::")[0] for n in nodes if not n["id"].startswith("dormant::")}
+    pool_session_ids = {
+        n["id"].split("::")[0] for n in nodes if not n["id"].startswith("dormant::")
+    }
     _MAX_IDLE_NODES = 3
     _IDLE_CUTOFF = datetime.now() - timedelta(minutes=30)
     _idle_added = 0
@@ -840,49 +976,55 @@ async def get_topology(request: Request):
                             conv_title = (m.get("content") or "")[:60]
 
                     seen_ids.add(sid)
-                    nodes.append({
-                        "id": sid,
-                        "profile_id": pid,
-                        "name": pinfo["name"],
-                        "icon": pinfo["icon"],
-                        "color": pinfo["color"],
-                        "status": "idle",
-                        "is_sub_agent": False,
-                        "parent_id": None,
-                        "iteration": 0,
-                        "tools_executed": [],
-                        "tools_total": 0,
-                        "elapsed_s": 0,
-                        "conversation_title": conv_title,
-                    })
+                    nodes.append(
+                        {
+                            "id": sid,
+                            "profile_id": pid,
+                            "name": pinfo["name"],
+                            "icon": pinfo["icon"],
+                            "color": pinfo["color"],
+                            "status": "idle",
+                            "is_sub_agent": False,
+                            "parent_id": None,
+                            "iteration": 0,
+                            "tools_executed": [],
+                            "tools_total": 0,
+                            "elapsed_s": 0,
+                            "conversation_title": conv_title,
+                        }
+                    )
                     _idle_added += 1
                 except Exception as exc:
                     logger.debug(f"[Topology] skip session {getattr(sess, 'chat_id', '?')}: {exc}")
         except Exception as exc:
             logger.warning(f"[Topology] session_manager fallback error: {exc}")
 
-    # Always include system presets as dormant neurons when not active
+    # Always include system presets as dormant neurons when not active (skip hidden)
     active_profile_ids = {n["profile_id"] for n in nodes}
     for pid, pinfo in profile_map.items():
+        if pid in hidden_profile_ids:
+            continue
         if pid not in active_profile_ids:
             dormant_id = f"dormant::{pid}"
             if dormant_id not in seen_ids:
                 seen_ids.add(dormant_id)
-                nodes.append({
-                    "id": dormant_id,
-                    "profile_id": pid,
-                    "name": pinfo["name"],
-                    "icon": pinfo["icon"],
-                    "color": pinfo["color"],
-                    "status": "dormant",
-                    "is_sub_agent": False,
-                    "parent_id": None,
-                    "iteration": 0,
-                    "tools_executed": [],
-                    "tools_total": 0,
-                    "elapsed_s": 0,
-                    "conversation_title": "",
-                })
+                nodes.append(
+                    {
+                        "id": dormant_id,
+                        "profile_id": pid,
+                        "name": pinfo["name"],
+                        "icon": pinfo["icon"],
+                        "color": pinfo["color"],
+                        "status": "dormant",
+                        "is_sub_agent": False,
+                        "parent_id": None,
+                        "iteration": 0,
+                        "tools_executed": [],
+                        "tools_total": 0,
+                        "elapsed_s": 0,
+                        "conversation_title": "",
+                    }
+                )
 
     # Aggregate stats
     total_req = 0

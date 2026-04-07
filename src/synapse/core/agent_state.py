@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 def _safe_event_set(event: asyncio.Event) -> None:
     """Set an asyncio.Event safely, even from a different event loop thread."""
-    from synapse.core.engine_bridge import get_engine_loop, _current_loop
+    from synapse.core.engine_bridge import _current_loop, get_engine_loop
 
     engine = get_engine_loop()
     current = _current_loop()
@@ -33,7 +33,7 @@ def _safe_event_set(event: asyncio.Event) -> None:
 
 def _safe_event_clear(event: asyncio.Event) -> None:
     """Clear an asyncio.Event safely, even from a different event loop thread."""
-    from synapse.core.engine_bridge import get_engine_loop, _current_loop
+    from synapse.core.engine_bridge import _current_loop, get_engine_loop
 
     engine = get_engine_loop()
     current = _current_loop()
@@ -61,7 +61,7 @@ class TaskStatus(Enum):
 
 # 合法的状态转换表
 _VALID_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
-    TaskStatus.IDLE: {TaskStatus.COMPILING, TaskStatus.REASONING},
+    TaskStatus.IDLE: {TaskStatus.COMPILING, TaskStatus.REASONING, TaskStatus.CANCELLED},
     TaskStatus.COMPILING: {TaskStatus.REASONING, TaskStatus.CANCELLED, TaskStatus.FAILED},
     TaskStatus.REASONING: {
         TaskStatus.ACTING,
@@ -91,10 +91,10 @@ _VALID_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
         TaskStatus.REASONING,
         TaskStatus.CANCELLED,
     },
-    TaskStatus.MODEL_SWITCHING: {TaskStatus.REASONING, TaskStatus.FAILED},
+    TaskStatus.MODEL_SWITCHING: {TaskStatus.REASONING, TaskStatus.FAILED, TaskStatus.CANCELLED},
     TaskStatus.WAITING_USER: {TaskStatus.REASONING, TaskStatus.IDLE, TaskStatus.CANCELLED},
-    TaskStatus.COMPLETED: {TaskStatus.IDLE},
-    TaskStatus.FAILED: {TaskStatus.IDLE},
+    TaskStatus.COMPLETED: {TaskStatus.IDLE, TaskStatus.CANCELLED},
+    TaskStatus.FAILED: {TaskStatus.IDLE, TaskStatus.CANCELLED},
     TaskStatus.CANCELLED: {TaskStatus.IDLE},
 }
 
@@ -183,8 +183,14 @@ class TaskState:
         self.cancelled = True
         self.cancel_reason = reason
         _safe_event_set(self.cancel_event)
-        if self.status not in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED, TaskStatus.IDLE):
-            self.status = TaskStatus.CANCELLED
+        if self.status != TaskStatus.CANCELLED:
+            try:
+                self.transition(TaskStatus.CANCELLED)
+            except ValueError:
+                logger.warning(
+                    f"[State] cancel() transition from {prev_status} not allowed, forcing CANCELLED"
+                )
+                self.status = TaskStatus.CANCELLED
         logger.info(
             f"[State] Task {self.task_id[:8]} cancel(): "
             f"prev_status={prev_status}, new_status={self.status.value}, "
@@ -229,29 +235,33 @@ class TaskState:
         if self.skip_event.is_set():
             _skip_reason = self.skip_reason or "用户认为该步骤耗时过长或不正确"
             self.clear_skip()
-            working_messages.append({
-                "role": "user",
-                "content": (
-                    f"[系统提示-用户跳过步骤] 用户跳过了上述工具执行。原因: {_skip_reason}\n"
-                    "请反思: 该步骤是否有问题？是否需要换个方法继续？"
-                    "请整理思路后继续完成任务。"
-                ),
-            })
+            working_messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        f"[系统提示-用户跳过步骤] 用户跳过了上述工具执行。原因: {_skip_reason}\n"
+                        "请反思: 该步骤是否有问题？是否需要换个方法继续？"
+                        "请整理思路后继续完成任务。"
+                    ),
+                }
+            )
             logger.info(f"[SkipReflect] Injected skip reflection prompt: {_skip_reason}")
 
         # 2) 检查用户插入消息
         _inserts = await self.drain_user_inserts()
         for _ins_text in _inserts:
-            working_messages.append({
-                "role": "user",
-                "content": (
-                    f"[用户插入消息] {_ins_text}\n"
-                    "[系统提示] 以上是用户在任务执行期间插入的消息。"
-                    "请判断: 1) 这是对当前任务的补充（融入决策继续）"
-                    "还是 2) 一个全新任务（告知用户收到，完成当前任务后执行）。"
-                    "如不确定，使用 ask_user 工具向用户确认。"
-                ),
-            })
+            working_messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        f"[用户插入消息] {_ins_text}\n"
+                        "[系统提示] 以上是用户在任务执行期间插入的消息。"
+                        "请判断: 1) 这是对当前任务的补充（融入决策继续）"
+                        "还是 2) 一个全新任务（告知用户收到，完成当前任务后执行）。"
+                        "如不确定，使用 ask_user 工具向用户确认。"
+                    ),
+                }
+            )
             logger.info(f"[UserInsert] Injected user insert into context: {_ins_text[:60]}")
 
     def reset_for_model_switch(self) -> None:
@@ -444,13 +454,20 @@ class AgentState:
             elif self.current_task:
                 self.current_task.cancel(reason)
 
-    def skip_current_step(self, reason: str = "用户请求跳过当前步骤", session_id: str | None = None) -> None:
+    def skip_current_step(
+        self, reason: str = "用户请求跳过当前步骤", session_id: str | None = None
+    ) -> None:
         """跳过当前正在执行的步骤（不终止任务）"""
         session_id = session_id or None
         with self._tasks_lock:
             task = self._tasks.get(session_id) if session_id else self.current_task
         if task:
             task.request_skip(reason)
+        else:
+            logger.warning(
+                f"[State] skip_current_step: no task found for session {session_id}, "
+                f"active sessions: {list(self._tasks.keys())}"
+            )
 
     async def insert_user_message(self, text: str, session_id: str | None = None) -> None:
         """向任务注入用户消息"""
@@ -459,6 +476,11 @@ class AgentState:
             task = self._tasks.get(session_id) if session_id else self.current_task
         if task:
             await task.add_user_insert(text)
+        else:
+            logger.warning(
+                f"[State] insert_user_message: no task found for session {session_id}, "
+                f"active sessions: {list(self._tasks.keys())}"
+            )
 
     @property
     def is_task_cancelled(self) -> bool:

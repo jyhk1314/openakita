@@ -9,15 +9,17 @@ import heapq
 import logging
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Any, Callable, Awaitable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 class Priority(IntEnum):
     """Task priority levels. Lower value = higher priority."""
+
     URGENT = 0
     HIGH = 1
     NORMAL = 2
@@ -28,6 +30,7 @@ class Priority(IntEnum):
 @dataclass(order=True)
 class QueuedTask:
     """A task in the priority queue."""
+
     priority: int
     created_at: float = field(compare=True)
     task_id: str = field(default_factory=lambda: f"qt_{uuid.uuid4().hex[:10]}", compare=False)
@@ -77,20 +80,34 @@ class TaskQueue:
         logger.info("[TaskQueue] Started")
 
     async def stop(self) -> None:
-        """Stop the queue worker and cancel pending tasks."""
+        """Stop the queue worker, cancel active tasks, and resolve pending futures."""
         self._running = False
-        self._not_empty.set()  # wake up the worker
+        self._not_empty.set()
         if self._worker_task:
             self._worker_task.cancel()
             try:
                 await self._worker_task
             except (asyncio.CancelledError, Exception):
                 pass
-        # Cancel active tasks
-        for task_id, task in self._active.items():
+
+        for _task_id, task in self._active.items():
             if not task.done():
                 task.cancel()
         self._active.clear()
+
+        # 清理堆中未执行的 Future，防止泄漏
+        for qt in self._heap:
+            fut = self._results.pop(qt.task_id, None)
+            if fut and not fut.done():
+                fut.cancel()
+        self._heap.clear()
+
+        # 清理任何残留的 Future
+        for _tid, fut in list(self._results.items()):
+            if not fut.done():
+                fut.cancel()
+        self._results.clear()
+
         logger.info("[TaskQueue] Stopped")
 
     async def enqueue(
@@ -140,16 +157,16 @@ class TaskQueue:
         fut = self._results.get(task_id)
         if fut is None:
             raise KeyError(f"Unknown task: {task_id}")
-        return await asyncio.wait_for(fut, timeout=timeout)
+        try:
+            return await asyncio.wait_for(fut, timeout=timeout)
+        finally:
+            self._results.pop(task_id, None)
 
     async def _worker_loop(self) -> None:
         """Main worker loop: picks tasks from queue and executes them."""
         while self._running:
             async with self._lock:
-                if self._heap:
-                    task = heapq.heappop(self._heap)
-                else:
-                    task = None
+                task = heapq.heappop(self._heap) if self._heap else None
 
             if task is None:
                 self._not_empty.clear()
@@ -159,6 +176,9 @@ class TaskQueue:
                 continue  # Go back and check heap under lock
 
             if task.cancelled:
+                fut = self._results.pop(task.task_id, None)
+                if fut and not fut.done():
+                    fut.cancel()
                 continue
 
             # Wait for concurrency slot
@@ -171,9 +191,7 @@ class TaskQueue:
                 for tid in finished_ids:
                     self._active.pop(tid, None)
 
-            self._active[task.task_id] = asyncio.create_task(
-                self._execute_task(task)
-            )
+            self._active[task.task_id] = asyncio.create_task(self._execute_task(task))
 
     async def _execute_task(self, task: QueuedTask) -> None:
         """Execute a single task and resolve its future."""
@@ -194,8 +212,6 @@ class TaskQueue:
                 fut.set_exception(e)
             self._total_failed += 1
             logger.error(f"[TaskQueue] Task {task.task_id} failed: {e}")
-        finally:
-            self._results.pop(task.task_id, None)
 
     def get_stats(self) -> dict:
         """Get queue statistics."""

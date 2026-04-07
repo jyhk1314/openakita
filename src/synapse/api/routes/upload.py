@@ -28,6 +28,7 @@ def get_upload_dir() -> Path:
     global UPLOAD_DIR
     if UPLOAD_DIR is None:
         import os
+
         root = os.environ.get("SYNAPSE_ROOT", "").strip()
         base = Path(root) if root else Path.home() / ".synapse"
         UPLOAD_DIR = base / "uploads"

@@ -64,7 +64,8 @@ async def health(request: Request):
         "version_full": get_version_string(),
         "pid": os.getpid(),
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "agent_initialized": hasattr(request.app.state, "agent") and request.app.state.agent is not None,
+        "agent_initialized": hasattr(request.app.state, "agent")
+        and request.app.state.agent is not None,
         "local_ip": _get_lan_ip(),
     }
 
@@ -96,11 +97,22 @@ async def _check_endpoint_readonly(name: str, provider) -> HealthResult:
         )
     except Exception as e:
         latency = round((time.time() - t0) * 1000)
+        error_msg = str(e)
+        raw = error_msg.lower()
+        if "connect" in raw or "connection refused" in raw or "unreachable" in raw:
+            try:
+                from synapse.llm.providers.proxy_utils import format_proxy_hint
+
+                hint = format_proxy_hint()
+                if hint:
+                    error_msg += hint
+            except Exception:
+                pass
         return HealthResult(
             name=name,
             status="unhealthy",
             latency_ms=latency,
-            error=str(e)[:500],
+            error=error_msg[:800],
             consecutive_failures=getattr(provider, "consecutive_cooldowns", 0),
             cooldown_remaining=getattr(provider, "cooldown_remaining", 0),
             is_extended_cooldown=getattr(provider, "is_extended_cooldown", False),
@@ -112,9 +124,10 @@ async def _check_with_timeout(name: str, provider, timeout: float = 30) -> Healt
     """Wrap _check_endpoint_readonly with a per-endpoint timeout."""
     try:
         return await asyncio.wait_for(
-            _check_endpoint_readonly(name, provider), timeout=timeout,
+            _check_endpoint_readonly(name, provider),
+            timeout=timeout,
         )
-    except TimeoutError:
+    except (asyncio.TimeoutError, TimeoutError):
         return HealthResult(
             name=name,
             status="unhealthy",
@@ -141,6 +154,7 @@ async def orchestrator_state(request: Request):
     if orchestrator is None:
         try:
             from synapse.main import _orchestrator
+
             orchestrator = _orchestrator
         except (ImportError, AttributeError):
             pass
@@ -174,62 +188,74 @@ async def diagnostics():
 
     # C1: Runtime
     runtime_type = "bundled" if getattr(sys, "frozen", False) else "venv"
-    checks.append({
-        "id": "C1_BUNDLED_RUNTIME",
-        "title": "内置运行时",
-        "status": "pass",
-        "code": "RUNTIME_OK",
-        "evidence": [f"Python {platform.python_version()}, {runtime_type}"],
-        "autoFix": False,
-        "fixHint": None,
-    })
+    checks.append(
+        {
+            "id": "C1_BUNDLED_RUNTIME",
+            "title": "内置运行时",
+            "status": "pass",
+            "code": "RUNTIME_OK",
+            "evidence": [f"Python {platform.python_version()}, {runtime_type}"],
+            "autoFix": False,
+            "fixHint": None,
+        }
+    )
 
     # C2: pip availability
     try:
         import pip
+
         pip_ver = pip.__version__
-        checks.append({
-            "id": "C2_PIP",
-            "title": "包管理器",
-            "status": "pass",
-            "code": "PIP_OK",
-            "evidence": [f"pip {pip_ver}"],
-            "autoFix": False,
-            "fixHint": None,
-        })
+        checks.append(
+            {
+                "id": "C2_PIP",
+                "title": "包管理器",
+                "status": "pass",
+                "code": "PIP_OK",
+                "evidence": [f"pip {pip_ver}"],
+                "autoFix": False,
+                "fixHint": None,
+            }
+        )
     except Exception:
-        checks.append({
-            "id": "C2_PIP",
-            "title": "包管理器",
-            "status": "warn",
-            "code": "PIP_UNAVAILABLE",
-            "evidence": ["pip not importable — optional module installation disabled"],
-            "autoFix": False,
-            "fixHint": None,
-        })
+        checks.append(
+            {
+                "id": "C2_PIP",
+                "title": "包管理器",
+                "status": "warn",
+                "code": "PIP_UNAVAILABLE",
+                "evidence": ["pip not importable — optional module installation disabled"],
+                "autoFix": False,
+                "fixHint": None,
+            }
+        )
 
     # C3: Core package integrity
     try:
         from synapse.setup_center import bridge  # noqa: F401
-        checks.append({
-            "id": "C3_CORE",
-            "title": "核心引擎",
-            "status": "pass",
-            "code": "CORE_OK",
-            "evidence": [f"synapse {backend_version}"],
-            "autoFix": False,
-            "fixHint": None,
-        })
+
+        checks.append(
+            {
+                "id": "C3_CORE",
+                "title": "核心引擎",
+                "status": "pass",
+                "code": "CORE_OK",
+                "evidence": [f"synapse {backend_version}"],
+                "autoFix": False,
+                "fixHint": None,
+            }
+        )
     except Exception as exc:
-        checks.append({
-            "id": "C3_CORE",
-            "title": "核心引擎",
-            "status": "fail",
-            "code": "CORE_IMPORT_ERROR",
-            "evidence": [str(exc)[:300]],
-            "autoFix": False,
-            "fixHint": "核心模块损坏，建议重装 Synapse",
-        })
+        checks.append(
+            {
+                "id": "C3_CORE",
+                "title": "核心引擎",
+                "status": "fail",
+                "code": "CORE_IMPORT_ERROR",
+                "evidence": [str(exc)[:300]],
+                "autoFix": False,
+                "fixHint": "核心模块损坏，建议重装 Synapse",
+            }
+        )
 
     failing = [c for c in checks if c["status"] not in ("pass", "warn")]
     summary = "broken" if failing else "healthy"
@@ -275,10 +301,7 @@ async def health_check(request: Request, body: HealthCheckRequest):
         results.append(result)
     else:
         # Check all endpoints concurrently with per-endpoint timeout
-        tasks = [
-            _check_with_timeout(name, p)
-            for name, p in llm_client._providers.items()
-        ]
+        tasks = [_check_with_timeout(name, p) for name, p in llm_client._providers.items()]
         results = list(await asyncio.gather(*tasks))
 
     return {"results": [r.model_dump() for r in results]}
@@ -318,4 +341,3 @@ async def health_loop(request: Request):
         "llm_concurrent": llm_stats,
         "org_concurrency": org_stats,
     }
-

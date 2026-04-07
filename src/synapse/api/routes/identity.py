@@ -14,7 +14,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from synapse.config import settings
@@ -29,8 +30,7 @@ router = APIRouter(prefix="/api/identity", tags=["identity"])
 
 _BUDGET_MAP = {
     "SOUL.md": 3600,
-    "runtime/agent.core.md": 720,
-    "runtime/agent.tooling.md": 480,
+    "runtime/agent.core.md": 1200,
     "runtime/user.summary.md": 300,
     "runtime/persona.custom.md": 150,
     "prompts/policies.md": 1200,
@@ -47,7 +47,6 @@ _EDITABLE_SOURCE_FILES = [
 
 _RUNTIME_FILES = [
     "runtime/agent.core.md",
-    "runtime/agent.tooling.md",
     "runtime/user.summary.md",
     "runtime/persona.custom.md",
 ]
@@ -106,6 +105,7 @@ def validate_identity_file(name: str, content: str) -> dict[str, list[str]]:
     if name == "POLICIES.yaml":
         try:
             import yaml
+
             data = yaml.safe_load(content)
             if data is None:
                 pass  # empty file is ok
@@ -139,6 +139,7 @@ def validate_identity_file(name: str, content: str) -> dict[str, list[str]]:
 
     elif name == "MEMORY.md":
         from synapse.memory.types import MEMORY_MD_MAX_CHARS
+
         if len(content) > MEMORY_MD_MAX_CHARS:
             warnings.append(
                 f"内容超出 {MEMORY_MD_MAX_CHARS} 字符限制"
@@ -156,19 +157,19 @@ def validate_identity_file(name: str, content: str) -> dict[str, list[str]]:
         unknown_sections = [s.strip() for s in found if s.strip() not in known_sections]
         if unknown_sections:
             warnings.append(
-                f"包含非标准段落: {', '.join(unknown_sections)}，"
-                "不影响保存但可能不被系统识别"
+                f"包含非标准段落: {', '.join(unknown_sections)}，不影响保存但可能不被系统识别"
             )
 
     elif name == "prompts/policies.md":
-        system_titles = {"三条红线（必须遵守）", "意图声明（每次纯文本回复必须遵守）",
-                         "切换模型的工具上下文隔离"}
+        system_titles = {
+            "三条红线（必须遵守）",
+            "意图声明（每次纯文本回复必须遵守）",
+            "切换模型的工具上下文隔离",
+        }
         found = re.findall(r"^## (.+)", content, re.MULTILINE)
         overridden = [s.strip() for s in found if s.strip() in system_titles]
         if overridden:
-            warnings.append(
-                f"以下段落会被系统内置策略覆盖: {', '.join(overridden)}"
-            )
+            warnings.append(f"以下段落会被系统内置策略覆盖: {', '.join(overridden)}")
 
     return {"errors": errors, "warnings": warnings}
 
@@ -216,7 +217,9 @@ async def list_identity_files():
             "exists": path.exists(),
             "restricted": name in _RESTRICTED_FILES,
             "is_runtime": name.startswith("runtime/"),
-            "warning_key": _FILE_WARNINGS.get(name, "runtime" if name.startswith("runtime/") else None),
+            "warning_key": _FILE_WARNINGS.get(
+                name, "runtime" if name.startswith("runtime/") else None
+            ),
             "budget_tokens": _BUDGET_MAP.get(name),
         }
         if path.exists():
@@ -264,11 +267,14 @@ async def write_identity_file(req: FileWriteRequest, request: Request):
     # Validate
     result = validate_identity_file(name, req.content)
     if result["errors"]:
-        raise HTTPException(400, detail={
-            "message": "格式校验失败",
-            "errors": result["errors"],
-            "warnings": result["warnings"],
-        })
+        raise HTTPException(
+            400,
+            detail={
+                "message": "格式校验失败",
+                "errors": result["errors"],
+                "warnings": result["warnings"],
+            },
+        )
     if result["warnings"] and not req.force:
         return {
             "saved": False,
@@ -311,6 +317,7 @@ async def reload_identity(request: Request):
 
     # Force recompile runtime artifacts
     from synapse.prompt.compiler import compile_all
+
     identity_dir = _identity_dir()
     compile_all(identity_dir)
 
@@ -339,15 +346,18 @@ async def compile_identity(request: Request, mode: str = "rules"):
                 brain = getattr(local, "brain", None)
         if brain:
             from synapse.prompt.compiler import PromptCompiler
+
             compiler = PromptCompiler(brain=brain)
             await compiler.compile_all(identity_dir)
             mode_used = "llm"
         else:
             from synapse.prompt.compiler import compile_all
+
             compile_all(identity_dir)
             mode_used = "rules (LLM not available)"
     else:
         from synapse.prompt.compiler import compile_all
+
         compile_all(identity_dir)
         mode_used = "rules"
 
@@ -357,10 +367,10 @@ async def compile_identity(request: Request, mode: str = "rules"):
         _try_rebuild_prompt(agent)
 
     from synapse.prompt.compiler import get_compiled_content
+
     compiled = get_compiled_content(identity_dir)
     _key_rt = {
         "agent_core": "runtime/agent.core.md",
-        "agent_tooling": "runtime/agent.tooling.md",
         "user": "runtime/user.summary.md",
         "persona_custom": "runtime/persona.custom.md",
     }
@@ -384,6 +394,7 @@ async def compile_status():
     identity_dir = _identity_dir()
 
     from synapse.prompt.compiler import check_compiled_outdated, get_compiled_content
+
     compiled = get_compiled_content(identity_dir)
     outdated = check_compiled_outdated(identity_dir)
 
@@ -398,7 +409,6 @@ async def compile_status():
 
     key_to_runtime = {
         "agent_core": "runtime/agent.core.md",
-        "agent_tooling": "runtime/agent.tooling.md",
         "user": "runtime/user.summary.md",
         "persona_custom": "runtime/persona.custom.md",
     }
@@ -415,6 +425,99 @@ async def compile_status():
         "outdated": outdated,
         "last_compiled": last_compiled,
         "files": status,
+    }
+
+
+# ─── Persona import / template ───────────────────────────────────────────
+
+_PERSONA_TEMPLATE = """\
+# 自定义人格名称
+
+> 预设角色: 用一句话描述这个角色
+
+## 性格特征
+- 特征1：描述
+- 特征2：描述
+- 特征3：描述
+
+## 沟通风格
+- 正式程度: neutral（可选 formal / neutral / casual）
+- 幽默感: occasional（可选 none / occasional / frequent）
+- 回复长度: adaptive（可选 brief / moderate / adaptive / detailed）
+- 情感距离: friendly（可选 professional / friendly / intimate）
+- 称呼: 默认使用用户设定的称呼
+
+## 主动行为
+- 描述角色会主动做哪些事
+- 主动提醒、建议等行为模式
+
+## 活人感配置
+- 主动消息: 低频 / 中频 / 高频（每日最多 N 条）
+- 消息类型: 任务提醒、关心问候等
+- 闲聊问候: 低频主动发起
+
+## 表情包配置
+- 使用频率: rare / occasional / frequent
+- 偏好分类: 通用
+- 使用场景: 任务完成、鼓励等
+
+## 提示词片段
+你是一个[角色描述]，[核心行为准则]。[沟通风格要求]。
+"""
+
+
+@router.get("/persona/template")
+async def download_persona_template():
+    """Download a persona MD template file for users to fill in."""
+    return PlainTextResponse(
+        content=_PERSONA_TEMPLATE,
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="persona_template.md"',
+        },
+    )
+
+
+@router.post("/persona/import")
+async def import_persona_file(file: UploadFile = File(...)):
+    """Import a persona MD file. Saves to identity/personas/ with the uploaded filename.
+
+    No strict validation — the file is saved as-is.
+    """
+    if not file.filename:
+        raise HTTPException(400, "文件名不能为空")
+
+    fname = file.filename
+    if not fname.endswith(".md"):
+        fname = fname + ".md"
+
+    safe_name = re.sub(r"[^\w\-.]", "_", fname)
+    if safe_name.startswith(".") or "/" in safe_name or "\\" in safe_name:
+        raise HTTPException(400, "非法文件名")
+
+    content_bytes = await file.read()
+    try:
+        content = content_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(400, "文件编码必须为 UTF-8")
+
+    personas_dir = _identity_dir() / "personas"
+    personas_dir.mkdir(parents=True, exist_ok=True)
+    target = (personas_dir / safe_name).resolve()
+
+    if not str(target).startswith(str(personas_dir.resolve())):
+        raise HTTPException(400, "Path traversal not allowed")
+
+    target.write_text(content, encoding="utf-8")
+
+    persona_id = safe_name.removesuffix(".md")
+    logger.info(f"[Identity API] Imported persona file: {safe_name}")
+
+    return {
+        "saved": True,
+        "name": f"personas/{safe_name}",
+        "persona_id": persona_id,
+        "tokens": estimate_tokens(content),
     }
 
 

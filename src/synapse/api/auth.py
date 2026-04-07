@@ -23,6 +23,8 @@ from typing import Any
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
+from ..core.auth.tokens import TokenClaims, decode_jwt, encode_jwt
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -34,16 +36,18 @@ REFRESH_TOKEN_TTL = 90 * 24 * 3600    # 90 days
 REFRESH_COOKIE_NAME = "synapse_refresh"
 PASSWORD_ENV_VAR = "SYNAPSE_WEB_PASSWORD"
 
-AUTH_EXEMPT_PATHS = frozenset({
-    "/",
-    "/api/health",
-    "/api/auth/login",
-    "/api/auth/logout",
-    "/api/auth/refresh",
-    "/api/auth/check",
-    "/api/logs/frontend",
-})
-AUTH_EXEMPT_PREFIXES = ("/web/", "/web", "/ws/", "/docs", "/openapi.json", "/redoc")
+AUTH_EXEMPT_PATHS = frozenset(
+    {
+        "/",
+        "/api/health",
+        "/api/auth/login",
+        "/api/auth/logout",
+        "/api/auth/refresh",
+        "/api/auth/check",
+        "/api/logs/frontend",
+    }
+)
+AUTH_EXEMPT_PREFIXES = ("/web/", "/web", "/ws/", "/docs", "/openapi.json", "/redoc", "/user-docs")
 
 # ---------------------------------------------------------------------------
 # Helpers: base64url encoding (JWT-compatible, no padding)
@@ -96,12 +100,18 @@ def _jwt_decode(token: str, secret: str) -> dict[str, Any] | None:
 # Password hashing (scrypt, stdlib)
 # ---------------------------------------------------------------------------
 
+
 def _hash_password(password: str, salt: bytes | None = None) -> tuple[str, str]:
     """Hash password with scrypt. Returns (hash_hex, salt_hex)."""
     if salt is None:
         salt = secrets.token_bytes(16)
     h = hashlib.scrypt(
-        password.encode(), salt=salt, n=16384, r=8, p=1, dklen=32,
+        password.encode(),
+        salt=salt,
+        n=16384,
+        r=8,
+        p=1,
+        dklen=32,
     )
     return h.hex(), salt.hex()
 
@@ -109,8 +119,12 @@ def _hash_password(password: str, salt: bytes | None = None) -> tuple[str, str]:
 def _verify_password(password: str, hash_hex: str, salt_hex: str) -> bool:
     try:
         h = hashlib.scrypt(
-            password.encode(), salt=bytes.fromhex(salt_hex),
-            n=16384, r=8, p=1, dklen=32,
+            password.encode(),
+            salt=bytes.fromhex(salt_hex),
+            n=16384,
+            r=8,
+            p=1,
+            dklen=32,
         )
         return hmac.compare_digest(h.hex(), hash_hex)
     except (ValueError, TypeError):
@@ -145,6 +159,10 @@ class WebAccessConfig:
             self._data["jwt_secret"] = secrets.token_hex(32)
             needs_save = True
 
+        if not self._data.get("data_epoch"):
+            self._data["data_epoch"] = secrets.token_hex(8)
+            needs_save = True
+
         if not self._data.get("token_version"):
             self._data["token_version"] = 1
             needs_save = True
@@ -154,7 +172,11 @@ class WebAccessConfig:
             # if the password actually changed (avoids needless rehash on every start)
             existing_hash = self._data.get("password_hash", "")
             existing_salt = self._data.get("password_salt", "")
-            if not existing_hash or not existing_salt or not _verify_password(env_password, existing_hash, existing_salt):
+            if (
+                not existing_hash
+                or not existing_salt
+                or not _verify_password(env_password, existing_hash, existing_salt)
+            ):
                 hash_hex, salt_hex = _hash_password(env_password)
                 self._data["password_hash"] = hash_hex
                 self._data["password_salt"] = salt_hex
@@ -181,7 +203,8 @@ class WebAccessConfig:
                 "  You can reset it via the Desktop Setup Center or set\n"
                 "  %s environment variable.\n"
                 "═══════════════════════════════════════════════════════════",
-                generated, PASSWORD_ENV_VAR,
+                generated,
+                PASSWORD_ENV_VAR,
             )
 
         if needs_save:
@@ -202,6 +225,10 @@ class WebAccessConfig:
     @property
     def token_version(self) -> int:
         return self._data.get("token_version", 1)
+
+    @property
+    def data_epoch(self) -> str:
+        return self._data.get("data_epoch", "")
 
     @property
     def password_hint(self) -> str:
@@ -229,30 +256,27 @@ class WebAccessConfig:
         self._save()
 
     def create_access_token(self) -> str:
-        return _jwt_encode(
-            {
-                "type": "access",
-                "ver": self.token_version,
-                "iat": int(time.time()),
-                "exp": int(time.time()) + ACCESS_TOKEN_TTL,
-            },
-            self.jwt_secret,
+        claims = TokenClaims(
+            token_type="access",
+            subject="desktop_user",
+            expires_in=ACCESS_TOKEN_TTL,
+            version=self.token_version,
+            scope=["web:access"],
         )
+        return encode_jwt(claims.to_payload(), self.jwt_secret)
 
     def create_refresh_token(self) -> str:
-        return _jwt_encode(
-            {
-                "type": "refresh",
-                "ver": self.token_version,
-                "jti": secrets.token_hex(16),
-                "iat": int(time.time()),
-                "exp": int(time.time()) + REFRESH_TOKEN_TTL,
-            },
-            self.jwt_secret,
+        claims = TokenClaims(
+            token_type="refresh",
+            subject="desktop_user",
+            expires_in=REFRESH_TOKEN_TTL,
+            version=self.token_version,
+            scope=["web:refresh"],
         )
+        return encode_jwt(claims.to_payload(), self.jwt_secret)
 
     def validate_access_token(self, token: str) -> bool:
-        payload = _jwt_decode(token, self.jwt_secret)
+        payload = decode_jwt(token, self.jwt_secret)
         if not payload:
             return False
         if payload.get("type") != "access":
@@ -262,7 +286,7 @@ class WebAccessConfig:
         return True
 
     def validate_refresh_token(self, token: str) -> dict[str, Any] | None:
-        payload = _jwt_decode(token, self.jwt_secret)
+        payload = decode_jwt(token, self.jwt_secret)
         if not payload:
             return None
         if payload.get("type") != "refresh":
@@ -312,6 +336,7 @@ _login_limiter = RateLimiter(max_requests=5, window_seconds=60)
 # Middleware
 # ---------------------------------------------------------------------------
 
+
 def get_client_ip(request: Request, *, trust_proxy: bool = False) -> str:
     """Return the client IP, respecting X-Forwarded-For when trust_proxy is on."""
     if trust_proxy:
@@ -343,10 +368,7 @@ def _is_auth_exempt(path: str) -> bool:
     """Check if the path is exempt from authentication."""
     if path in AUTH_EXEMPT_PATHS:
         return True
-    for prefix in AUTH_EXEMPT_PREFIXES:
-        if path.startswith(prefix):
-            return True
-    return False
+    return any(path.startswith(prefix) for prefix in AUTH_EXEMPT_PREFIXES)
 
 
 def create_auth_middleware(config: WebAccessConfig):

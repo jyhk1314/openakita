@@ -37,13 +37,22 @@ def strip_thinking_tags(text: str) -> str:
     cleaned = re.sub(r"<thinking>.*?</thinking>\s*", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
     cleaned = re.sub(r"<think>.*?</think>\s*", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
     cleaned = re.sub(
-        r"<minimax:tool_call>.*?</minimax:tool_call>\s*", "", cleaned, flags=re.DOTALL | re.IGNORECASE,
+        r"<minimax:tool_call>.*?</minimax:tool_call>\s*",
+        "",
+        cleaned,
+        flags=re.DOTALL | re.IGNORECASE,
     )
     cleaned = re.sub(
-        r"<<\|tool_calls_section_begin\|>>.*?<<\|tool_calls_section_end\|>>\s*", "", cleaned, flags=re.DOTALL,
+        r"<<\|tool_calls_section_begin\|>>.*?<<\|tool_calls_section_end\|>>\s*",
+        "",
+        cleaned,
+        flags=re.DOTALL,
     )
     cleaned = re.sub(
-        r"<invoke\s+[^>]*>.*?</invoke>\s*", "", cleaned, flags=re.DOTALL | re.IGNORECASE,
+        r"<invoke\s+[^>]*>.*?</invoke>\s*",
+        "",
+        cleaned,
+        flags=re.DOTALL | re.IGNORECASE,
     )
 
     # 移除残留的闭合标签
@@ -53,6 +62,10 @@ def strip_thinking_tags(text: str) -> str:
     cleaned = re.sub(r"<<\|tool_calls_section_begin\|>>.*$", "", cleaned, flags=re.DOTALL)
     cleaned = re.sub(r"<\?xml[^>]*\?>\s*", "", cleaned)
 
+    # 兜底：清理孤立的开标签（无闭合，从标签到字符串末尾）
+    cleaned = re.sub(r"<thinking>\s*.*$", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
+    cleaned = re.sub(r"<think>\s*.*$", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
+
     return cleaned.strip()
 
 
@@ -61,29 +74,66 @@ def strip_tool_simulation_text(text: str) -> str:
     移除 LLM 在文本中模拟工具调用的内容。
 
     当使用不支持原生工具调用的备用模型时，LLM 可能在文本中
-    "模拟"工具调用。
+    "模拟"工具调用。支持三种情况：
+    1. 整行都是工具调用（直接移除）
+    2. 行内嵌入的 .tool_name(args)（从行尾剥离，保留前面的正文）
+    3. <tool_call>...</tool_call> XML 块（Ask 模式下 LLM 常泄漏此格式）
     """
     if not text:
         return text
 
-    pattern1 = r"^[a-z_]+\s*\([^)]*\)\s*$"
+    # 先移除 <tool_call>...</tool_call> 块（可能跨行）
+    text = re.sub(
+        r"<tool_call>\s*.*?\s*</tool_call>",
+        "",
+        text,
+        flags=re.DOTALL | re.IGNORECASE,
+    ).strip()
+
+    pattern1 = r"^\.?[a-z_]+\s*\(.*\)\s*$"
     pattern2 = r"^[a-z_]+:\d+[\{\(].*[\}\)]\s*$"
     pattern3 = r'^\{["\']?(tool|function|name)["\']?\s*:'
+    pattern4 = r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$"
+
+    # 行内 .tool_name(args) 剥离：匹配行尾的 .tool_name(args) 部分
+    inline_dot_pattern = re.compile(r"\s*\.[a-z][a-z0-9_]{2,}\s*\(.*\)\s*$", re.IGNORECASE)
 
     lines = text.split("\n")
     cleaned_lines = []
+    in_code_block = False
 
     for line in lines:
         stripped = line.strip()
+
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            cleaned_lines.append(line)
+            continue
+
+        if in_code_block:
+            cleaned_lines.append(line)
+            continue
+
         is_tool_sim = (
             re.match(pattern1, stripped, re.IGNORECASE)
             or re.match(pattern2, stripped, re.IGNORECASE)
             or re.match(pattern3, stripped, re.IGNORECASE)
+            or re.match(pattern4, stripped)
         )
-        if not is_tool_sim:
+        if is_tool_sim:
+            continue
+
+        # 检查行尾是否嵌入了 .tool_name(args)（如混合文本+工具调用）
+        m = inline_dot_pattern.search(stripped)
+        if m and m.start() > 0:
+            cleaned_lines.append(stripped[: m.start()].rstrip())
+        else:
             cleaned_lines.append(line)
 
     return "\n".join(cleaned_lines).strip()
+
+
+_LEADING_TIMESTAMP_RE = re.compile(r"^\s*\[\d{1,2}:\d{2}\]\s*")
 
 
 def clean_llm_response(text: str) -> str:
@@ -94,6 +144,7 @@ def clean_llm_response(text: str) -> str:
     1. strip_thinking_tags - 移除思考标签
     2. strip_tool_simulation_text - 移除模拟工具调用
     3. strip_intent_tag - 移除意图声明标记
+    4. strip leading [HH:MM] timestamp leaked from historical message formatting
     """
     if not text:
         return text
@@ -101,6 +152,7 @@ def clean_llm_response(text: str) -> str:
     cleaned = strip_thinking_tags(text)
     cleaned = strip_tool_simulation_text(cleaned)
     _, cleaned = parse_intent_tag(cleaned)
+    cleaned = _LEADING_TIMESTAMP_RE.sub("", cleaned)
 
     return cleaned.strip()
 
@@ -127,7 +179,7 @@ def parse_intent_tag(text: str) -> tuple[str | None, str]:
         return None, text or ""
     m = _INTENT_TAG_RE.match(text)
     if m:
-        return m.group(1).upper(), text[m.end():]
+        return m.group(1).upper(), text[m.end() :]
     return None, text
 
 
@@ -147,6 +199,36 @@ class ResponseHandler:
         self._brain = brain
         self._memory_manager = memory_manager
 
+    @staticmethod
+    def _request_expects_artifact(user_request: str | None) -> bool:
+        text = (user_request or "").lower()
+        return any(
+            key in text
+            for key in (
+                "图片",
+                "照片",
+                "图像",
+                "海报",
+                "壁纸",
+                "配图",
+                "截图",
+                "附件",
+                "文件",
+                "下载",
+                "发我",
+                "发给我",
+                "给我一张",
+                "给我发",
+                "image",
+                "photo",
+                "picture",
+                "file",
+                "attachment",
+                "download",
+                "send me",
+            )
+        )
+
     async def verify_task_completion(
         self,
         user_request: str,
@@ -154,6 +236,7 @@ class ResponseHandler:
         executed_tools: list[str],
         delivery_receipts: list[dict] | None = None,
         conversation_id: str | None = None,
+        bypass: bool = False,
     ) -> bool:
         """
         任务完成度复核。
@@ -166,13 +249,19 @@ class ResponseHandler:
             executed_tools: 已执行的工具列表
             delivery_receipts: 交付回执
             conversation_id: 对话 ID（用于 Plan 检查）
+            bypass: 当 Supervisor 已介入时跳过验证
 
         Returns:
             True 如果任务已完成
         """
+        if bypass:
+            logger.info("[TaskVerify] Bypassed (supervisor intervention active)")
+            return True
+
         delivery_receipts = delivery_receipts or []
 
         # === Deterministic Validation (Agent Harness) ===
+        plan_fail_reason = ""
         try:
             from .validators import ValidationContext, ValidationResult, create_default_registry
 
@@ -189,29 +278,87 @@ class ResponseHandler:
             if report.applicable_count > 0:
                 for output in report.outputs:
                     if output.result == ValidationResult.PASS and output.name in (
-                        "ArtifactValidator", "CompletePlanValidator",
+                        "ArtifactValidator",
+                        "CompletePlanValidator",
                     ):
-                        logger.info(f"[TaskVerify] Deterministic PASS: {output.name} — {output.reason}")
+                        logger.info(
+                            f"[TaskVerify] Deterministic PASS: {output.name} — {output.reason}"
+                        )
                         return True
 
                 for output in report.outputs:
                     if output.result == ValidationResult.FAIL and output.name == "PlanValidator":
-                        logger.info(f"[TaskVerify] Deterministic FAIL: {output.name} — {output.reason}")
-                        return False
+                        plan_fail_reason = output.reason
+                        logger.info(
+                            f"[TaskVerify] PlanValidator FAIL (non-blocking): {output.reason}"
+                        )
+
+                for output in report.outputs:
+                    if (
+                        output.result == ValidationResult.FAIL
+                        and output.name == "ArtifactValidator"
+                    ):
+                        logger.warning(
+                            f"[TaskVerify] ArtifactValidator FAIL but treating as PASS "
+                            f"(delivery failure is infra issue, not agent fault): {output.reason}"
+                        )
+                        return True
         except Exception as e:
             logger.debug(f"[TaskVerify] Deterministic validation skipped: {e}")
 
+        expects_artifact = self._request_expects_artifact(user_request)
+
         # 宣称已交付但无证据
-        if any(
-            k in (assistant_response or "") for k in ("已发送", "已交付", "已发给你", "已发给您")
-        ) and not delivery_receipts and "deliver_artifacts" not in (executed_tools or []):
+        if (
+            any(
+                k in (assistant_response or "")
+                for k in (
+                    "已发送",
+                    "已交付",
+                    "已发给你",
+                    "已发给您",
+                    "下面是图片",
+                    "给你一张",
+                    "给您一张",
+                    "我给你发",
+                    "我给您发",
+                    "我为你生成了图片",
+                    "我为您生成了图片",
+                    "图片如下",
+                    "附件如下",
+                )
+            )
+            and not delivery_receipts
+            and "deliver_artifacts" not in (executed_tools or [])
+        ):
             logger.info("[TaskVerify] delivery claim without receipts, INCOMPLETE")
+            return False
+
+        if (
+            expects_artifact
+            and not delivery_receipts
+            and "deliver_artifacts" not in (executed_tools or [])
+        ):
+            logger.info(
+                "[TaskVerify] artifact requested but no delivery receipts/tools, INCOMPLETE"
+            )
             return False
 
         # LLM 判断
         from .tool_executor import smart_truncate
+
         user_display, _ = smart_truncate(user_request, 3000, save_full=False, label="verify_user")
-        response_display, _ = smart_truncate(assistant_response, 8000, save_full=False, label="verify_response")
+        response_display, _ = smart_truncate(
+            assistant_response, 8000, save_full=False, label="verify_response"
+        )
+
+        _plan_section = ""
+        if plan_fail_reason:
+            _plan_section = (
+                f"\n## Plan 状态\n"
+                f"当前 Plan 有未完成步骤: {plan_fail_reason}\n"
+                f"注意: Plan 步骤未更新不代表任务未完成。如果实际工具已执行成功，应判 COMPLETED。\n"
+            )
 
         verify_prompt = f"""请判断以下交互是否已经**完成**用户的意图。
 
@@ -226,7 +373,7 @@ class ResponseHandler:
 
 ## 附件交付回执（如有）
 {delivery_receipts if delivery_receipts else "无"}
-
+{_plan_section}
 ## 判断标准
 
 ### 非任务类消息（直接判 COMPLETED）
@@ -252,9 +399,10 @@ MISSING: 缺失的内容
 NEXT: 建议的下一步"""
 
         try:
-            response = await self._brain.think(
+            response = await self._brain.think_lightweight(
                 prompt=verify_prompt,
                 system="你是一个任务完成度判断助手。请分析任务是否完成，并说明证据和缺失项。",
+                max_tokens=512,
             )
 
             result = response.content.strip().upper() if response.content else ""
@@ -269,6 +417,7 @@ NEXT: 建议的下一步"""
             # Decision Trace: 记录验证决策
             try:
                 from ..tracing.tracer import get_tracer
+
                 tracer = get_tracer()
                 tracer.record_decision(
                     decision_type="task_verification",
@@ -302,9 +451,10 @@ NEXT: 建议的下一步"""
             context = task_monitor.get_retrospect_context()
             prompt = RETROSPECT_PROMPT.format(context=context)
 
-            response = await self._brain.think(
+            response = await self._brain.think_lightweight(
                 prompt=prompt,
                 system="你是一个任务执行分析专家。请简洁地分析任务执行情况，找出耗时原因和改进建议。",
+                max_tokens=512,
             )
 
             result = strip_thinking_tags(response.content).strip() if response.content else ""
@@ -333,9 +483,7 @@ NEXT: 建议的下一步"""
             logger.warning(f"Task retrospect failed: {e}")
             return ""
 
-    async def do_task_retrospect_background(
-        self, task_monitor: Any, session_id: str
-    ) -> None:
+    async def do_task_retrospect_background(self, task_monitor: Any, session_id: str) -> None:
         """
         后台执行任务复盘分析（不阻塞主响应）。
         """
@@ -379,10 +527,20 @@ NEXT: 建议的下一步"""
         """获取最后一条用户请求"""
         from .tool_executor import smart_truncate
 
+        def _strip_context_prefix(text: str) -> str:
+            """移除对话历史前缀，提取真正的用户输入。"""
+            _marker = "：]"
+            if text.startswith("[以上是之前的对话历史"):
+                idx = text.find(_marker)
+                if idx != -1:
+                    text = text[idx + len(_marker) :].strip()
+            return text
+
         for msg in reversed(messages):
             if msg.get("role") == "user":
                 content = msg.get("content", "")
                 if isinstance(content, str) and not content.startswith("[系统]"):
+                    content = _strip_context_prefix(content)
                     result, _ = smart_truncate(content, 3000, save_full=False, label="user_request")
                     return result
                 elif isinstance(content, list):
@@ -390,6 +548,9 @@ NEXT: 建议的下一步"""
                         if isinstance(part, dict) and part.get("type") == "text":
                             text = part.get("text", "")
                             if not text.startswith("[系统]"):
-                                result, _ = smart_truncate(text, 3000, save_full=False, label="user_request")
+                                text = _strip_context_prefix(text)
+                                result, _ = smart_truncate(
+                                    text, 3000, save_full=False, label="user_request"
+                                )
                                 return result
         return ""

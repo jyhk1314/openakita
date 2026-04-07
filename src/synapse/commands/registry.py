@@ -63,7 +63,7 @@ COMMANDS: tuple[CommandDef, ...] = (
     CommandDef(
         "session", "切换会话", "切换到指定的 CLI 会话", args_hint="<#>", scope=CommandScope.CLI
     ),
-    CommandDef("exit", "退出", "退出 OpenAkita", aliases=("quit",), scope=CommandScope.CLI),
+    CommandDef("exit", "退出", "退出 Synapse", aliases=("quit",), scope=CommandScope.CLI),
 )
 
 

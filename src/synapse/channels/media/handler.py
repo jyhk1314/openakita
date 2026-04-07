@@ -94,6 +94,7 @@ class MediaHandler:
             logger.info(f"Whisper model '{self.whisper_model}' loaded successfully")
         except ImportError:
             from synapse.tools._import_helper import import_or_hint
+
             hint = import_or_hint("whisper")
             logger.warning(f"Whisper 不可用（本进程内不再重试）: {hint}")
             self._whisper_unavailable = True
@@ -171,22 +172,27 @@ class MediaHandler:
                 "Make sure openai-whisper is installed: pip install openai-whisper"
             )
 
-        # QQ/微信语音使用 SILK 编码（.amr 扩展名），ffmpeg 不支持
-        # 需要先转换为 WAV 才能被 Whisper 识别
-        from synapse.channels.media.audio_utils import ensure_whisper_compatible
+        from synapse.channels.media.audio_utils import (
+            ensure_whisper_compatible,
+            load_wav_as_numpy,
+        )
 
         compatible_path = ensure_whisper_compatible(audio_path)
 
-        # 在线程池中执行（避免阻塞）
-        # auto 模式不传 language，让 Whisper 自动检测
         kwargs: dict = {}
         if self.whisper_language and self.whisper_language != "auto":
             kwargs["language"] = self.whisper_language
 
+        def _run_whisper():
+            # 对已转换的 WAV 尝试直接 numpy 加载，绕过 ffmpeg 依赖
+            if compatible_path.endswith(".wav"):
+                audio_array = load_wav_as_numpy(compatible_path)
+                if audio_array is not None:
+                    return self._whisper.transcribe(audio_array, **kwargs)
+            return self._whisper.transcribe(compatible_path, **kwargs)
+
         loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None, lambda: self._whisper.transcribe(compatible_path, **kwargs)
-        )
+        result = await loop.run_in_executor(None, _run_whisper)
 
         return result["text"]
 
@@ -276,6 +282,7 @@ class MediaHandler:
 
         except ImportError:
             from synapse.tools._import_helper import import_or_hint
+
             hint = import_or_hint("pytesseract")
             logger.warning(f"OCR 不可用: {hint}")
             return ""
@@ -355,6 +362,7 @@ class MediaHandler:
 
             except ImportError:
                 from synapse.tools._import_helper import import_or_hint
+
                 hint = import_or_hint("fitz")
                 raise ImportError(f"PDF 提取不可用: {hint}")
 
@@ -373,6 +381,7 @@ class MediaHandler:
 
         except ImportError:
             from synapse.tools._import_helper import import_or_hint
+
             hint = import_or_hint("docx")
             raise ImportError(f"DOCX 提取不可用: {hint}")
 
@@ -396,6 +405,7 @@ class MediaHandler:
 
         except ImportError:
             from synapse.tools._import_helper import import_or_hint
+
             hint = import_or_hint("openpyxl")
             raise ImportError(f"XLSX 提取不可用: {hint}")
 
@@ -418,5 +428,6 @@ class MediaHandler:
 
         except ImportError:
             from synapse.tools._import_helper import import_or_hint
+
             hint = import_or_hint("pptx")
             raise ImportError(f"PPTX 提取不可用: {hint}")
