@@ -157,6 +157,10 @@ class TestSendCommand:
 
             mock_agent = AsyncMock()
             mock_agent.chat = AsyncMock(return_value="收到命令")
+            mock_agent.brain = MagicMock()
+            mock_agent.brain.drain_usage_accumulator = MagicMock(
+                return_value={"calls": 0, "tokens_in": 0, "tokens_out": 0}
+            )
 
             with patch.object(runtime, "_get_or_create_agent", new_callable=AsyncMock, return_value=mock_agent):
                 with patch.object(runtime, "_broadcast_ws", new_callable=AsyncMock):
@@ -178,6 +182,7 @@ class TestAutoKickoff:
         try:
             org_data = make_org(name="自动启动测试").to_dict()
             org_data["core_business"] = "做一个电商平台"
+            org_data["operation_mode"] = "autonomous"
             org = org_manager.create(org_data)
 
             with patch.object(runtime, "_auto_kickoff", new_callable=AsyncMock) as mock_kickoff:
@@ -198,6 +203,7 @@ class TestAutoKickoff:
         try:
             org_data = make_org(name="无业务测试").to_dict()
             org_data["core_business"] = ""
+            org_data["operation_mode"] = "autonomous"
             org = org_manager.create(org_data)
 
             with patch.object(runtime, "_auto_kickoff", new_callable=AsyncMock) as mock_kickoff:
@@ -215,6 +221,7 @@ class TestAutoKickoff:
         try:
             org_data = make_org(name="主编团队").to_dict()
             org_data["core_business"] = "内容运营"
+            org_data["operation_mode"] = "autonomous"
             org_data["nodes"][0]["role_title"] = "主编"
             org = org_manager.create(org_data)
 
@@ -245,6 +252,7 @@ class TestAutoKickoff:
             from synapse.orgs.models import UserPersona
             org_data = make_org(name="投资项目").to_dict()
             org_data["core_business"] = "AI 研究"
+            org_data["operation_mode"] = "autonomous"
             org_data["user_persona"] = {"title": "投资人", "display_name": "张总", "description": ""}
             org = org_manager.create(org_data)
 
@@ -262,6 +270,68 @@ class TestAutoKickoff:
             assert captured_prompt is not None
             assert "张总" in captured_prompt
             assert "张总委托你全权负责" in captured_prompt
+        finally:
+            await runtime.shutdown()
+
+
+class TestResetOrg:
+    async def test_reset_org_status(self, runtime: OrgRuntime, org_manager: OrgManager):
+        with patch("synapse.orgs.templates.ensure_builtin_templates"):
+            await runtime.start()
+        try:
+            org = org_manager.create(make_org(name="重置测试").to_dict())
+            await runtime.start_org(org.id)
+            await runtime.reset_org(org.id)
+
+            org_manager.invalidate_cache(org.id)
+            loaded = org_manager.get(org.id)
+            assert loaded.status == OrgStatus.DORMANT
+            for node in loaded.nodes:
+                assert node.status == NodeStatus.IDLE
+        finally:
+            await runtime.shutdown()
+
+    async def test_reset_org_clears_blackboard_disk(
+        self, runtime: OrgRuntime, org_manager: OrgManager,
+    ):
+        """Blackboard files on disk must be removed after reset."""
+        with patch("synapse.orgs.templates.ensure_builtin_templates"):
+            await runtime.start()
+        try:
+            org = org_manager.create(make_org(name="黑板清理测试").to_dict())
+            await runtime.start_org(org.id)
+
+            bb = runtime.get_blackboard(org.id)
+            assert bb is not None
+            bb.write_org("测试黑板内容", source_node="node_ceo", importance=0.9)
+
+            bb_file = bb._memory_dir / "blackboard.jsonl"
+            assert bb_file.exists(), "blackboard.jsonl should exist after write"
+
+            await runtime.reset_org(org.id)
+
+            assert not bb_file.exists(), "blackboard.jsonl should be removed after reset"
+
+        finally:
+            await runtime.shutdown()
+
+    async def test_reset_org_clears_event_store(
+        self, runtime: OrgRuntime, org_manager: OrgManager,
+    ):
+        """Event store files on disk must be removed after reset."""
+        with patch("synapse.orgs.templates.ensure_builtin_templates"):
+            await runtime.start()
+        try:
+            org = org_manager.create(make_org(name="事件清理测试").to_dict())
+            await runtime.start_org(org.id)
+
+            es = runtime.get_event_store(org.id)
+            es.emit("test_event", "system", {"data": "value"})
+
+            await runtime.reset_org(org.id)
+
+            assert runtime.get_blackboard(org.id) is None
+            assert org.id not in runtime._active_orgs
         finally:
             await runtime.shutdown()
 

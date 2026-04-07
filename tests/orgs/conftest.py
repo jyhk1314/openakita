@@ -131,6 +131,7 @@ def mock_runtime(persisted_org: Organization, org_manager: OrgManager, org_dir: 
     rt._manager = org_manager
     rt.get_org = MagicMock(return_value=persisted_org)
     rt._active_orgs = {persisted_org.id: persisted_org}
+    rt._chain_delegation_depth = {}
 
     from synapse.orgs.event_store import OrgEventStore
     from synapse.orgs.blackboard import OrgBlackboard
@@ -144,5 +145,10 @@ def mock_runtime(persisted_org: Organization, org_manager: OrgManager, org_dir: 
     rt.get_blackboard = MagicMock(return_value=bb)
     rt.get_messenger = MagicMock(return_value=messenger)
     rt._broadcast_ws = AsyncMock()
+    rt._save_org = AsyncMock()
+
+    scaler_mock = MagicMock()
+    scaler_mock.try_reclaim_idle_clones = AsyncMock(return_value=[])
+    rt.get_scaler = MagicMock(return_value=scaler_mock)
 
     return rt

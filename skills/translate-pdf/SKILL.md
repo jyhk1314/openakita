@@ -475,7 +475,7 @@ glossary = {
   "source_lang": "en",
   "target_lang": "zh-CN",
   "terms": {
-    "OpenAkita": "OpenAkita",
+    "Synapse": "Synapse",
     "Agent": "智能体",
     "fine-tuning": "微调",
     "prompt engineering": "提示词工程"

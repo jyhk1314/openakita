@@ -63,20 +63,27 @@ class TestCascadeDepthLimiting:
     def handler(self, mock_runtime) -> OrgToolHandler:
         return OrgToolHandler(mock_runtime)
 
-    async def test_cascade_depth_increments(self, handler, persisted_org, mock_runtime):
-        mock_runtime._cascade_depth = {"org_test:node_ceo": 3}
+    async def test_delegation_depth_tracked_per_chain(self, handler, persisted_org, mock_runtime):
+        mock_runtime._chain_delegation_depth = {}
         result = await handler.handle(
             "org_delegate_task",
-            {"to_node": "node_cto", "task": "传递任务"},
+            {"to_node": "node_cto", "task": "传递任务", "task_chain_id": "chain_a"},
             persisted_org.id, "node_ceo",
         )
         assert "任务已分配" in result or "已分配" in result
-        es = mock_runtime.get_event_store(persisted_org.id)
-        events = es.query(event_type="task_assigned", limit=10)
-        assert len(events) >= 1
+        assert mock_runtime._chain_delegation_depth.get("chain_a", 0) == 1
 
-    async def test_escalation_cascade_depth(self, handler, persisted_org, mock_runtime):
-        mock_runtime._cascade_depth = {"org_test:node_cto": 2}
+    async def test_delegation_depth_blocks_at_limit(self, handler, persisted_org, mock_runtime):
+        mock_runtime._chain_delegation_depth = {"chain_deep": 99}
+        result = await handler.handle(
+            "org_delegate_task",
+            {"to_node": "node_cto", "task": "太深了", "task_chain_id": "chain_deep"},
+            persisted_org.id, "node_ceo",
+        )
+        assert "上限" in result or "无法" in result
+
+    async def test_escalation_not_affected_by_depth(self, handler, persisted_org, mock_runtime):
+        mock_runtime._chain_delegation_depth = {}
         result = await handler.handle(
             "org_escalate",
             {"content": "需要决策", "priority": 1},
@@ -149,7 +156,7 @@ class TestMessageFormatting:
     def _make_runtime(self):
         from synapse.orgs.runtime import OrgRuntime
         rt = MagicMock()
-        rt._cascade_depth = {}
+        rt._chain_delegation_depth = {}
         return rt
 
     def test_task_assign_format(self):
@@ -401,15 +408,15 @@ class TestErrorAutoRecovery:
 
 
 class TestTimeoutDifferentiation:
-    """Timeout should be tracked separately from normal completion."""
+    """Agent task execution (timeout removed in favor of watchdog)."""
 
-    def test_run_agent_task_returns_tuple(self):
-        """_run_agent_task should return (text, timed_out) tuple."""
+    def test_run_agent_task_returns_str(self):
+        """_run_agent_task should return str (no timeout wrapper)."""
         from synapse.orgs.runtime import OrgRuntime
         sig = OrgRuntime._run_agent_task.__annotations__
         assert "return" in sig
         ret_type = sig["return"]
-        assert "tuple" in str(ret_type).lower()
+        assert "str" in str(ret_type).lower()
 
 
 class TestInvalidMemoryTypeFallback:

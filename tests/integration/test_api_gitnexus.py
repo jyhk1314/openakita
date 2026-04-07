@@ -8,7 +8,7 @@ import httpx
 async def client():
     """
     真实 E2E 客户端：
-    - 直接连到已在外部启动的 OpenAkita HTTP 服务
+    - 直接连到已在外部启动的 Synapse HTTP 服务
     - 默认地址: http://127.0.0.1:18900
     - 可通过环境变量 TEST_API_BASE_URL 覆盖
     """
@@ -21,7 +21,7 @@ class TestGitNexusEndpoint:
     async def test_gitnexus_forwards_request_to_mcp(self, client):
         """
         真实链路测试：
-        - 假定 OpenAkita 服务已在 base_url 上启动
+        - 假定 Synapse 服务已在 base_url 上启动
         - 假定 settings.gitnexus_mcp_base_url 已正确指向 MCP 后端
         - 打印请求和响应，便于调试
         """

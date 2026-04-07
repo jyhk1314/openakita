@@ -42,7 +42,7 @@ class TestToolCategories:
     def test_expand_multiple_categories(self):
         result = expand_tool_categories(["research", "planning"])
         assert "web_search" in result
-        assert "create_plan" in result
+        assert "create_todo" in result
 
     def test_expand_mixed_category_and_tool(self):
         result = expand_tool_categories(["research", "run_shell"])
@@ -159,7 +159,7 @@ def tool_handler_with_org(org_with_tools, tmp_path):
 
     rt.get_event_store = MagicMock(return_value=es)
     rt.get_messenger = MagicMock(return_value=messenger)
-    rt._save_org = MagicMock()
+    rt._save_org = AsyncMock()
     rt.evict_node_agent = MagicMock()
 
     handler = OrgToolHandler(rt)

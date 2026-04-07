@@ -92,7 +92,7 @@ YUQUE_TOKEN = os.environ["YUQUE_TOKEN"]
 headers = {
     "X-Auth-Token": YUQUE_TOKEN,
     "Content-Type": "application/json",
-    "User-Agent": "OpenAkita-Agent/1.0"
+    "User-Agent": "Synapse-Agent/1.0"
 }
 
 async def yuque_api(method, path, data=None):
