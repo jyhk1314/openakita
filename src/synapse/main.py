@@ -1084,7 +1084,7 @@ async def stop_im_channels(*, graceful: bool = True, drain_timeout: float = 30.0
 def print_welcome():
     """打印欢迎信息"""
     welcome_text = """
-# OpenAkita - 全能自进化AI助手
+# Synapse - 全能自进化AI助手
 
 基于 **Ralph Wiggum 模式**，永不放弃。
 
@@ -1603,7 +1603,7 @@ def main(
     new_session: bool = typer.Option(False, "--new", help="强制开启新 CLI 会话，不恢复上次对话"),
 ):
     """
-    OpenAkita - 全能自进化AI助手
+    Synapse - 全能自进化AI助手
 
     直接运行进入交互模式
     """
@@ -1613,7 +1613,7 @@ def main(
     if version:
         from . import __version__
 
-        console.print(f"OpenAkita v{__version__}")
+        console.print(f"Synapse v{__version__}")
         raise typer.Exit(0)
 
     # 如果没有子命令，进入交互模式
@@ -1641,7 +1641,7 @@ def init(
     ),
 ):
     """
-    初始化 OpenAkita - 交互式配置向导
+    初始化 Synapse - 交互式配置向导
 
     运行此命令启动配置向导，引导您完成：
     - LLM API 配置
@@ -2000,11 +2000,11 @@ def serve(
         from synapse import get_version_string
 
         _version_str = get_version_string()
-        logger.info(f"OpenAkita {_version_str} starting...")
+        logger.info(f"Synapse {_version_str} starting...")
 
         console.print(
             Panel(
-                f"[bold]OpenAkita 服务模式[/bold]\n\n"
+                f"[bold]Synapse 服务模式[/bold]\n\n"
                 f"版本: {_version_str}\n"
                 "只运行 IM 通道，不启动 CLI 交互。\n"
                 "按 Ctrl+C 停止服务。",
