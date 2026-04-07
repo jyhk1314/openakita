@@ -251,7 +251,7 @@ class _IsolatedBrowserContext:
     """Lightweight wrapper around a dedicated BrowserContext for parallel sub-agents.
 
     Implements the same minimal interface as BrowserManager so that
-    PlaywrightTools / BrowserUseRunner can work unchanged.
+    PlaywrightTools can work unchanged.
     """
 
     def __init__(self, parent: BrowserManager, context: Any, page: Any):

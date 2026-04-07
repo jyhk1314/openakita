@@ -606,11 +606,11 @@ class AgentOrchestrator:
                 )
 
         if isolated_browser and hasattr(agent, "browser_manager"):
-            from synapse.tools.browser import BrowserUseRunner, PlaywrightTools
-
+            # from synapse.tools.browser import BrowserUseRunner, PlaywrightTools
+            from synapse.tools.browser import PlaywrightTools
             agent.browser_manager = isolated_browser
             agent.pw_tools = PlaywrightTools(isolated_browser)
-            agent.bu_runner = BrowserUseRunner(isolated_browser)
+            # agent.bu_runner = BrowserUseRunner(isolated_browser)
 
         gw = self._gateway if pass_gateway else None
 

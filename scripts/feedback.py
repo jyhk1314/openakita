@@ -26,7 +26,8 @@ from pathlib import Path
 try:
     import oss2
 except ImportError:
-    oss2 = None  # type: ignore[assignment, misc]
+    print("Error: oss2 package is required.  Install with:  pip install oss2", file=sys.stderr)
+    sys.exit(1)
 
 
 FEEDBACK_PREFIX = "feedback/"
@@ -336,10 +337,6 @@ def main() -> None:
     p_stats.add_argument("--days", type=int, default=30, help="Look back N days (default: 30)")
 
     args = parser.parse_args()
-
-    if oss2 is None:
-        print("Error: oss2 package is required.  Install with:  pip install oss2", file=sys.stderr)
-        sys.exit(1)
 
     cmd_map = {
         "list": cmd_list,

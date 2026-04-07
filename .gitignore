@@ -228,3 +228,4 @@ botpy.log*
 SYNAPSE_RESEARCH_REPORT.md
 synapse-release.keystore
 ppt_build/
+.VSCodeCounter/
