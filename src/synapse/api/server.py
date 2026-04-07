@@ -59,6 +59,8 @@ from .routes import (
 )
 
 logger = logging.getLogger(__name__)
+# HTTP 接口访问日志（create_app 中注册中间件：入站/出站各一条，仅 /api 前缀）
+access_logger = logging.getLogger("synapse.api.access")
 
 API_HOST = os.environ.get("API_HOST", "127.0.0.1")
 API_PORT = 18900
@@ -240,6 +242,36 @@ def create_app(
     else:
         cors_kwargs["allow_origin_regex"] = r".*"
     app.add_middleware(CORSMiddleware, **cors_kwargs)
+
+    @app.middleware("http")
+    async def _api_access_log_middleware(request: Request, call_next):
+        """按 INFO 记录 /api 接口：入站一条、出站一条（含状态码与耗时）。"""
+        path = request.url.path
+        if not path.startswith("/api"):
+            return await call_next(request)
+        # 健康检查轮询频繁，不打访问日志
+        if path == "/api/health" or path.startswith("/api/health/"):
+            return await call_next(request)
+        access_logger.info("收到请求 %s %s", request.method, path)
+        start = time.perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception:
+            access_logger.info(
+                "请求处理异常 %s %s error %.1fms",
+                request.method,
+                path,
+                (time.perf_counter() - start) * 1000,
+            )
+            raise
+        access_logger.info(
+            "请求处理完成 %s %s %s %.1fms",
+            request.method,
+            path,
+            response.status_code,
+            (time.perf_counter() - start) * 1000,
+        )
+        return response
 
     # Store references in app state
     app.state.agent = agent

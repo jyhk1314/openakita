@@ -1,5 +1,5 @@
 import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { ConfigProvider, theme as antdTheme } from "antd";
+import { ConfigProvider, Tooltip, theme as antdTheme } from "antd";
 import { useTranslation } from "react-i18next";
 import { invoke, listen, IS_TAURI, IS_WEB, IS_CAPACITOR, IS_WINDOWS, getAppVersion, onWsEvent, reconnectWsNow, logger } from "./platform";
 import { getActiveServer, getActiveServerId } from "./platform/servers";
@@ -34,7 +34,7 @@ import type {
 import {
   IconRefresh, IconCheck, IconCheckCircle, IconX, IconXCircle,
   IconChevronDown, IconChevronRight, IconChevronUp, IconGlobe,
-  IconEdit, IconTrash, IconEye, IconEyeOff, IconInfo, IconClipboard,
+  IconEdit, IconTrash, IconEye, IconEyeOff, IconInfo, IconClipboard, IconAlertCircle,
   DotGreen, DotGray, DotYellow, DotRed,
   LogoTelegram, LogoFeishu, LogoWework, LogoDingtalk, LogoQQ,
 } from "./icons";
@@ -7180,12 +7180,35 @@ export function App() {
                 </div>
                 {/* Token */}
                 <div style={{ marginBottom: 8 }}>
-                  <label style={{ display: "block", fontWeight: 600, marginBottom: 6, fontSize: 14 }}>
-                    {t("onboarding.iwhalecloud.token")} <span style={{ color: "#e53e3e" }}>*</span>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      fontWeight: 600,
+                      marginBottom: 6,
+                      fontSize: 14,
+                    }}
+                  >
+                    <span>
+                      {t("onboarding.iwhalecloud.token")}{" "}
+                      <span style={{ color: "#e53e3e" }}>*</span>
+                    </span>
+                    <Tooltip title={t("onboarding.iwhalecloud.tokenHint")}>
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          cursor: "help",
+                          color: "var(--text-muted, #888)",
+                          lineHeight: 0,
+                        }}
+                        aria-label={t("onboarding.iwhalecloud.tokenHint")}
+                      >
+                        <IconAlertCircle size={18} />
+                      </span>
+                    </Tooltip>
                   </label>
-                  <p style={{ fontSize: 12, color: "#e07b00", margin: "0 0 8px", lineHeight: 1.5 }}>
-                    {t("onboarding.iwhalecloud.tokenHint")}
-                  </p>
                   <div style={{ position: "relative" }}>
                     <input
                       type={obIwcShowToken ? "text" : "password"}
@@ -7252,22 +7275,34 @@ export function App() {
                           setObIwcError(null);
                         } else {
                           const base = httpApiBase();
-                          const res = await fetch(`${base}/api/dev/iwhalecloud/validation`, {
+                          const res = await fetch(`${base}/api/dev/iwhalecloud/login`, {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({
-                              full_name: obIwcFullName.trim(),
-                              employee_id: obIwcEmployeeId.trim(),
+                              purpose: "guide",
+                              name: obIwcFullName.trim(),
+                              username: obIwcEmployeeId.trim(),
                               password: obIwcPassword.trim(),
                               token: obIwcToken.trim(),
                             }),
                           });
-                          if (res.ok) {
+                          const data = await res.json().catch(() => ({}));
+                          const errText = (() => {
+                            if (data?.errorcode === 0) return null;
+                            if (data?.message) return String(data.message);
+                            const d = data?.detail;
+                            if (Array.isArray(d)) {
+                              return d.map((x: any) => (typeof x === "string" ? x : x?.msg || JSON.stringify(x))).join("; ");
+                            }
+                            if (d && typeof d === "object") return JSON.stringify(d);
+                            if (d) return String(d);
+                            return null;
+                          })();
+                          if (data?.errorcode === 0) {
                             setObIwcValidated(true);
                             setObIwcError(null);
                           } else {
-                            const data = await res.json().catch(() => ({}));
-                            setObIwcError(data?.detail || data?.message || t("onboarding.iwhalecloud.validateFailed"));
+                            setObIwcError(errText || t("onboarding.iwhalecloud.validateFailed"));
                           }
                         }
                       } catch (e: any) {

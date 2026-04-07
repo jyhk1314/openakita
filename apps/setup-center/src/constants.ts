@@ -27,10 +27,10 @@ export const COMPILER_COMPANY_DEFAULTS = {
 } as const;
 
 /**
- * 浩鲸研发云 onboarding「验证」：为 true 时前端 mock 直接通过（不调后端）。
- * 后端提供 POST /api/dev/iwhalecloud/validation 后改为 false 即可走真实服务。
+ * 浩鲸研发云 onboarding「验证」：为 true 时前端 mock 直接通过（不调后端，仅本地调试）。
+ * 正式流程应走 POST /api/dev/iwhalecloud/login（purpose=guide）。
  */
-export const IWHALECLOUD_ONBOARDING_VALIDATION_MOCK = true;
+export const IWHALECLOUD_ONBOARDING_VALIDATION_MOCK = false;
 
 /** Windows 本地受控安装的 Claude Code 版本（与 `main.rs` 中 bundled 路径一致） */
 export const CLAUDE_CODE_BUNDLED_VERSION = "2.1.81";
