@@ -23,17 +23,22 @@ from .multimodal import convert_content_blocks_to_openai
 # 启用 thinking 时，要求 assistant 消息携带 reasoning_content 的服务商集合
 # 这些服务商的思考模型在响应中返回 reasoning_content，
 # 多轮对话时缺少此字段会返回 400
-_REASONING_CONTENT_PROVIDERS = frozenset({
-    "moonshot",         # legacy Kimi
-    "kimi-cn",          # Kimi 中国区
-    "kimi-int",         # Kimi 国际区
-    "deepseek",         # DeepSeek Reasoner
-    "dashscope",        # 通义千问 Qwen3 / QwQ
-    "siliconflow",      # 硅基流动（托管 DeepSeek-R1 / QwQ / Qwen3 等）
-    "siliconflow-intl", # 硅基流动国际区
-    "volcengine",       # 火山引擎（托管 DeepSeek-R1 / doubao-seed 等）
-    "zhipu",            # 智谱 GLM-5 / GLM-4.7
-})
+#
+# 注意: OpenRouter 使用 reasoning 字段（非 reasoning_content），
+# 由 _convert_single_message_to_openai 单独处理
+_REASONING_CONTENT_PROVIDERS = frozenset(
+    {
+        "moonshot",  # legacy Kimi
+        "kimi-cn",  # Kimi 中国区
+        "kimi-int",  # Kimi 国际区
+        "deepseek",  # DeepSeek Reasoner
+        "dashscope",  # 通义千问 Qwen3 / QwQ
+        "siliconflow",  # 硅基流动（托管 DeepSeek-R1 / QwQ / Qwen3 等）
+        "siliconflow-intl",  # 硅基流动国际区
+        "volcengine",  # 火山引擎（托管 DeepSeek-R1 / doubao-seed 等）
+        "zhipu",  # 智谱 GLM-5 / GLM-4.7
+    }
+)
 
 
 def _needs_reasoning_content(provider: str) -> bool:
@@ -74,7 +79,9 @@ def convert_messages_to_openai(
 
     for msg in messages:
         converted = _convert_single_message_to_openai(
-            msg, provider=provider, enable_thinking=enable_thinking,
+            msg,
+            provider=provider,
+            enable_thinking=enable_thinking,
         )
         if converted:
             if isinstance(converted, list):
@@ -97,17 +104,24 @@ def _convert_single_message_to_openai(
         if msg.role == "assistant" and _needs_reasoning_content(provider):
             if msg.reasoning_content:
                 converted["reasoning_content"] = msg.reasoning_content
-                # 文本中可能残留 <thinking> 标签，需清理
                 _, clean = _extract_thinking_content(converted["content"])
                 converted["content"] = clean
             else:
-                # 尝试从文本中提取 reasoning_content
                 extracted, clean = _extract_thinking_content(converted["content"])
                 if extracted:
                     converted["reasoning_content"] = extracted
                     converted["content"] = clean
                 else:
-                    converted["reasoning_content"] = ""
+                    converted["reasoning_content"] = "..."
+        elif msg.role == "assistant" and provider == "openrouter" and enable_thinking:
+            # OpenRouter 使用 reasoning 字段（非 reasoning_content）
+            _rc = msg.reasoning_content
+            if not _rc:
+                _rc, clean = _extract_thinking_content(converted["content"])
+                if _rc:
+                    converted["content"] = clean
+            if _rc:
+                converted["reasoning"] = _rc
         elif msg.reasoning_content:
             converted["reasoning_content"] = msg.reasoning_content
         return converted
@@ -168,20 +182,28 @@ def _convert_single_message_to_openai(
                     reasoning_content, text_content = _extract_thinking_content(text_content)
 
                 # 缺失时注入占位符，避免 API 400
-                # DeepSeek 要求所有 assistant 消息都携带，Kimi 至少在有 tool_calls 时需要
-                if reasoning_content is None:
-                    reasoning_content = "..." if tool_uses else ""
+                # DeepSeek/DashScope 要求所有 assistant 消息都携带 reasoning_content，
+                # 空字符串在 enable_thinking=true 时可能被拒绝，统一使用 "..." 占位
+                if not reasoning_content:
+                    reasoning_content = "..."
 
                 assistant_msg["reasoning_content"] = reasoning_content
+            elif provider == "openrouter" and enable_thinking:
+                _rc = msg.reasoning_content
+                if not _rc and text_content:
+                    _rc, text_content = _extract_thinking_content(text_content)
+                if _rc:
+                    assistant_msg["reasoning"] = _rc
             elif msg.reasoning_content:
                 assistant_msg["reasoning_content"] = msg.reasoning_content
 
-            assistant_msg["content"] = text_content if text_content else None
+            assistant_msg["content"] = text_content if text_content else ""
 
             # 工具调用
             if tool_uses:
-                assistant_msg["tool_calls"] = [
-                    {
+                tc_list = []
+                for tu in tool_uses:
+                    tc: dict = {
                         "id": tu.id,
                         "type": "function",
                         "function": {
@@ -189,8 +211,10 @@ def _convert_single_message_to_openai(
                             "arguments": _dict_to_json_string(tu.input),
                         },
                     }
-                    for tu in tool_uses
-                ]
+                    if tu.provider_extra:
+                        tc["extra_content"] = tu.provider_extra
+                    tc_list.append(tc)
+                assistant_msg["tool_calls"] = tc_list
 
             result.append(assistant_msg)
         else:
@@ -269,11 +293,13 @@ def convert_messages_from_openai(messages: list[dict]) -> tuple[list[Message], s
             tool_calls = msg.get("tool_calls", [])
             for tc in tool_calls:
                 func = tc.get("function", {})
+                extra = tc.get("extra_content") or None
                 content_blocks.append(
                     ToolUseBlock(
                         id=tc.get("id", ""),
                         name=func.get("name", ""),
                         input=_json_string_to_dict(func.get("arguments", "{}")),
+                        provider_extra=extra,
                     )
                 )
 
@@ -330,7 +356,9 @@ def _convert_openai_content_to_blocks(content: list[dict]) -> list[ContentBlock]
             if data:
                 mime_map = {"wav": "audio/wav", "mp3": "audio/mpeg", "pcm16": "audio/pcm"}
                 media_type = mime_map.get(fmt, f"audio/{fmt}")
-                blocks.append(AudioBlock(audio=AudioContent(media_type=media_type, data=data, format=fmt)))
+                blocks.append(
+                    AudioBlock(audio=AudioContent(media_type=media_type, data=data, format=fmt))
+                )
         elif item_type == "document":
             source = item.get("source", {})
             if source.get("type") == "base64":
@@ -345,6 +373,93 @@ def _convert_openai_content_to_blocks(content: list[dict]) -> list[ContentBlock]
                 )
 
     return blocks
+
+
+def convert_messages_to_responses(
+    messages: list[Message],
+    system: str = "",
+    provider: str = "openai",
+    enable_thinking: bool = False,
+) -> tuple[list[dict], str]:
+    """将内部消息转换为 Responses API 的 input items + instructions。
+
+    与 Chat Completions 的区别：
+    - system prompt 不嵌入 messages，改由 instructions 独立传递
+    - tool_result 使用 function_call_output item 而非 role:"tool" 消息
+    - tool_call 使用 function_call item 而非 assistant.tool_calls
+
+    Returns:
+        (input_items, instructions): input 数组和 instructions 字符串
+    """
+    input_items: list[dict] = []
+
+    for msg in messages:
+        converted = _convert_single_message_to_responses(
+            msg,
+            provider=provider,
+            enable_thinking=enable_thinking,
+        )
+        if converted:
+            if isinstance(converted, list):
+                input_items.extend(converted)
+            else:
+                input_items.append(converted)
+
+    return input_items, system
+
+
+def _convert_single_message_to_responses(
+    msg: Message,
+    provider: str = "openai",
+    enable_thinking: bool = False,
+) -> dict | list[dict] | None:
+    """将单条内部消息转换为 Responses API input item(s)。"""
+    from .tools import convert_tool_result_to_responses
+
+    if isinstance(msg.content, str):
+        return {"role": msg.role, "content": msg.content}
+
+    content_blocks = msg.content
+    tool_results = [b for b in content_blocks if isinstance(b, ToolResultBlock)]
+    other_blocks = [b for b in content_blocks if not isinstance(b, ToolResultBlock)]
+
+    result = []
+
+    # tool_result → function_call_output items
+    for tr in tool_results:
+        content = tr.content if isinstance(tr.content, str) else str(tr.content)
+        result.append(convert_tool_result_to_responses(tr.tool_use_id, content))
+
+    if other_blocks:
+        if msg.role == "assistant":
+            tool_uses = [b for b in other_blocks if isinstance(b, ToolUseBlock)]
+            text_blocks = [b for b in other_blocks if isinstance(b, TextBlock)]
+
+            text_content = "".join(b.text for b in text_blocks) if text_blocks else ""
+
+            # Responses API: assistant 的文本输出是 message item
+            if text_content:
+                result.append({"role": "assistant", "content": text_content})
+
+            # tool_use → function_call items
+            import json
+
+            for tu in tool_uses:
+                result.append(
+                    {
+                        "type": "function_call",
+                        "call_id": tu.id,
+                        "name": tu.name,
+                        "arguments": json.dumps(tu.input, ensure_ascii=False),
+                        "status": "completed",
+                    }
+                )
+        else:
+            # user 消息
+            openai_content = convert_content_blocks_to_openai(other_blocks, provider=provider)
+            result.append({"role": msg.role, "content": openai_content})
+
+    return result if result else None
 
 
 def convert_system_to_openai(system: str) -> dict:

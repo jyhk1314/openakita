@@ -107,14 +107,12 @@ identity/runtime/user.summary.md
 identity/runtime/persona.custom.md
 
 # External/downloaded skills (keep structure)
-skills/*
 !skills/.gitkeep
 !skills/system/
 !skills/mcp-installer/
 !skills/mcp-builder/
 
 # Plugins (keep structure)
-plugins/*
 !plugins/.gitkeep
 
 # Tests - only ignore test outputs, not test source code

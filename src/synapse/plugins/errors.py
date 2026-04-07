@@ -111,8 +111,8 @@ _MESSAGES: dict[PluginErrorCode, dict[str, str]] = {
     PluginErrorCode.COMPATIBILITY_ERROR: {
         "zh": "插件与当前版本不兼容",
         "en": "Plugin incompatible with current version",
-        "guidance_zh": "请升级插件或 OpenAkita 到兼容版本",
-        "guidance_en": "Upgrade the plugin or OpenAkita to a compatible version",
+        "guidance_zh": "请升级插件或 Synapse 到兼容版本",
+        "guidance_en": "Upgrade the plugin or Synapse to a compatible version",
     },
     PluginErrorCode.ZIP_BOMB: {
         "zh": "安装包异常（文件过大或过多）",

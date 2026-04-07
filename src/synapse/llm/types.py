@@ -9,6 +9,28 @@ LLM 统一类型定义
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+_OPENAI_ENDPOINT_SUFFIXES = (
+    "/chat/completions",
+    "/completions",
+    "/embeddings",
+    "/models",
+    "/responses",
+)
+
+
+def normalize_base_url(url: str, *, extra_suffixes: tuple[str, ...] = ()) -> str:
+    """剥离用户误粘贴的 OpenAI 兼容端点路径后缀，返回干净的 base URL。
+
+    很多服务商（GitCode AI、火山引擎等）给出的 API 地址是完整端点 URL
+    （如 ``https://xxx/v1/chat/completions``），用户直接粘贴后拼接会产生
+    双重路径导致 404。
+    """
+    url = url.rstrip("/")
+    for suffix in (*_OPENAI_ENDPOINT_SUFFIXES, *extra_suffixes):
+        if url.endswith(suffix):
+            return url[: -len(suffix)].rstrip("/")
+    return url
+
 
 class StopReason(StrEnum):
     """停止原因"""
@@ -110,7 +132,9 @@ class AudioContent:
     format: str = "wav"  # 音频格式: "wav", "mp3", "pcm16", etc.
 
     @classmethod
-    def from_base64(cls, data: str, media_type: str = "audio/wav", fmt: str = "wav") -> "AudioContent":
+    def from_base64(
+        cls, data: str, media_type: str = "audio/wav", fmt: str = "wav"
+    ) -> "AudioContent":
         return cls(media_type=media_type, data=data, format=fmt)
 
     @classmethod
@@ -122,8 +146,12 @@ class AudioContent:
         file_path = Path(path)
         suffix = file_path.suffix.lower().lstrip(".")
         mime_map = {
-            "wav": "audio/wav", "mp3": "audio/mpeg", "ogg": "audio/ogg",
-            "flac": "audio/flac", "m4a": "audio/mp4", "webm": "audio/webm",
+            "wav": "audio/wav",
+            "mp3": "audio/mpeg",
+            "ogg": "audio/ogg",
+            "flac": "audio/flac",
+            "m4a": "audio/mp4",
+            "webm": "audio/webm",
         }
         media_type = mime_map.get(suffix, f"audio/{suffix}")
         data = base64.b64encode(file_path.read_bytes()).decode("utf-8")
@@ -143,7 +171,9 @@ class DocumentContent:
     filename: str = ""  # 原始文件名
 
     @classmethod
-    def from_base64(cls, data: str, media_type: str = "application/pdf", filename: str = "") -> "DocumentContent":
+    def from_base64(
+        cls, data: str, media_type: str = "application/pdf", filename: str = ""
+    ) -> "DocumentContent":
         return cls(media_type=media_type, data=data, filename=filename)
 
     @classmethod
@@ -200,7 +230,14 @@ class ToolUseBlock(ContentBlock):
     id: str
     name: str
     input: dict  # JSON 对象，非字符串
+    provider_extra: dict | None = None  # provider 透传字段（如 Gemini thought_signature）
     type: str = field(default="tool_use", init=False)
+
+    def __post_init__(self) -> None:
+        if isinstance(self.input, dict):
+            from ..tools.input_normalizer import normalize_tool_input
+
+            self.input = normalize_tool_input(self.name, self.input)
 
     def to_dict(self) -> dict:
         return {
@@ -329,8 +366,14 @@ class DocumentBlock(ContentBlock):
 
 # 内容块联合类型
 ContentBlockType = (
-    TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock
-    | ImageBlock | VideoBlock | AudioBlock | DocumentBlock
+    TextBlock
+    | ThinkingBlock
+    | ToolUseBlock
+    | ToolResultBlock
+    | ImageBlock
+    | VideoBlock
+    | AudioBlock
+    | DocumentBlock
 )
 
 
@@ -347,7 +390,9 @@ class Message:
             return {"role": self.role, "content": self.content}
         return {
             "role": self.role,
-            "content": [block.to_dict() for block in self.content],
+            "content": [
+                block.to_dict() if hasattr(block, "to_dict") else block for block in self.content
+            ],
         }
 
 
@@ -406,6 +451,7 @@ class LLMResponse:
     usage: Usage
     model: str
     reasoning_content: str | None = None  # Kimi 专用：思考内容
+    endpoint_name: str = ""  # 实际处理此请求的端点名称（由 LLMClient 填充）
 
     @property
     def text(self) -> str:
@@ -429,7 +475,9 @@ class LLMResponse:
     def to_dict(self) -> dict:
         return {
             "id": self.id,
-            "content": [block.to_dict() for block in self.content],
+            "content": [
+                block.to_dict() if hasattr(block, "to_dict") else block for block in self.content
+            ],
             "stop_reason": self.stop_reason.value,
             "usage": {
                 "input_tokens": self.usage.input_tokens,
@@ -445,7 +493,7 @@ class EndpointConfig:
 
     name: str  # 端点名称
     provider: str  # 服务商标识 (anthropic, dashscope, openrouter, ...)
-    api_type: str  # API 类型 ("anthropic" | "openai")
+    api_type: str  # API 类型 ("openai" | "openai_responses" | "anthropic")
     base_url: str  # API 地址
     api_key_env: str | None = None  # API Key 环境变量名
     api_key: str | None = None  # 直接存储的 API Key (不推荐，但支持)
@@ -458,8 +506,12 @@ class EndpointConfig:
     extra_params: dict | None = None  # 额外参数
     note: str | None = None  # 备注
     rpm_limit: int = 0  # 每分钟请求数限制 (0=不限流)
-    pricing_tiers: list[dict] | None = None  # 阶梯定价 [{"max_input": 128000, "input_price": 1.2, "output_price": 7.2}, ...]
+    pricing_tiers: list[dict] | None = (
+        None  # 阶梯定价 [{"max_input": 128000, "input_price": 1.2, "output_price": 7.2}, ...]
+    )
     price_currency: str = "CNY"  # 价格货币单位
+    enabled: bool = True  # 是否启用 (false=停用，不参与调用但保留配置)
+    stream_only: bool = False  # 仅流式模式 (某些中转站/relay 要求 stream=true)
 
     def __post_init__(self):
         if self.capabilities is None:
@@ -493,7 +545,10 @@ class EndpointConfig:
         # （用户显式配置过 capabilities 的情况下不覆盖其意图）
         if caps == {"text"} and model:
             from .capabilities import get_provider_slug_from_base_url, infer_capabilities
-            provider_slug = get_provider_slug_from_base_url(self.base_url) if self.base_url else None
+
+            provider_slug = (
+                get_provider_slug_from_base_url(self.base_url) if self.base_url else None
+            )
             inferred = infer_capabilities(model, provider_slug=provider_slug)
             if inferred.get(cap, False):
                 return True
@@ -525,7 +580,12 @@ class EndpointConfig:
         tiers = self.pricing_tiers
         if not tiers:
             return 0.0
-        sorted_tiers = sorted(tiers, key=lambda t: (t.get("max_input") or 0) if t.get("max_input", -1) != -1 else float("inf"))
+        sorted_tiers = sorted(
+            tiers,
+            key=lambda t: (
+                (t.get("max_input") or 0) if t.get("max_input", -1) != -1 else float("inf")
+            ),
+        )
         matched = sorted_tiers[-1]
         for tier in sorted_tiers:
             cap = tier.get("max_input", -1)
@@ -560,6 +620,8 @@ class EndpointConfig:
             rpm_limit=int(data.get("rpm_limit") or 0),
             pricing_tiers=data.get("pricing_tiers"),
             price_currency=data.get("price_currency", "CNY"),
+            enabled=data.get("enabled", True),
+            stream_only=data.get("stream_only", False),
         )
 
     def to_dict(self) -> dict:
@@ -591,6 +653,10 @@ class EndpointConfig:
             result["pricing_tiers"] = self.pricing_tiers
         if self.price_currency and self.price_currency != "CNY":
             result["price_currency"] = self.price_currency
+        if not self.enabled:
+            result["enabled"] = False
+        if self.stream_only:
+            result["stream_only"] = True
         return result
 
 
@@ -598,7 +664,9 @@ class EndpointConfig:
 class LLMError(Exception):
     """LLM 相关错误基类"""
 
-    pass
+    def __init__(self, message: str = "", *, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class UnsupportedMediaError(LLMError):

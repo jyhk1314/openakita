@@ -498,7 +498,7 @@ def build_system_prompt(
                 system_parts.append(persona_section)
 
     elif prompt_mode == PromptMode.NONE:
-        system_parts.append("你是 OpenAkita，一个 AI 助手。")
+        system_parts.append("你是 Synapse，一个 AI 助手。")
 
     # 5. Mode Rules（Ask/Plan/Agent 模式专属规则）
     mode_rules = _build_mode_rules(mode)
@@ -774,8 +774,8 @@ _PLAN_MODE_FALLBACK = """\
 # ---------------------------------------------------------------------------
 _BUILT_IN_DEFAULTS: dict[str, str] = {
     "soul": """\
-# OpenAkita — Core Identity
-你是 OpenAkita，全能自进化 AI 助手。使命是帮助用户完成任何任务，同时不断学习和进化。
+# Synapse — Core Identity
+你是 Synapse，全能自进化 AI 助手。使命是帮助用户完成任何任务，同时不断学习和进化。
 ## 核心原则
 1. 安全并支持人类监督
 2. 行为合乎道德
@@ -833,7 +833,7 @@ def _build_identity_section(
 
     parts = []
 
-    parts.append("# OpenAkita System")
+    parts.append("# Synapse System")
     parts.append("")
 
     # SOUL — 直接注入（~60% 预算）
@@ -991,12 +991,12 @@ def _build_runtime_section_uncached() -> str:
 
     return f"""## 运行环境
 
-- **OpenAkita 版本**: {version_str}
+- **Synapse 版本**: {version_str}
 - **部署模式**: {deploy_mode}
 - **当前时间**: {current_time}
 - **操作系统**: {platform.system()} {platform.release()} ({platform.machine()})
 - **当前工作目录**: {os.getcwd()}
-- **OpenAkita 数据根目录**: {settings.openakita_home}
+- **Synapse 数据根目录**: {settings.synapse_home}
 - **工作区信息**: 需要操作系统文件（日志/配置/数据/截图等）时，先调用 `get_workspace_map` 获取目录布局
 - **临时目录**: data/temp/{shell_hint}
 
@@ -1098,7 +1098,7 @@ def _build_arch_section(
     if is_sub_agent:
         return (
             f"## 系统概况\n\n"
-            f"你是 OpenAkita 多 Agent 系统中的**子 Agent**{model_part}。\n"
+            f"你是 Synapse 多 Agent 系统中的**子 Agent**{model_part}。\n"
             f"你被主 Agent 委派执行特定任务。\n\n"
             f"### 工作原则\n"
             f"- 专注完成分配的任务，不要偏离或扩展范围\n"
@@ -1109,7 +1109,7 @@ def _build_arch_section(
         )
 
     lines = ["## 系统概况\n"]
-    lines.append(f"你运行在 OpenAkita 多 Agent 系统中{model_part}。核心架构：")
+    lines.append(f"你运行在 Synapse 多 Agent 系统中{model_part}。核心架构：")
     if multi_agent_enabled:
         lines.append(
             "- **多 Agent 协作**: delegate_to_agent/delegate_parallel "
@@ -1138,7 +1138,7 @@ def _detect_deploy_mode() -> str:
 
     # 检查 editable install (pip install -e)
     try:
-        dist = importlib.metadata.distribution("openakita")
+        dist = importlib.metadata.distribution("synapse")
         direct_url = dist.read_text("direct_url.json")
         if direct_url and '"editable"' in direct_url:
             return "editable (pip install -e)"
@@ -1151,7 +1151,7 @@ def _detect_deploy_mode() -> str:
 
     # 检查是否通过 pip 安装
     try:
-        importlib.metadata.version("openakita")
+        importlib.metadata.version("synapse")
         return "pip install"
     except Exception:
         pass
@@ -1617,7 +1617,7 @@ def _build_memory_section(
         parts.append(pinned_rules)
 
     # Layer 2: Core Memory (MEMORY.md — 用户基本信息 + 永久规则)
-    from openakita.memory.types import MEMORY_MD_MAX_CHARS as _MD_MAX
+    from synapse.memory.types import MEMORY_MD_MAX_CHARS as _MD_MAX
 
     core_budget = min(budget_tokens // 2, 500)
     core_memory = _get_core_memory(memory_manager, max_chars=min(core_budget * 3, _MD_MAX))
@@ -1795,7 +1795,7 @@ def _get_core_memory(memory_manager: Optional["MemoryManager"], max_chars: int =
 
     截断策略委托给 ``truncate_memory_md``：按段落拆分，规则段落优先保留。
     """
-    from openakita.memory.types import truncate_memory_md
+    from synapse.memory.types import truncate_memory_md
 
     memory_path = getattr(memory_manager, "memory_md_path", None)
     if not memory_path:
@@ -1937,7 +1937,7 @@ def get_prompt_debug_info(
     """
     获取 prompt 调试信息
 
-    用于 `openakita prompt-debug` 命令。
+    用于 `synapse prompt-debug` 命令。
 
     Returns:
         包含各部分 token 统计的字典

@@ -1,7 +1,7 @@
 """
 会话压缩提示词模板
 
-参考 Claude Code 的结构化压缩机制，适配 OpenAkita 通用 Agent 场景。
+参考 Claude Code 的结构化压缩机制，适配 Synapse 通用 Agent 场景。
 提供 NO_TOOLS 保护、analysis+summary 两阶段格式、9 段结构化模板。
 """
 

@@ -24,7 +24,14 @@ MODEL_CAPABILITIES = {
         "gpt-5": {"text": True, "vision": True, "video": False, "tools": True, "thinking": False},
         "gpt-5.2": {"text": True, "vision": True, "video": False, "tools": True, "thinking": False},
         "gpt-4o": {"text": True, "vision": True, "video": False, "tools": True, "thinking": False},
-        "gpt-4o-audio": {"text": True, "vision": True, "video": False, "tools": True, "thinking": False, "audio": True},
+        "gpt-4o-audio": {
+            "text": True,
+            "vision": True,
+            "video": False,
+            "tools": True,
+            "thinking": False,
+            "audio": True,
+        },
         "gpt-4o-mini": {
             "text": True,
             "vision": True,
@@ -294,6 +301,21 @@ MODEL_CAPABILITIES = {
             "tools": True,
             "thinking": True,
         },
+        # Qwen3.5 系列 - 双模（支持 enable_thinking 切换）
+        "qwen3.5-plus": {
+            "text": True,
+            "vision": True,
+            "video": True,
+            "tools": True,
+            "thinking": True,
+        },
+        "qwen3.5-turbo": {
+            "text": True,
+            "vision": True,
+            "video": True,
+            "tools": True,
+            "thinking": True,
+        },
         # Qwen3 开源 - 仅思考模式
         "qwen3-235b-a22b-thinking": {
             "text": True,
@@ -411,15 +433,51 @@ MODEL_CAPABILITIES = {
             "thinking": True,
             "thinking_only": True,
         },
+        # DashScope 第三方模型 — MiniMax（thinking-only，不接受 enable_thinking=False）
+        "MiniMax-M2.5": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": True,
+            "thinking_only": True,
+        },
+        "MiniMax-M2.1": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": True,
+            "thinking_only": True,
+        },
+        "MiniMax-M2": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": True,
+            "thinking_only": True,
+        },
+        # DashScope 第三方模型 — Kimi / GLM（支持 enable_thinking 切换）
+        "kimi-k2.5": {
+            "text": True,
+            "vision": True,
+            "video": True,
+            "tools": True,
+            "thinking": False,
+        },
+        "glm-5": {"text": True, "vision": False, "video": False, "tools": True, "thinking": False},
     },
     "minimax": {
         # MiniMax 官方（不支持 /v1/models 端点）
+        # M2+ 系列均为 thinking-only 模型，不接受 enable_thinking=False
         "minimax-m2.5": {
             "text": True,
             "vision": False,
             "video": False,
             "tools": True,
             "thinking": True,
+            "thinking_only": True,
         },
         "minimax-m2.5-highspeed": {
             "text": True,
@@ -427,6 +485,7 @@ MODEL_CAPABILITIES = {
             "video": False,
             "tools": True,
             "thinking": True,
+            "thinking_only": True,
         },
         "minimax-m2.1": {
             "text": True,
@@ -434,6 +493,7 @@ MODEL_CAPABILITIES = {
             "video": False,
             "tools": True,
             "thinking": True,
+            "thinking_only": True,
         },
         "minimax-m2.1-highspeed": {
             "text": True,
@@ -441,6 +501,7 @@ MODEL_CAPABILITIES = {
             "video": False,
             "tools": True,
             "thinking": True,
+            "thinking_only": True,
         },
         "minimax-m2": {
             "text": True,
@@ -448,6 +509,7 @@ MODEL_CAPABILITIES = {
             "video": False,
             "tools": True,
             "thinking": True,
+            "thinking_only": True,
         },
         "abab6.5s-chat": {
             "text": True,
@@ -665,37 +727,209 @@ MODEL_CAPABILITIES = {
     "siliconflow": {
         # 硅基流动 - 主要提供开源模型
         # 天然思考模型（始终思考，不支持 enable_thinking 切换）
-        "moonshotai/Kimi-K2-Thinking": {"text": True, "vision": False, "video": False, "tools": True, "thinking": True, "thinking_only": True},
-        "deepseek-ai/DeepSeek-R1": {"text": True, "vision": False, "video": False, "tools": False, "thinking": True, "thinking_only": True},
-        "Qwen/QwQ-32B": {"text": True, "vision": False, "video": False, "tools": True, "thinking": True, "thinking_only": True},
+        "moonshotai/Kimi-K2-Thinking": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": True,
+            "thinking_only": True,
+        },
+        "deepseek-ai/DeepSeek-R1": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": False,
+            "thinking": True,
+            "thinking_only": True,
+        },
+        "Qwen/QwQ-32B": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": True,
+            "thinking_only": True,
+        },
         # 可切换思考模式的模型（支持 enable_thinking）
-        "Qwen/Qwen3-235B-A22B": {"text": True, "vision": False, "video": False, "tools": True, "thinking": True},
-        "Qwen/Qwen3-32B": {"text": True, "vision": False, "video": False, "tools": True, "thinking": True},
-        "Qwen/Qwen3-14B": {"text": True, "vision": False, "video": False, "tools": True, "thinking": True},
-        "Qwen/Qwen3-8B": {"text": True, "vision": False, "video": False, "tools": True, "thinking": True},
-        "deepseek-ai/DeepSeek-V3": {"text": True, "vision": False, "video": False, "tools": True, "thinking": False},
-        "deepseek-ai/DeepSeek-V3.1": {"text": True, "vision": False, "video": False, "tools": True, "thinking": True},
-        "deepseek-ai/DeepSeek-V3.2": {"text": True, "vision": False, "video": False, "tools": True, "thinking": True},
-        "moonshotai/Kimi-K2-Instruct": {"text": True, "vision": False, "video": False, "tools": True, "thinking": False},
-        "moonshotai/Kimi-K2.5": {"text": True, "vision": True, "video": True, "tools": True, "thinking": False},
+        "Qwen/Qwen3-235B-A22B": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": True,
+        },
+        "Qwen/Qwen3-32B": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": True,
+        },
+        "Qwen/Qwen3-14B": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": True,
+        },
+        "Qwen/Qwen3-8B": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": True,
+        },
+        "deepseek-ai/DeepSeek-V3": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": False,
+        },
+        "deepseek-ai/DeepSeek-V3.1": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": True,
+        },
+        "deepseek-ai/DeepSeek-V3.2": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": True,
+        },
+        "moonshotai/Kimi-K2-Instruct": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": False,
+        },
+        "moonshotai/Kimi-K2.5": {
+            "text": True,
+            "vision": True,
+            "video": True,
+            "tools": True,
+            "thinking": False,
+        },
     },
     "volcengine": {
         # 火山引擎 (Volcengine / 火山方舟 Ark) - 字节跳动
-        "doubao-seed-1-6": {"text": True, "vision": True, "video": False, "tools": True, "thinking": True},
-        "doubao-1-5-pro-256k": {"text": True, "vision": False, "video": False, "tools": True, "thinking": False},
-        "doubao-1-5-pro-32k": {"text": True, "vision": False, "video": False, "tools": True, "thinking": False},
-        "doubao-1-5-lite-32k": {"text": True, "vision": False, "video": False, "tools": True, "thinking": False},
-        "doubao-1-5-vision-pro-32k": {"text": True, "vision": True, "video": False, "tools": True, "thinking": False},
-        "doubao-pro-256k": {"text": True, "vision": False, "video": False, "tools": True, "thinking": False},
-        "doubao-pro-32k": {"text": True, "vision": False, "video": False, "tools": True, "thinking": False},
-        "doubao-pro-4k": {"text": True, "vision": False, "video": False, "tools": True, "thinking": False},
-        "doubao-lite-128k": {"text": True, "vision": False, "video": False, "tools": True, "thinking": False},
-        "doubao-lite-32k": {"text": True, "vision": False, "video": False, "tools": True, "thinking": False},
-        "doubao-lite-4k": {"text": True, "vision": False, "video": False, "tools": True, "thinking": False},
-        "doubao-vision-pro-32k": {"text": True, "vision": True, "video": False, "tools": True, "thinking": False},
-        "doubao-vision-lite-32k": {"text": True, "vision": True, "video": False, "tools": False, "thinking": False},
-        "deepseek-r1": {"text": True, "vision": False, "video": False, "tools": False, "thinking": True},
-        "deepseek-v3": {"text": True, "vision": False, "video": False, "tools": True, "thinking": False},
+        "doubao-seed-1-6": {
+            "text": True,
+            "vision": True,
+            "video": False,
+            "tools": True,
+            "thinking": True,
+        },
+        "doubao-seed-code": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": False,
+        },
+        "doubao-1-5-pro-256k": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": False,
+        },
+        "doubao-1-5-pro-32k": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": False,
+        },
+        "doubao-1-5-lite-32k": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": False,
+        },
+        "doubao-1-5-vision-pro-32k": {
+            "text": True,
+            "vision": True,
+            "video": False,
+            "tools": True,
+            "thinking": False,
+        },
+        "doubao-pro-256k": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": False,
+        },
+        "doubao-pro-32k": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": False,
+        },
+        "doubao-pro-4k": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": False,
+        },
+        "doubao-lite-128k": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": False,
+        },
+        "doubao-lite-32k": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": False,
+        },
+        "doubao-lite-4k": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": False,
+        },
+        "doubao-vision-pro-32k": {
+            "text": True,
+            "vision": True,
+            "video": False,
+            "tools": True,
+            "thinking": False,
+        },
+        "doubao-vision-lite-32k": {
+            "text": True,
+            "vision": True,
+            "video": False,
+            "tools": False,
+            "thinking": False,
+        },
+        "deepseek-r1": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": False,
+            "thinking": True,
+        },
+        "deepseek-v3": {
+            "text": True,
+            "vision": False,
+            "video": False,
+            "tools": True,
+            "thinking": False,
+        },
     },
     "yunwu": {
         # 云雾 API - 中转服务
@@ -746,7 +980,15 @@ def infer_capabilities(
     需要同步更新前端的 inferCapabilities 函数。
     """
     # 确保结果始终包含所有能力字段的辅助函数
-    _ALL_CAPS = {"text": False, "vision": False, "video": False, "tools": False, "thinking": False, "audio": False, "pdf": False}
+    _ALL_CAPS = {
+        "text": False,
+        "vision": False,
+        "video": False,
+        "tools": False,
+        "thinking": False,
+        "audio": False,
+        "pdf": False,
+    }
 
     def _normalize(caps: dict) -> dict:
         result = _ALL_CAPS.copy()
@@ -773,13 +1015,27 @@ def infer_capabilities(
                 return _normalize(caps)
 
     # 3. 跨服务商模糊匹配（用于中转服务商等场景）
-    for _provider, models in MODEL_CAPABILITIES.items():
-        for model_key, caps in models.items():
-            if model_lower.startswith(model_key.lower()):
-                return _normalize(caps)
+    # 本地推理服务（Ollama/LMStudio 等）的模型名常带 `:NB` 变体后缀
+    # （如 deepseek-r1:8b），这些蒸馏/量化版本的能力通常与同名官方大模型不同，
+    # 跨服务商前缀匹配会导致小模型错误继承大模型的能力标记。
+    _is_local = provider_slug in ("ollama", "local", "lmstudio")
+    _is_variant = ":" in model_name
+    if not (_is_local and _is_variant):
+        for _provider, models in MODEL_CAPABILITIES.items():
+            for model_key, caps in models.items():
+                if model_lower.startswith(model_key.lower()):
+                    return _normalize(caps)
 
     # 4. 基于模型名关键词智能推断
-    caps = {"text": True, "vision": False, "video": False, "tools": False, "thinking": False, "audio": False, "pdf": False}
+    caps = {
+        "text": True,
+        "vision": False,
+        "video": False,
+        "tools": False,
+        "thinking": False,
+        "audio": False,
+        "pdf": False,
+    }
 
     # Vision 推断（图片）
     if any(kw in model_lower for kw in ["vl", "vision", "visual", "image", "-v-", "4v"]):
@@ -805,13 +1061,27 @@ def infer_capabilities(
         caps["thinking"] = True
         # 天然思考模型：名称含 -Thinking 后缀、R1、QwQ、Reasoner 等，始终处于思考模式
         # 这些模型不支持通过 API 参数切换思考开关（如 SiliconFlow 的 enable_thinking）
-        if any(kw in model_lower for kw in ["-thinking", "-r1", "/r1", "qwq", "qvq", "o1-", "o3-", "reasoner"]):
+        if any(
+            kw in model_lower
+            for kw in ["-thinking", "-r1", "/r1", "qwq", "qvq", "o1-", "o3-", "reasoner"]
+        ):
             caps["thinking_only"] = True
 
     # Tools 推断 (大部分主流模型都支持)
     if any(
         kw in model_lower
-        for kw in ["qwen", "gpt", "claude", "deepseek", "kimi", "glm", "gemini", "moonshot"]
+        for kw in [
+            "qwen",
+            "gpt",
+            "claude",
+            "deepseek",
+            "kimi",
+            "glm",
+            "gemini",
+            "moonshot",
+            "doubao",
+            "minimax",
+        ]
     ):
         caps["tools"] = True
 

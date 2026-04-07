@@ -115,7 +115,7 @@ class MemoryManager:
             self.vector_store = None
 
         # v2: Unified Store + Search Backend
-        db_path = self.data_dir / "openakita.db"
+        db_path = self.data_dir / "synapse.db"
         self.store = UnifiedStore(
             db_path,
             vector_store=self.vector_store,
@@ -653,7 +653,7 @@ class MemoryManager:
     def _get_memory_mode(self) -> str:
         """Read memory_mode from config. Defaults to 'auto'."""
         try:
-            from openakita.config import settings
+            from synapse.config import settings
 
             return getattr(settings, "memory_mode", "auto")
         except Exception:

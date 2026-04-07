@@ -17,6 +17,7 @@ from ..types import (
     ImageBlock,
     ImageContent,
     TextBlock,
+    ThinkingBlock,
     VideoBlock,
     VideoContent,
 )
@@ -132,7 +133,9 @@ _DASHSCOPE_MAX_DATA_URI_BYTES = 10 * 1024 * 1024  # DashScope API 限制 10MB pe
 _KIMI_MAX_DATA_URI_BYTES = 10 * 1024 * 1024  # Kimi 保守按 10MB 限制
 
 
-def _check_video_data_uri_size(video: VideoContent, provider_name: str, max_bytes: int) -> str | None:
+def _check_video_data_uri_size(
+    video: VideoContent, provider_name: str, max_bytes: int
+) -> str | None:
     """检查视频 data URL 是否超过 provider 大小限制，超过则返回降级文本"""
     if video.media_type == "url":
         return None
@@ -384,6 +387,9 @@ def convert_content_blocks(
     if len(blocks) == 1 and isinstance(blocks[0], TextBlock):
         return blocks[0].text
 
+    if len(blocks) == 1 and isinstance(blocks[0], dict) and blocks[0].get("type") == "text":
+        return blocks[0].get("text", "")
+
     result = []
     for block in blocks:
         if isinstance(block, TextBlock):
@@ -412,6 +418,15 @@ def convert_content_blocks(
                 result.append(converter(block.document))
             else:
                 result.append(_degrade_document(block))
+
+        elif isinstance(block, ThinkingBlock):
+            pass
+
+        elif isinstance(block, dict):
+            result.append(block)
+
+    if not result:
+        return ""
 
     return result
 

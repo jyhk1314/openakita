@@ -1,4 +1,4 @@
-"""OpenAkita Plugin System — unified extensibility for all core modules."""
+"""Synapse Plugin System — unified extensibility for all core modules."""
 
 from .api import PluginAPI, PluginBase
 from .catalog import PluginCatalog

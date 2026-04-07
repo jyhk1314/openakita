@@ -12,7 +12,6 @@ AgentHubClient — 与 Synapse Platform Agent Store 交互的客户端
 from __future__ import annotations
 
 import logging
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -140,7 +139,9 @@ class AgentHubClient:
         resp.raise_for_status()
         return resp.json()
 
-    async def rate(self, agent_id: str, score: int, comment: str = "", token: str = "") -> dict[str, Any]:
+    async def rate(
+        self, agent_id: str, score: int, comment: str = "", token: str = ""
+    ) -> dict[str, Any]:
         client = await self._get_client()
         headers = {}
         if token:

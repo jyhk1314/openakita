@@ -10,7 +10,7 @@
 - auto:        自动探测网络，选择最快的源 (默认)
 
 使用方式:
-    from openakita.memory.model_hub import load_embedding_model
+    from synapse.memory.model_hub import load_embedding_model
 
     model = load_embedding_model(
         model_name="shibing624/text2vec-base-chinese",

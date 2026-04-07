@@ -2,6 +2,7 @@
 Anthropic Provider
 
 支持 Claude 系列模型的 API 调用。
+增强: SSE 规范解析、Prompt Cache 支持、流式 Usage 完整性。
 """
 
 import logging
@@ -9,7 +10,18 @@ from collections.abc import AsyncIterator
 
 import httpx
 
-from ..converters.tools import has_text_tool_calls, parse_text_tool_calls
+from ..cache import (
+    add_message_cache_breakpoints,
+    add_tools_cache_control,
+    sort_tools_for_cache_stability,
+)
+from ..converters.tools import (
+    convert_tools_to_anthropic,
+    has_text_tool_calls,
+    parse_text_tool_calls,
+)
+from ..model_registry import get_model_capabilities, get_thinking_budget
+from ..sse import parse_sse_stream
 from ..types import (
     AuthenticationError,
     EndpointConfig,
@@ -57,9 +69,30 @@ class AnthropicProvider(LLMProvider):
     def _is_local_endpoint(self) -> bool:
         """检查是否为本地端点"""
         url = self.base_url.lower()
-        return any(host in url for host in (
-            "localhost", "127.0.0.1", "0.0.0.0", "[::1]",
-        ))
+        return any(
+            host in url
+            for host in (
+                "localhost",
+                "127.0.0.1",
+                "0.0.0.0",
+                "[::1]",
+            )
+        )
+
+    def _get_validated_api_key(self) -> str:
+        """获取并验证 API Key，空 key 时提前抛出有意义的错误而非让 API 返回模糊 401。"""
+        api_key = (self.api_key or "").strip()
+        if not api_key:
+            if self._is_local_endpoint():
+                return "local"
+            hint = ""
+            if self.config.api_key_env:
+                hint = f" (env var {self.config.api_key_env} is not set)"
+            raise AuthenticationError(
+                f"Missing API key for endpoint '{self.name}'{hint}. "
+                "Set the environment variable or configure api_key/api_key_env."
+            )
+        return api_key
 
     async def _get_client(self) -> httpx.AsyncClient:
         """获取或创建 HTTP 客户端
@@ -96,17 +129,31 @@ class AnthropicProvider(LLMProvider):
 
             is_local = self._is_local_endpoint()
 
+            # httpx strips Authorization on cross-origin redirects for security.
+            # Some Anthropic-compatible gateways (MiniMax, Volcengine Coding Plan, etc.)
+            # may redirect across hosts. Re-attach credentials via event hook.
+            api_key_for_hook = (self.api_key or "").strip()
+            if not api_key_for_hook and is_local:
+                api_key_for_hook = "local"
+
+            async def _ensure_auth_on_redirect(request: httpx.Request):
+                if api_key_for_hook and "Authorization" not in request.headers:
+                    request.headers["Authorization"] = f"Bearer {api_key_for_hook}"
+                    request.headers["x-api-key"] = api_key_for_hook
+
+            # trust_env=False: 代理由 get_proxy_config() 显式管理（含可达性验证）。
+            # 避免 macOS/Windows 残留系统代理（Clash/V2Ray 等）导致请求被路由到
+            # 不存在的代理端口而失败。
             client_kwargs = {
                 "timeout": build_httpx_timeout(self.config.timeout, default=60.0),
                 "follow_redirects": True,
+                "trust_env": False,
+                "event_hooks": {"request": [_ensure_auth_on_redirect]},
             }
 
             if proxy and not is_local:
                 client_kwargs["proxy"] = proxy
                 logger.debug(f"[Anthropic] Using proxy: {proxy}")
-
-            if is_local:
-                client_kwargs["trust_env"] = False
 
             if transport:
                 client_kwargs["transport"] = transport
@@ -118,6 +165,7 @@ class AnthropicProvider(LLMProvider):
 
     async def chat(self, request: LLMRequest) -> LLMResponse:
         """发送聊天请求"""
+        self._get_validated_api_key()
         await self.acquire_rate_limit()
         client = await self._get_client()
 
@@ -132,12 +180,15 @@ class AnthropicProvider(LLMProvider):
                 json=body,
             )
 
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed: {response.text}")
-            if response.status_code == 429:
-                raise RateLimitError(f"Rate limit exceeded: {response.text}")
             if response.status_code >= 400:
-                raise LLMError(f"API error ({response.status_code}): {response.text}")
+                body = (response.text or "")[:500]
+                if response.status_code == 401:
+                    raise AuthenticationError(f"Authentication failed: {body}", status_code=401)
+                if response.status_code == 429:
+                    raise RateLimitError(f"Rate limit exceeded: {body}", status_code=429)
+                raise LLMError(
+                    f"API error ({response.status_code}): {body}", status_code=response.status_code
+                )
 
             data = response.json()
             self.mark_healthy()
@@ -153,37 +204,48 @@ class AnthropicProvider(LLMProvider):
             raise LLMError(f"Request failed: {detail}")
 
     async def chat_stream(self, request: LLMRequest) -> AsyncIterator[dict]:
-        """流式聊天请求"""
+        """流式聊天请求。
+
+        增强: 使用符合 SSE 规范的解析器，带 finally 资源清理。
+        """
+        self._get_validated_api_key()
         await self.acquire_rate_limit()
         client = await self._get_client()
 
         body = self._build_request_body(request)
         body["stream"] = True
 
+        response = None
         try:
-            async with client.stream(
-                "POST",
-                self._messages_url(),
-                headers=self._build_headers(),
-                json=body,
-            ) as response:
-                if response.status_code >= 400:
-                    error_body = await response.aread()
-                    raise LLMError(f"API error ({response.status_code}): {error_body.decode()}")
+            response = await client.send(
+                client.build_request(
+                    "POST",
+                    self._messages_url(),
+                    headers=self._build_headers(),
+                    json=body,
+                ),
+                stream=True,
+            )
 
-                async for line in response.aiter_lines():
-                    if line.startswith("data: "):
-                        data = line[6:]
-                        if data.strip():
-                            import json
+            if response.status_code >= 400:
+                error_body = await response.aread()
+                error_text = error_body.decode(errors="replace")[:500]
+                if response.status_code == 401:
+                    raise AuthenticationError(
+                        f"Authentication failed: {error_text}", status_code=401
+                    )
+                if response.status_code == 429:
+                    raise RateLimitError(f"Rate limit exceeded: {error_text}", status_code=429)
+                raise LLMError(
+                    f"API error ({response.status_code}): {error_text}",
+                    status_code=response.status_code,
+                )
 
-                            try:
-                                event = json.loads(data)
-                                yield event
-                            except json.JSONDecodeError:
-                                continue
+            # 使用符合 SSE 规范的解析器
+            async for event in parse_sse_stream(response):
+                yield event
 
-                self.mark_healthy()
+            self.mark_healthy()
 
         except httpx.TimeoutException as e:
             detail = f"{type(e).__name__}: {e}"
@@ -193,35 +255,73 @@ class AnthropicProvider(LLMProvider):
             detail = f"{type(e).__name__}: {e}" if str(e) else f"{type(e).__name__}({repr(e)})"
             self.mark_unhealthy(f"Stream request error: {detail}")
             raise LLMError(f"Stream request failed: {detail}")
+        finally:
+            if response is not None:
+                await response.aclose()
 
     def _build_headers(self) -> dict:
         """构建请求头"""
+        key = (self.api_key or "").strip()
         return {
             "Content-Type": "application/json",
-            "x-api-key": self.api_key,
+            "x-api-key": key,
             # 部分 Anthropic 兼容网关仅识别 Bearer，保留 x-api-key 以兼容官方 Anthropic。
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": f"Bearer {key}",
             "anthropic-version": self.ANTHROPIC_VERSION,
         }
 
+    @staticmethod
+    def _build_system_blocks(system: str) -> list[dict]:
+        """Split system prompt into static + dynamic blocks for Anthropic prompt caching.
+
+        Uses the '## Developer' section boundary as the split point.
+        The static part (System section) gets cache_control to enable
+        cross-turn prompt caching, reducing token costs significantly.
+        """
+        _BOUNDARY = "\n\n---\n\n## Developer"
+        idx = system.find(_BOUNDARY)
+        if idx == -1:
+            return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+        static_part = system[:idx]
+        dynamic_part = system[idx:]
+        blocks = [
+            {"type": "text", "text": static_part, "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": dynamic_part},
+        ]
+        return blocks
+
     def _build_request_body(self, request: LLMRequest) -> dict:
-        """构建请求体"""
-        # Anthropic API 强制要求 max_tokens（不传会 400 报错），
-        # 与 OpenAI 兼容 API 不同（可选参数，不传则用模型默认上限）。
-        # 因此这里必须传一个值。使用端点配置的 max_tokens 或请求指定的值。
+        """构建请求体。
+
+        增强: 使用模型注册表查询能力，支持 Prompt Cache。
+        """
         thinking_enabled = request.enable_thinking and self.config.has_capability("thinking")
         messages = self._serialize_messages(request.messages, thinking_enabled)
-        body = {
+
+        # 使用模型注册表查询 max_tokens，替代硬编码
+        caps = get_model_capabilities(self.config.model)
+        max_tokens = request.max_tokens or self.config.max_tokens or caps.default_output_tokens
+
+        body: dict = {
             "model": self.config.model,
-            "max_tokens": request.max_tokens or self.config.max_tokens or 16384,
+            "max_tokens": max_tokens,
             "messages": messages,
         }
 
+        # 系统提示: 分段缓存 (静态部分标记 cache_control)
         if request.system:
-            body["system"] = request.system
+            if caps.supports_cache:
+                body["system"] = self._build_system_blocks(request.system)
+            else:
+                body["system"] = request.system
 
+        # 工具 schema: 排序 + 缓存标记
         if request.tools:
-            body["tools"] = [tool.to_dict() for tool in request.tools]
+            tools = convert_tools_to_anthropic(request.tools)
+            tools = sort_tools_for_cache_stability(tools)
+            if caps.supports_cache:
+                tools = add_tools_cache_control(tools)
+            body["tools"] = tools
 
         if request.temperature != 1.0:
             body["temperature"] = request.temperature
@@ -235,22 +335,20 @@ class AnthropicProvider(LLMProvider):
         if request.extra_params:
             body.update(request.extra_params)
 
+        # 消息缓存断点: 最后 1-2 条消息添加 cache_control
+        if caps.supports_cache and messages:
+            body["messages"] = add_message_cache_breakpoints(messages, max_breakpoints=2)
+
         # Anthropic 扩展思考 (Extended Thinking)
-        # 仅在端点声明了 thinking 能力时才添加，避免对不支持的模型发送无效参数
         if thinking_enabled:
-            depth_budget_map = {
-                "low": 2048,
-                "medium": 8192,
-                "high": 32768,
-            }
-            budget = depth_budget_map.get(request.thinking_depth or "medium", 8192)
+            budget = get_thinking_budget(self.config.model, request.thinking_depth)
+            if budget <= 0:
+                budget = 8192
             body["thinking"] = {
                 "type": "enabled",
                 "budget_tokens": budget,
             }
-            # Anthropic 扩展思考要求 temperature=1，移除自定义温度
             body.pop("temperature", None)
-            # Anthropic 要求 max_tokens >= budget_tokens，确保不会冲突
             current_max = body.get("max_tokens", 4096)
             if current_max < budget + 1024:
                 body["max_tokens"] = budget + 4096
@@ -271,7 +369,7 @@ class AnthropicProvider(LLMProvider):
         """
         result = []
         for msg in messages:
-            msg_dict = msg.to_dict()
+            msg_dict = msg.to_dict() if hasattr(msg, "to_dict") else dict(msg)
             if not thinking_enabled or msg_dict.get("role") != "assistant":
                 result.append(msg_dict)
                 continue
@@ -341,7 +439,11 @@ class AnthropicProvider(LLMProvider):
                     f"[TEXT_TOOL_PARSE] Detected tool calls embedded inside thinking block from {self.name}"
                 )
 
-        if not has_tool_calls and combined_text_for_tool_check and has_text_tool_calls(combined_text_for_tool_check):
+        if (
+            not has_tool_calls
+            and combined_text_for_tool_check
+            and has_text_tool_calls(combined_text_for_tool_check)
+        ):
             logger.info(f"[TEXT_TOOL_PARSE] Detected text-based tool calls from {self.name}")
             clean_text, text_tool_calls = parse_text_tool_calls(combined_text_for_tool_check)
 

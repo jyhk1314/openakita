@@ -23,7 +23,7 @@ class BundleInfo:
 
 
 class BundleMapper:
-    """Discover and map external ecosystem plugin bundles into OpenAkita format."""
+    """Discover and map external ecosystem plugin bundles into Synapse format."""
 
     def detect(self, path: Path) -> BundleInfo | None:
         """Detect if a directory is a known bundle format."""
@@ -43,7 +43,7 @@ class BundleMapper:
         return None
 
     def map_to_manifest(self, bundle: BundleInfo) -> dict:
-        """Map an external bundle to an OpenAkita plugin.json manifest dict."""
+        """Map an external bundle to an Synapse plugin.json manifest dict."""
         plugin_id = f"bundle-{bundle.ecosystem}-{bundle.path.name}"
         manifest: dict[str, Any] = {
             "id": plugin_id,

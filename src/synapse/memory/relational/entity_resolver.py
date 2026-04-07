@@ -7,7 +7,7 @@ import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from openakita.core.brain import Brain
+    from synapse.core.brain import Brain
 
     from .store import RelationalMemoryStore
 
