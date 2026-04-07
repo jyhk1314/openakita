@@ -249,7 +249,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"src/openakita/integrations/**" = ["F401", "F821", "SIM117", "E722", "UP035"]
+"src/synapse/integrations/**" = ["F401", "F821", "SIM117", "E722", "UP035"]
 
 [tool.mypy]
 python_version = "3.11"

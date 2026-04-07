@@ -16,7 +16,7 @@ import os
 import re
 import shutil
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -102,8 +102,15 @@ _ALWAYS_EXCLUDE_FILES = {
 }
 
 _EXCLUDE_ROOT_EXTENSIONS = {
-    ".docx", ".xlsx", ".pptx", ".js", ".py", ".exe",
+    ".docx",
+    ".xlsx",
+    ".pptx",
+    ".js",
+    ".py",
+    ".exe",
 }
+
+_SQLITE_TEMP_EXTENSIONS = {".db-shm", ".db-wal", ".db-journal"}
 
 
 # ── Settings helpers ─────────────────────────────────────────────────
@@ -152,6 +159,11 @@ def _should_include(
     # Always-exclude files
     if rel_posix in _ALWAYS_EXCLUDE_FILES:
         return False
+
+    # SQLite temporary/WAL files — transient, recreated on open
+    for ext in _SQLITE_TEMP_EXTENSIONS:
+        if rel_posix.endswith(ext):
+            return False
 
     # Exclude root-level generated files by extension
     if "/" not in rel_posix:
@@ -212,7 +224,7 @@ def create_backup(
 
     manifest = {
         "format_version": BACKUP_FORMAT_VERSION,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "workspace_id": workspace_id,
         "include_userdata": include_userdata,
         "include_media": include_media,
@@ -224,10 +236,7 @@ def create_backup(
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
         for root, dirs, files in os.walk(workspace_path):
             # Skip hidden/excluded directories early for performance
-            dirs[:] = [
-                d for d in dirs
-                if d not in ("node_modules", "Lib", "__pycache__", ".git")
-            ]
+            dirs[:] = [d for d in dirs if d not in ("node_modules", "Lib", "__pycache__", ".git")]
 
             for fname in files:
                 full = Path(root) / fname
@@ -266,9 +275,7 @@ def create_backup(
 
 def _rotate_backups(backup_dir: Path, workspace_id: str, max_backups: int) -> None:
     """Remove oldest backup files exceeding max_backups."""
-    pattern = re.compile(
-        rf"^synapse-backup-{re.escape(workspace_id)}-\d{{8}}_\d{{6}}\.zip$"
-    )
+    pattern = re.compile(rf"^synapse-backup-{re.escape(workspace_id)}-\d{{8}}_\d{{6}}\.zip$")
     backups = sorted(
         (f for f in backup_dir.iterdir() if f.is_file() and pattern.match(f.name)),
         key=lambda f: f.stat().st_mtime,
@@ -318,6 +325,7 @@ def restore_backup(zip_path: str, workspace_path: Path) -> dict[str, Any]:
                 raise ValueError(f"Unsafe path in backup: {name}")
 
         restored_count = 0
+        skipped: list[str] = []
         for member in zf.infolist():
             if member.filename == MANIFEST_FILE:
                 continue
@@ -325,16 +333,35 @@ def restore_backup(zip_path: str, workspace_path: Path) -> dict[str, Any]:
                 (workspace_path / member.filename).mkdir(parents=True, exist_ok=True)
                 continue
 
+            # Skip SQLite temporary files — they are transient and will be
+            # recreated automatically; on Windows they may be memory-mapped
+            # and cannot be overwritten (Errno 22 / EINVAL).
+            if any(member.filename.endswith(ext) for ext in _SQLITE_TEMP_EXTENSIONS):
+                logger.debug(f"Skipping SQLite temp file: {member.filename}")
+                continue
+
             target = workspace_path / member.filename
             target.parent.mkdir(parents=True, exist_ok=True)
-            with zf.open(member) as src, open(target, "wb") as dst:
-                shutil.copyfileobj(src, dst)
-            restored_count += 1
+            try:
+                with zf.open(member) as src, open(target, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                restored_count += 1
+            except OSError as exc:
+                skipped.append(member.filename)
+                logger.warning(f"Skipping {member.filename} during restore: {exc}")
 
-    logger.info(f"Restored {restored_count} files from {zip_path_obj.name}")
+    if skipped:
+        logger.warning(
+            f"Restored {restored_count} files, skipped {len(skipped)} "
+            f"(locked/inaccessible): {skipped[:10]}"
+        )
+    else:
+        logger.info(f"Restored {restored_count} files from {zip_path_obj.name}")
 
     return {
         "restored_count": restored_count,
+        "skipped_count": len(skipped),
+        "skipped_files": skipped[:20],
         "manifest": manifest,
     }
 
@@ -360,9 +387,7 @@ def list_backups(backup_path: str) -> list[dict[str, Any]]:
             "filename": f.name,
             "path": str(f),
             "size_bytes": stat.st_size,
-            "created_at": datetime.fromtimestamp(
-                stat.st_mtime, tz=timezone.utc
-            ).isoformat(),
+            "created_at": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
         }
 
         # Try to read manifest for extra metadata
