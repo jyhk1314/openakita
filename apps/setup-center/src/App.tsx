@@ -1,69 +1,67 @@
-import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { ConfigProvider, Tooltip, theme as antdTheme } from "antd";
+import { createContext, useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
-import { invoke, listen, IS_TAURI, IS_WEB, IS_CAPACITOR, IS_WINDOWS, getAppVersion, onWsEvent, reconnectWsNow, logger } from "./platform";
+import { invoke, listen, IS_TAURI, IS_WEB, IS_CAPACITOR, IS_LOCAL_WEB, getAppVersion, onWsEvent, reconnectWsNow, logger, registerGlobalShortcut } from "./platform";
 import { getActiveServer, getActiveServerId } from "./platform/servers";
-import { checkAuth, installFetchInterceptor, AUTH_EXPIRED_EVENT, isPasswordUserSet, logout, clearAccessToken, setTauriRemoteMode, isTauriRemoteMode } from "./platform/auth";
+import { checkAuth, installFetchInterceptor, AUTH_EXPIRED_EVENT, isPasswordUserSet, clearAccessToken, setTauriRemoteMode, isTauriRemoteMode } from "./platform/auth";
 import { LoginView } from "./views/LoginView";
 import { ServerManagerView } from "./views/ServerManagerView";
 import { ChatView } from "./views/ChatView";
-import { SkillManager } from "./views/SkillManager";
-import { IMView } from "./views/IMView";
-import { TokenStatsView } from "./views/TokenStatsView";
-import { MCPView } from "./views/MCPView";
-import { SchedulerView } from "./views/SchedulerView";
-import { MemoryView } from "./views/MemoryView";
-import { IdentityView } from "./views/IdentityView";
-import { AgentDashboardView } from "./views/AgentDashboardView";
-import { AgentManagerView } from "./views/AgentManagerView";
-import { OrgEditorView } from "./views/OrgEditorView";
+
+// Lazy-loaded views — keeps first-screen bundle small (4.7 Code Splitting)
+const SkillManager = lazy(() => import("./views/SkillManager").then(m => ({ default: m.SkillManager })));
+const IMView = lazy(() => import("./views/IMView").then(m => ({ default: m.IMView })));
+const TokenStatsView = lazy(() => import("./views/TokenStatsView").then(m => ({ default: m.TokenStatsView })));
+const MCPView = lazy(() => import("./views/MCPView").then(m => ({ default: m.MCPView })));
+const PluginManagerView = lazy(() => import("./views/PluginManagerView"));
+const SchedulerView = lazy(() => import("./views/SchedulerView").then(m => ({ default: m.SchedulerView })));
+const MemoryView = lazy(() => import("./views/MemoryView").then(m => ({ default: m.MemoryView })));
+const IdentityView = lazy(() => import("./views/IdentityView").then(m => ({ default: m.IdentityView })));
+const AgentDashboardView = lazy(() => import("./views/AgentDashboardView").then(m => ({ default: m.AgentDashboardView })));
+const AgentManagerView = lazy(() => import("./views/AgentManagerView").then(m => ({ default: m.AgentManagerView })));
+const OrgEditorView = lazy(() => import("./views/OrgEditorView").then(m => ({ default: m.OrgEditorView })));
+const PixelOfficeView = lazy(() => import("./views/PixelOfficeView").then(m => ({ default: m.PixelOfficeView })));
+const AgentStoreView = lazy(() => import("./views/AgentStoreView").then(m => ({ default: m.AgentStoreView })));
+const SkillStoreView = lazy(() => import("./views/SkillStoreView").then(m => ({ default: m.SkillStoreView })));
+const SecurityView = lazy(() => import("./views/SecurityView"));
+const PetView = lazy(() => import("./views/PetView").then(m => ({ default: m.PetView })));
+
+import { FeedbackModal } from "./views/FeedbackModal";
 import { IMConfigView } from "./views/IMConfigView";
-import type { IMBot } from "./views/im-shared";
-import { TYPE_TO_ENABLED_KEY } from "./views/im-shared";
 import { AgentSystemView } from "./views/AgentSystemView";
-import { AgentStoreView } from "./views/AgentStoreView";
-import { SkillStoreView } from "./views/SkillStoreView";
-import PluginManagerView from "./views/PluginManagerView";
-import SecurityView from "./views/SecurityView";
-import { PixelOfficeView } from "./views/PixelOfficeView";
-import { TeamManagementView } from "./components/team-manage/TeamManagementView";
-import { RdProcessManagementView } from "./components/rd-process/RdProcessManagementView";
+import { LLMView } from "./views/LLMView";
+import { StatusView } from "./views/StatusView";
 import type {
   EndpointSummary as EndpointSummaryType,
-  PlatformInfo, WorkspaceSummary, ProviderInfo, ListedModel,
+  PlatformInfo, WorkspaceSummary, ProviderInfo,
   EndpointDraft, PythonCandidate, BundledPythonInstallResult, InstallSource,
-  EnvMap, StepId, Step, PythonDiagnostic, ViewId,
+  EnvMap, StepId, Step, ViewId,
 } from "./types";
 import {
-  IconRefresh, IconCheck, IconCheckCircle, IconX, IconXCircle,
-  IconChevronDown, IconChevronRight, IconChevronUp, IconGlobe,
-  IconEdit, IconTrash, IconEye, IconEyeOff, IconInfo, IconClipboard, IconAlertCircle,
-  DotGreen, DotGray, DotYellow, DotRed,
-  LogoTelegram, LogoFeishu, LogoWework, LogoDingtalk, LogoQQ,
+  IconCheckCircle, IconXCircle, IconInfo,
 } from "./icons";
+import { ChevronRight, ChevronDown, Loader2, AlertTriangle, CheckCircle2, Eye, EyeOff, RefreshCw, AlertCircle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import logoUrl from "./assets/logo.png";
 import "highlight.js/styles/github.css";
 import { getThemePref, setThemePref, THEME_CHANGE_EVENT, type Theme } from "./theme";
 import { copyToClipboard } from "./utils/clipboard";
 import {
   BUILTIN_PROVIDERS,
-  STT_RECOMMENDED_MODELS,
   PIP_INDEX_PRESETS,
-  sortProvidersForDisplay,
-  COMPILER_COMPANY_DEFAULTS,
   IWHALECLOUD_ONBOARDING_VALIDATION_MOCK,
   CLAUDE_CODE_BUNDLED_VERSION,
 } from "./constants";
+import { safeFetch } from "./providers";
 import {
-  isLocalProvider, localProviderPlaceholderKey, friendlyFetchError,
-  inferCapabilities, fetchModelsDirectly, safeFetch, proxyFetch,
-  isMiniMaxProvider, isVolcCodingPlanProvider, isDashScopeCodingPlanProvider,
-  isLongCatProvider, miniMaxFallbackModels, volcCodingPlanFallbackModels,
-  dashScopeCodingPlanFallbackModels, longCatFallbackModels,
-} from "./providers";
-import {
-  slugify, joinPath, toFileUrl, envKeyFromSlug, nextEnvKeyName,
-  suggestEndpointName, parseEnv, envGet, envSet,
+  slugify, joinPath, toFileUrl,
+  envGet, envSet,
 } from "./utils";
 // ═══════════════════════════════════════════════════════════════════════
 // 前后端交互路由原则（全局适用）：
@@ -78,21 +76,26 @@ import {
 //   1. Onboarding（打包模式）：NSIS → onboarding wizard → 写本地 → 启动服务 → HTTP API
 //   2. Wizard Full（开发者模式）：选工作区 → 装 venv → 配置端点(本地) → 启动服务 → HTTP API
 // ═══════════════════════════════════════════════════════════════════════
-import { SearchSelect } from "./components/SearchSelect";
-import { ProviderSearchSelect } from "./components/ProviderSearchSelect";
-import { TroubleshootPanel } from "./components/TroubleshootPanel";
 import { CliManager } from "./components/CliManager";
 import { WebPasswordManager } from "./components/WebPasswordManager";
-import { FieldText, FieldBool, FieldSelect, FieldCombo, TelegramPairingCodeHint } from "./components/EnvFields";
+import { FieldText, FieldBool, FieldSelect, FieldCombo, FieldSlider, TelegramPairingCodeHint } from "./components/EnvFields";
 import { ConfirmDialog } from "./components/ConfirmDialog";
-import { ToastContainer } from "./components/ToastContainer";
+import { ModalOverlay } from "./components/ModalOverlay";
 import { Sidebar } from "./components/Sidebar";
-import { RdCenterView } from "./components/rd-center/RdCenterView";
 import { Topbar } from "./components/Topbar";
 import { useNotifications } from "./hooks/useNotifications";
-import { useVersionCheck, compareSemver } from "./hooks/useVersionCheck";
+import { notifySuccess, notifyError, notifyLoading, dismissLoading } from "./utils/notify";
+import { Toaster } from "@/components/ui/sonner";
+import { toast } from "sonner";
+import { useVersionCheck } from "./hooks/useVersionCheck";
+import { useEnvManager } from "./hooks/useEnvManager";
+import { AdvancedView } from "./views/AdvancedView";
 
-const THEME_I18N_KEYS: Record<Theme, string> = { system: "topbar.themeSystem", dark: "topbar.themeDark", light: "topbar.themeLight" };
+const THEME_I18N_KEYS: Record<Theme, string> = {
+  system: "topbar.themeSystem",
+  dark: "topbar.themeDark",
+  light: "topbar.themeLight",
+};
 
 /** Health-check timeout for recurring monitoring (heartbeat + refreshStatus).
  *  Startup/one-shot probes keep their own shorter timeouts.
@@ -110,11 +113,55 @@ interface EnvFieldCtx {
 
 const EnvFieldContext = createContext<EnvFieldCtx | null>(null);
 
+const _HASH_TO_VIEW: Record<string, ViewId> = {
+  "chat": "chat", "im": "im", "skills": "skills", "mcp": "mcp",
+  "scheduler": "scheduler", "memory": "memory", "status": "status",
+  "token-stats": "token_stats", "identity": "identity",
+  "dashboard": "dashboard", "org-editor": "org_editor",
+  "pixel-office": "pixel_office",
+  "agent-manager": "agent_manager", "agent-store": "agent_store",
+  "skill-store": "skill_store", "wizard": "wizard", "docs": "docs",
+  "security": "security",
+};
+
+const _VIEW_TO_HASH: Record<string, string> = Object.fromEntries(
+  Object.entries(_HASH_TO_VIEW).map(([k, v]) => [v, k]),
+);
+
+const _HASH_TO_STEP: Record<string, StepId> = {
+  "llm": "llm", "im": "im", "tools": "tools", "agent": "agent", "advanced": "advanced",
+};
+
+function _parseHashRoute(hash: string): { view: ViewId; stepId?: StepId } | null {
+  const path = hash.replace(/^#\/?/, "");
+  if (!path) return null;
+  if (_HASH_TO_VIEW[path]) return { view: _HASH_TO_VIEW[path] };
+  if (path.startsWith("config/")) {
+    const step = path.slice(7);
+    if (_HASH_TO_STEP[step]) return { view: "wizard", stepId: _HASH_TO_STEP[step] as StepId };
+  }
+  return null;
+}
+
+function _viewToHash(view: string, stepId?: string): string {
+  if (view === "wizard" && stepId) {
+    return `#/config/${stepId}`;
+  }
+  return _VIEW_TO_HASH[view] ? `#/${_VIEW_TO_HASH[view]}` : "";
+}
+
 export function App() {
+  if (window.location.pathname === '/pet') {
+    return <Suspense fallback={null}><PetView /></Suspense>;
+  }
+
   const { t, i18n } = useTranslation();
 
   // ── Web / Capacitor auth gate ──
-  const needsRemoteAuth = IS_WEB || IS_CAPACITOR;
+  // IS_LOCAL_WEB: hostname is 127.0.0.1/localhost/::1 — backend authenticates
+  // by client IP, no tokens or round-trips needed.  This eliminates the entire
+  // class of "checkAuth timeout → login page flash" bugs.
+  const needsRemoteAuth = (IS_WEB || IS_CAPACITOR) && !IS_LOCAL_WEB;
   const [webAuthed, setWebAuthed] = useState(!needsRemoteAuth);
   const [authChecking, setAuthChecking] = useState(needsRemoteAuth);
   const [showPwBanner, setShowPwBanner] = useState(false);
@@ -127,7 +174,20 @@ export function App() {
   const [tauriRemoteLoginUrl, setTauriRemoteLoginUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!needsRemoteAuth) return;
+    if (!needsRemoteAuth) {
+      // Local web: non-blocking fetch for password-banner check only
+      if (IS_LOCAL_WEB) {
+        fetch("/api/auth/check", { signal: AbortSignal.timeout(5000) })
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.password_user_set === false && !localStorage.getItem("synapse_pw_banner_dismissed")) {
+              setShowPwBanner(true);
+            }
+          })
+          .catch(() => {});
+      }
+      return;
+    }
     if (IS_CAPACITOR && !getActiveServer()) {
       setAuthChecking(false);
       return;
@@ -173,33 +233,16 @@ export function App() {
     window.addEventListener(THEME_CHANGE_EVENT, handler);
     return () => window.removeEventListener(THEME_CHANGE_EVENT, handler);
   }, []);
-  const [sysDark, setSysDark] = useState(() => window.matchMedia("(prefers-color-scheme: dark)").matches);
-  useEffect(() => {
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = (e: MediaQueryListEvent) => setSysDark(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, []);
-  const isDark = themePrefState === "dark" || (themePrefState === "system" && sysDark);
-  const toggleTheme = useCallback(() => {
-    let next: Theme = "system";
-    if (themePrefState === "system") next = "dark";
-    else if (themePrefState === "dark") next = "light";
-    else next = "system";
-    setThemePref(next);
-    setNotice(t(THEME_I18N_KEYS[next]));
-  }, [themePrefState, t]);
   const [info, setInfo] = useState<PlatformInfo | null>(null);
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [currentWorkspaceId, setCurrentWorkspaceId] = useState<string | null>(null);
-  const { error, setError, notice, setNotice, busy, setBusy, confirmDialog, setConfirmDialog, askConfirm } = useNotifications();
+  const { confirmDialog, setConfirmDialog, askConfirm } = useNotifications();
+  const busy: string | null = null;
   const [dangerAck, setDangerAck] = useState(false);
 
   // ── Restart overlay state ──
   const [restartOverlay, setRestartOverlay] = useState<{ phase: "saving" | "restarting" | "waiting" | "done" | "fail" | "notRunning" } | null>(null);
 
-  // ── Module restart prompt ──
-  const [moduleRestartPrompt, setModuleRestartPrompt] = useState<string | null>(null);
 
   // ── Service conflict & version state ──
   const [conflictDialog, setConflictDialog] = useState<{ pid: number; version: string } | null>(null);
@@ -233,9 +276,19 @@ export function App() {
 
   useEffect(() => {
     const onResize = () => {
-      const mobile = window.innerWidth <= 768;
+      const w = window.innerWidth;
+      const mobile = w <= 768;
       setIsMobile(mobile);
       if (!mobile) setMobileSidebarOpen(false);
+      if (!mobile && w <= 980) {
+        if (!sidebarAutoCollapsed.current) {
+          sidebarAutoCollapsed.current = true;
+          setSidebarCollapsed(true);
+        }
+      } else if (w > 980 && sidebarAutoCollapsed.current) {
+        sidebarAutoCollapsed.current = false;
+        setSidebarCollapsed(false);
+      }
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
@@ -254,18 +307,42 @@ export function App() {
   );
 
   const [view, setView] = useState<ViewId>(() => {
-    const hash = window.location.hash;
-    if (hash === "#/org-editor") return "org_editor";
+    const parsed = _parseHashRoute(window.location.hash);
+    if (parsed) return parsed.view;
     return (IS_WEB || IS_CAPACITOR) ? "chat" : "wizard";
   });
   const [appInitializing, setAppInitializing] = useState(!(IS_WEB || IS_CAPACITOR));
   const [configExpanded, setConfigExpanded] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const sidebarAutoCollapsed = useRef(false);
   const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth <= 768);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [bugReportOpen, setBugReportOpen] = useState(false);
   const [disabledViews, setDisabledViews] = useState<string[]>([]);
   const [multiAgentEnabled, setMultiAgentEnabled] = useState(false);
   const [storeVisible, setStoreVisible] = useState(() => localStorage.getItem("synapse_storeVisible") === "true");
+  // ── Hash-based deep link routing ──
+  useEffect(() => {
+    const onHashChange = () => {
+      const parsed = _parseHashRoute(window.location.hash);
+      if (parsed) {
+        setView(parsed.view);
+        if (parsed.stepId) setStepId(parsed.stepId);
+      }
+    };
+    // Listen for postMessage from embedded docs iframe (cross-origin safe)
+    const onMessage = (e: MessageEvent) => {
+      if (e.data?.type === "synapse-navigate" && typeof e.data.hash === "string") {
+        window.location.hash = e.data.hash;
+      }
+    };
+    window.addEventListener("hashchange", onHashChange);
+    window.addEventListener("message", onMessage);
+    return () => {
+      window.removeEventListener("hashchange", onHashChange);
+      window.removeEventListener("message", onMessage);
+    };
+  }, []);
 
   // ── Data mode: "local" (Tauri commands) or "remote" (HTTP API) ──
   // Web mode always starts in "remote" since the backend is already running
@@ -290,7 +367,10 @@ export function App() {
     return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
   }, [apiBaseUrl]);
 
-  const [stepId, setStepId] = useState<StepId>("llm");
+  const [stepId, setStepId] = useState<StepId>(() => {
+    const parsed = _parseHashRoute(window.location.hash);
+    return parsed?.stepId || "llm";
+  });
   const currentStepIdxRaw = useMemo(() => steps.findIndex((s) => s.id === stepId), [steps, stepId]);
   const currentStepIdx = currentStepIdxRaw < 0 ? 0 : currentStepIdxRaw;
 
@@ -309,12 +389,17 @@ export function App() {
   }, [stepId]);
 
   // ── Onboarding Wizard (首次安装引导) ──
-  type OnboardingStep = "ob-welcome" | "ob-iwhalecloud" | "ob-claude-code" | "ob-agreement" | "ob-llm" | "ob-im" | "ob-cli" | "ob-progress" | "ob-done";
-  type ModuleInfo = { id: string; name: string; description: string; installed: boolean; bundled: boolean; sizeMb: number; category: string };
+  type OnboardingStep =
+    | "ob-welcome"
+    | "ob-iwhalecloud"
+    | "ob-claude-code"
+    | "ob-agreement"
+    | "ob-llm"
+    | "ob-im"
+    | "ob-cli"
+    | "ob-progress"
+    | "ob-done";
   const [obStep, setObStep] = useState<OnboardingStep>("ob-welcome");
-  const [obModules, setObModules] = useState<ModuleInfo[]>([]);
-  /** 卸载因“拒绝访问”失败时，可先停止后端再卸载的待处理模块 */
-  const [moduleUninstallPending, setModuleUninstallPending] = useState<{ id: string; name: string } | null>(null);
   const [obInstallLog, setObInstallLog] = useState<string[]>([]);
   const [obInstalling, setObInstalling] = useState(false);
   const [obEnvCheck, setObEnvCheck] = useState<{
@@ -334,7 +419,6 @@ export function App() {
   const [obCliAddToPath, setObCliAddToPath] = useState(true);
   const [obAutostart, setObAutostart] = useState(true); // 开机自启，默认勾选
   const [obAgreementInput, setObAgreementInput] = useState("");
-  const [obPendingBots, setObPendingBots] = useState<IMBot[]>([]);
 
   // Custom root directory
   const [obShowCustomRoot, setObShowCustomRoot] = useState(false);
@@ -350,7 +434,7 @@ export function App() {
   const [wsQuickName, setWsQuickName] = useState("");
   const [obAgreementError, setObAgreementError] = useState(false);
 
-  // iWhaleCloud 身份验证
+  // iWhaleCloud 身份验证（引导）
   const [obIwcFullName, setObIwcFullName] = useState("");
   const [obIwcEmployeeId, setObIwcEmployeeId] = useState("");
   const [obIwcPassword, setObIwcPassword] = useState("");
@@ -362,14 +446,13 @@ export function App() {
   const [obIwcValidated, setObIwcValidated] = useState(false);
   const [obIwcError, setObIwcError] = useState<string | null>(null);
 
-  /** Claude Code CLI（onboarding：检测 / 一键安装） */
+  /** Claude Code CLI：检测 / 安装 / 用户目录初始化 */
   const [obClaudeInstalled, setObClaudeInstalled] = useState<boolean | null>(null);
   const [obClaudeVersion, setObClaudeVersion] = useState<string | null>(null);
   const [obClaudeChecking, setObClaudeChecking] = useState(false);
   const [obClaudeInstalling, setObClaudeInstalling] = useState<false | "local" | "winget" | "script">(false);
   const [obClaudeError, setObClaudeError] = useState<string | null>(null);
   const [obClaudeInstallLog, setObClaudeInstallLog] = useState<string | null>(null);
-  /** Claude Code：用户主目录一键配置（claude-code-init + 公司 Token） */
   const [obClaudeCompanyToken, setObClaudeCompanyToken] = useState("");
   const [obClaudeShowLlmVideo, setObClaudeShowLlmVideo] = useState(false);
   const [obClaudeLlmVideoSrc, setObClaudeLlmVideoSrc] = useState<string | null>(null);
@@ -421,6 +504,52 @@ export function App() {
       logger.error("App", "obConnectExistingService failed", { error: String(e) });
     }
   }
+
+  // 首次运行检测（在此完成前不渲染主界面，防止先闪主页再跳 onboarding）
+  useEffect(() => {
+    (async () => {
+      try {
+        const firstRun = await invoke<boolean>("is_first_run");
+        if (firstRun) {
+          await obProbeRunningService();
+          setView("onboarding");
+          obLoadEnvCheck();
+        } else {
+          // 非首次启动：直接进入状态页面
+          setView("status");
+        }
+      } catch {
+        // is_first_run 命令不可用（开发模式），忽略
+      } finally {
+        setAppInitializing(false);
+      }
+    })();
+    const unlisten = listen<string>("app-launch-mode", async (e) => {
+      if (e.payload === "first-run") {
+        await obProbeRunningService();
+        setView("onboarding");
+        obLoadEnvCheck();
+      }
+    });
+    // ── DEV: Ctrl+Shift+O 强制进入 onboarding 测试模式 ──
+    const devKeyHandler = (ev: KeyboardEvent) => {
+      if (ev.ctrlKey && ev.shiftKey && ev.key === "O") {
+        ev.preventDefault();
+        logger.debug("App", "Force entering onboarding mode");
+        setObStep("ob-welcome");
+        setObDetectedService(null);
+        obProbeRunningService();
+        setView("onboarding");
+        obLoadEnvCheck();
+      }
+    };
+    window.addEventListener("keydown", devKeyHandler);
+    return () => {
+      unlisten.then((u) => u());
+      window.removeEventListener("keydown", devKeyHandler);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (obStep !== "ob-claude-code") return;
@@ -482,101 +611,6 @@ export function App() {
     return () => { cancelled = true; };
   }, [obStep, obClaudeShowLlmVideo]);
 
-  // 首次运行检测（在此完成前不渲染主界面，防止先闪主页再跳 onboarding）
-  useEffect(() => {
-    (async () => {
-      try {
-        const firstRun = await invoke<boolean>("is_first_run");
-        if (firstRun) {
-          await obProbeRunningService();
-          setView("onboarding");
-          obLoadEnvCheck();
-        } else {
-          // 非首次启动：直接进入状态页面
-          setView("status");
-        }
-      } catch {
-        // is_first_run 命令不可用（开发模式），忽略
-      } finally {
-        setAppInitializing(false);
-      }
-    })();
-    const unlisten = listen<string>("app-launch-mode", async (e) => {
-      if (e.payload === "first-run") {
-        await obProbeRunningService();
-        setView("onboarding");
-        obLoadEnvCheck();
-      }
-    });
-    // ── DEV: Ctrl+Shift+O 强制进入 onboarding 测试模式 ──
-    const devKeyHandler = (ev: KeyboardEvent) => {
-      if (ev.ctrlKey && ev.shiftKey && ev.key === "O") {
-        ev.preventDefault();
-        logger.debug("App", "Force entering onboarding mode");
-        setObStep("ob-welcome");
-        setObDetectedService(null);
-        obProbeRunningService();
-        setView("onboarding");
-        obLoadEnvCheck();
-      }
-    };
-    window.addEventListener("keydown", devKeyHandler);
-    return () => {
-      unlisten.then((u) => u());
-      window.removeEventListener("keydown", devKeyHandler);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  /** 仅在进入/离开引导页时调整 Tauri 窗口；主界面内切换侧栏不改变尺寸、全屏或最大化 */
-  const tauriDesktopWinLayoutRef = useRef<"guide" | "main" | null>(null);
-
-  // 桌面端：引导固定尺寸且不可缩放。主界面用「最大化」占满屏幕（保留系统标题栏/关闭那一行），不用独占全屏——全屏会隐藏整条标题栏。
-  useEffect(() => {
-    if (!IS_TAURI) return;
-    const guide = view === "wizard" || view === "onboarding";
-    const mode: "guide" | "main" = guide ? "guide" : "main";
-    if (tauriDesktopWinLayoutRef.current === mode) return;
-    tauriDesktopWinLayoutRef.current = mode;
-    let cancelled = false;
-    (async () => {
-      try {
-        const { getCurrentWindow, LogicalSize } = await import("@tauri-apps/api/window");
-        if (cancelled) return;
-        const win = getCurrentWindow();
-        if (guide) {
-          await win.setFullscreen(false);
-          try {
-            await win.unmaximize();
-          } catch {
-            /* ignore */
-          }
-          await win.setResizable(false);
-          await win.setMaximizable(false);
-          await win.setSize(new LogicalSize(1400, 1000));
-          await win.center();
-        } else {
-          await win.setFullscreen(false);
-          try {
-            await win.unmaximize();
-          } catch {
-            /* ignore */
-          }
-          await win.setResizable(false);
-          // 先允许最大化以便 API 能执行，最大化后再关掉「最大化按钮」避免用户拖出固定尺寸
-          await win.setMaximizable(true);
-          // await win.maximize();
-          // await win.setMaximizable(false);
-        }
-      } catch {
-        /* ignore */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [view]);
-
   // workspace create
   const [newWsName, setNewWsName] = useState("默认工作区");
   const newWsId = useMemo(() => slugify(newWsName) || "default", [newWsName]);
@@ -585,6 +619,7 @@ export function App() {
   const [pythonCandidates, setPythonCandidates] = useState<PythonCandidate[]>([]);
   const [selectedPythonIdx, setSelectedPythonIdx] = useState<number>(-1);
   const [venvStatus, setVenvStatus] = useState<string>("");
+  const [installLog, setInstallLog] = useState<string>("");
   const [installLiveLog, setInstallLiveLog] = useState<string>("");
   const [installProgress, setInstallProgress] = useState<{ stage: string; percent: number } | null>(null);
   const [extras, setExtras] = useState<string>("all");
@@ -593,118 +628,33 @@ export function App() {
   const [customIndexUrl, setCustomIndexUrl] = useState<string>("");
   const [venvReady, setVenvReady] = useState(false);
   const [synapseInstalled, setSynapseInstalled] = useState(false);
+  const [installSource, setInstallSource] = useState<InstallSource>("pypi");
+  const [githubRepo, setGithubRepo] = useState<string>("jyhk1314/synapse");
+  const [githubRefType, setGithubRefType] = useState<"branch" | "tag">("branch");
+  const [githubRef, setGithubRef] = useState<string>("main");
+  const [localSourcePath, setLocalSourcePath] = useState<string>("");
   const [pypiVersions, setPypiVersions] = useState<string[]>([]);
   const [pypiVersionsLoading, setPypiVersionsLoading] = useState(false);
   const [selectedPypiVersion, setSelectedPypiVersion] = useState<string>(""); // "" = 推荐同版本
-  // python diagnostics / repair
-  const [pyDiag, setPyDiag] = useState<PythonDiagnostic | null>(null);
-  const [repairStage, setRepairStage] = useState<string>("");
-  const [repairPercent, setRepairPercent] = useState<number>(0);
-  const [repairDetail, setRepairDetail] = useState<string>("");
-
-  // advanced panel state
-  const [advSysInfo, setAdvSysInfo] = useState<Record<string, string> | null>(null);
-  const [advLoading, setAdvLoading] = useState<Record<string, boolean>>({});
-  const [hubApiUrl, setHubApiUrl] = useState<string>("");
-  const advLoadedRef = useRef(false);
-
-  // backup state
-  const [backupSettings, setBackupSettings] = useState<{
-    enabled: boolean; cron: string; backup_path: string;
-    max_backups: number; include_userdata: boolean; include_media: boolean;
-  }>({ enabled: false, cron: "0 2 * * *", backup_path: "", max_backups: 5, include_userdata: true, include_media: false });
-  const [backupHistory, setBackupHistory] = useState<Array<{ filename: string; path: string; size_bytes: number; created_at: string; manifest?: any }>>([]);
-  const [backupSettingsLoaded, setBackupSettingsLoaded] = useState(false);
-  const [backupShowHistory, setBackupShowHistory] = useState(false);
 
   // providers & models
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [providerSlug, setProviderSlug] = useState<string>("");
-  const selectedProvider = useMemo(
-    () => providers.find((p) => p.slug === providerSlug) || null,
-    [providers, providerSlug],
-  );
-  const [apiType, setApiType] = useState<"openai" | "anthropic">("openai");
-  const [baseUrl, setBaseUrl] = useState<string>("");
-  const [apiKeyEnv, setApiKeyEnv] = useState<string>("");
-  const [apiKeyValue, setApiKeyValue] = useState<string>("");
-  const [models, setModels] = useState<ListedModel[]>([]);
-  const [selectedModelId, setSelectedModelId] = useState<string>("");
-  const [capSelected, setCapSelected] = useState<string[]>([]);
-  const [capTouched, setCapTouched] = useState(false);
-  const [endpointName, setEndpointName] = useState<string>("");
-  const [endpointPriority, setEndpointPriority] = useState<number>(1);
   const [savedEndpoints, setSavedEndpoints] = useState<EndpointDraft[]>([]);
   const [savedCompilerEndpoints, setSavedCompilerEndpoints] = useState<EndpointDraft[]>([]);
   const [savedSttEndpoints, setSavedSttEndpoints] = useState<EndpointDraft[]>([]);
-  const [apiKeyEnvTouched, setApiKeyEnvTouched] = useState(false);
-  const [endpointNameTouched, setEndpointNameTouched] = useState(false);
-  const [baseUrlTouched, setBaseUrlTouched] = useState(false);
-  const [llmAdvancedOpen, setLlmAdvancedOpen] = useState(false);
-  const [addEpMaxTokens, setAddEpMaxTokens] = useState(0);
-  const [addEpContextWindow, setAddEpContextWindow] = useState(200000);
-  const [addEpTimeout, setAddEpTimeout] = useState(180);
-  const [addEpRpmLimit, setAddEpRpmLimit] = useState(0);
-  const [codingPlanMode, setCodingPlanMode] = useState(false);
-
-  // Compiler endpoint form state
-  const [compilerProviderSlug, setCompilerProviderSlug] = useState("");
-  const [compilerApiType, setCompilerApiType] = useState<"openai" | "anthropic">("openai");
-  const [compilerBaseUrl, setCompilerBaseUrl] = useState("");
-  const [compilerApiKeyEnv, setCompilerApiKeyEnv] = useState("");
-  const [compilerApiKeyValue, setCompilerApiKeyValue] = useState("");
-  const [compilerModel, setCompilerModel] = useState("");
-  const [compilerEndpointName, setCompilerEndpointName] = useState("");
-  const [compilerCodingPlan, setCompilerCodingPlan] = useState(false);
-  const [compilerModels, setCompilerModels] = useState<ListedModel[]>([]); // models fetched for compiler section
-
-  // STT endpoint form state（与 LLM/Compiler 完全独立，避免互相影响）
-  const [sttProviderSlug, setSttProviderSlug] = useState("");
-  const [sttApiType, setSttApiType] = useState<"openai" | "anthropic">("openai");
-  const [sttBaseUrl, setSttBaseUrl] = useState("");
-  const [sttApiKeyEnv, setSttApiKeyEnv] = useState("");
-  const [sttApiKeyValue, setSttApiKeyValue] = useState("");
-  const [sttModel, setSttModel] = useState("");
-  const [sttEndpointName, setSttEndpointName] = useState("");
-  const [sttModels, setSttModels] = useState<ListedModel[]>([]);
-
-  // Edit endpoint modal (do not reuse the "add" form)
-  const [editingOriginalName, setEditingOriginalName] = useState<string | null>(null);
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const isEditingEndpoint = editModalOpen && editingOriginalName !== null;
-  const [llmNextModalOpen, setLlmNextModalOpen] = useState(false);
-  const [editDraft, setEditDraft] = useState<{
-    name: string;
-    priority: number;
-    providerSlug: string;
-    apiType: "openai" | "anthropic";
-    baseUrl: string;
-    apiKeyEnv: string;
-    apiKeyValue: string; // optional; blank means don't change
-    modelId: string;
-    caps: string[];
-    maxTokens: number;
-    contextWindow: number;
-    timeout: number;
-    rpmLimit: number;
-    pricingTiers: { max_input: number; input_price: number; output_price: number }[];
-  } | null>(null);
-  const dragNameRef = useRef<string | null>(null);
-  const [editModels, setEditModels] = useState<ListedModel[]>([]); // models fetched inside the edit modal
 
   // status panel data
   const [statusLoading, setStatusLoading] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [endpointSummary, setEndpointSummary] = useState<
-    { name: string; provider: string; apiType: string; baseUrl: string; model: string; keyEnv: string; keyPresent: boolean }[]
+    { name: string; provider: string; apiType: string; baseUrl: string; model: string; keyEnv: string; keyPresent: boolean; enabled?: boolean }[]
   >([]);
   const [skillSummary, setSkillSummary] = useState<{ count: number; systemCount: number; externalCount: number } | null>(null);
   const [skillsDetail, setSkillsDetail] = useState<
-    { name: string; description: string; name_i18n?: Record<string, string> | null; description_i18n?: Record<string, string> | null; system: boolean; enabled?: boolean; tool_name?: string | null; category?: string | null; path?: string | null }[] | null
+    { skill_id: string; name: string; description: string; name_i18n?: Record<string, string> | null; description_i18n?: Record<string, string> | null; system: boolean; enabled?: boolean; tool_name?: string | null; category?: string | null; path?: string | null }[] | null
   >(null);
   const [skillsSelection, setSkillsSelection] = useState<Record<string, boolean>>({});
   const [skillsTouched, setSkillsTouched] = useState(false);
-  const [secretShown, setSecretShown] = useState<Record<string, boolean>>({});
   const [autostartEnabled, setAutostartEnabled] = useState<boolean | null>(null);
   const [autoUpdateEnabled, setAutoUpdateEnabled] = useState<boolean | null>(null);
   // autoStartBackend 已合并到"开机自启"：--background 模式自动拉起后端，无需独立开关
@@ -722,6 +672,7 @@ export function App() {
   const [serviceLog, setServiceLog] = useState<{ path: string; content: string; truncated: boolean } | null>(null);
   const [serviceLogError, setServiceLogError] = useState<string | null>(null);
   const serviceLogRef = useRef<HTMLPreElement>(null);
+  const logAtBottomRef = useRef(true);
   const [appVersion, setAppVersion] = useState<string>("");
   const [synapseVersion, setSynapseVersion] = useState<string>("");
 
@@ -733,25 +684,22 @@ export function App() {
   const [imHealth, setImHealth] = useState<Record<string, {
     status: string; error: string | null; lastCheckedAt: string | null;
   }>>({});
-  const [healthChecking, setHealthChecking] = useState<string | null>(null); // "all" | endpoint name
-  const [imChecking, setImChecking] = useState(false);
-
-  // ── 端点连接测试（弹窗内，前端直连服务商 API，不依赖后端） ──
-  const [connTesting, setConnTesting] = useState(false);
-  const [connTestResult, setConnTestResult] = useState<{
-    ok: boolean; latencyMs: number; error?: string; modelCount?: number;
-  } | null>(null);
-
-  // unified env draft (full coverage)
-  const [envDraft, setEnvDraft] = useState<EnvMap>({});
-  const envLoadedForWs = useRef<string | null>(null);
+  const {
+    envDraft, setEnvDraft,
+    secretShown, setSecretShown,
+    ensureEnvLoaded, saveEnvKeys,
+    resetEnvLoaded, markEnvLoaded,
+  } = useEnvManager({
+    currentWorkspaceId,
+    shouldUseHttpApi,
+    httpApiBase,
+  });
 
   const envFieldCtx = useMemo<EnvFieldCtx>(() => ({
     envDraft, setEnvDraft, secretShown, setSecretShown, busy, t,
   }), [envDraft, secretShown, busy, t]);
 
   async function refreshAll() {
-    setError(null);
     if (IS_TAURI) {
       const res = await invoke<PlatformInfo>("get_platform_info");
       setInfo(res);
@@ -844,6 +792,7 @@ export function App() {
                 context_window: Number(e?.context_window || 200000),
                 timeout: Number(e?.timeout || 180),
                 capabilities: Array.isArray(e?.capabilities) ? e.capabilities.map((x: any) => String(x)) : [],
+                enabled: e?.enabled !== false,
               })));
             }
           } catch { /* ignore */ }
@@ -877,7 +826,7 @@ export function App() {
                 const autoStarting = await invoke<boolean>("is_backend_auto_starting");
                 if (autoStarting) {
                   handled = true;
-                  setBusy(t("topbar.autoStarting"));
+                  const _busyAutoStart = notifyLoading(t("topbar.autoStarting"));
                   let serviceReady = false;
                   let spawnDone = false;
                   let postSpawnWait = 0;
@@ -905,12 +854,12 @@ export function App() {
                       heartbeatFailCount.current = 0;
                       setTimeout(() => { visibilityGraceRef.current = false; }, 10000);
                     }
-                    setBusy(null);
+                    dismissLoading(_busyAutoStart);
                     if (serviceReady) {
-                      setNotice(t("topbar.autoStartSuccess"));
+                      notifySuccess(t("topbar.autoStartSuccess"));
                     } else {
                       setServiceStatus({ running: false, pid: null, pidFile: "" });
-                      setError(t("topbar.autoStartFail"));
+                      notifyError(t("topbar.autoStartFail"));
                     }
                   }
                 }
@@ -922,7 +871,7 @@ export function App() {
           }
         }
       } catch (e) {
-        if (!cancelled) setError(String(e));
+        if (!cancelled) notifyError(String(e));
       }
     })();
     return () => {
@@ -931,25 +880,50 @@ export function App() {
   }, []);
 
   // ── 页面可见性监听（休眠/睡眠恢复感知）──
+  // Capacitor 环境下 visibilitychange 和 appStateChange 可能同时触发，
+  // 用 lastResumeRef 做 3 秒去重避免 WS 双重重连。
+  const lastResumeRef = useRef(0);
+  const handleAppResumed = useCallback(() => {
+    const now = Date.now();
+    if (now - lastResumeRef.current < 3000) return;
+    lastResumeRef.current = now;
+        visibilityGraceRef.current = true;
+        heartbeatFailCount.current = 0;
+        setTimeout(() => { visibilityGraceRef.current = false; }, 10000);
+        reconnectWsNow();
+        window.dispatchEvent(new Event("synapse_app_resumed"));
+        logger.info("App", "Resumed from background");
+  }, []);
+
   useEffect(() => {
     const handler = () => {
       const visible = !document.hidden;
       setPageVisible(visible);
-      if (visible) {
-        // 从 hidden 恢复：给 10 秒宽限期，前 2 次心跳失败不计
-        visibilityGraceRef.current = true;
-        heartbeatFailCount.current = 0;
-        setTimeout(() => { visibilityGraceRef.current = false; }, 10000);
-        // 立即重连 WebSocket（后台期间连接可能已断开）
-        reconnectWsNow();
-        // 通知 ChatView 等组件检查进行中的 SSE 流
-        window.dispatchEvent(new Event("synapse_app_resumed"));
-        logger.info("App", "Resumed from background");
-      }
+      if (visible) handleAppResumed();
     };
     document.addEventListener("visibilitychange", handler);
     return () => document.removeEventListener("visibilitychange", handler);
-  }, []);
+  }, [handleAppResumed]);
+
+  // ── Capacitor: 原生 appStateChange 补充 ──
+  // iOS WKWebView 进入后台时可能被系统挂起，visibilitychange 不一定触发。
+  // @capacitor/app 提供原生级生命周期事件，100% 可靠。
+  useEffect(() => {
+    if (!IS_CAPACITOR) return;
+    let cancelled = false;
+    let removeListener: (() => void) | undefined;
+    import("@capacitor/app").then(({ App }) => {
+      if (cancelled) return;
+      App.addListener("appStateChange", ({ isActive }) => {
+        setPageVisible(isActive);
+        if (isActive) handleAppResumed();
+      }).then((handle) => {
+        if (cancelled) { handle.remove(); return; }
+        removeListener = () => handle.remove();
+      });
+    }).catch(() => {});
+    return () => { cancelled = true; removeListener?.(); };
+  }, [handleAppResumed]);
 
   // ── 心跳轮询：三级状态机 + 防误判 ──
   useEffect(() => {
@@ -1061,6 +1035,23 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentWorkspaceId, venvDir]);
 
+  // ── Global shortcut: Ctrl+Shift+A to summon window ──
+  useEffect(() => {
+    if (!IS_TAURI) return;
+    let unregister: (() => void) | null = null;
+    (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const win = getCurrentWindow();
+        unregister = await registerGlobalShortcut("CmdOrCtrl+Shift+A", () => {
+          win.show().catch(() => {});
+          win.setFocus().catch(() => {});
+        });
+      } catch { /* global-shortcut not available */ }
+    })();
+    return () => { if (unregister) unregister(); };
+  }, []);
+
   // streaming pip logs (install step)
   useEffect(() => {
     let unlisten: null | (() => void) = null;
@@ -1091,25 +1082,6 @@ export function App() {
     };
   }, []);
 
-  // module install progress events → feed into detail log
-  useEffect(() => {
-    let unlisten: null | (() => void) = null;
-    (async () => {
-      unlisten = await listen("module-install-progress", (ev) => {
-        const p = ev.payload as any;
-        if (!p || typeof p !== "object") return;
-        const msg = String(p.message || "");
-        const status = String(p.status || "");
-        const moduleId = String(p.moduleId || "");
-        if (msg) {
-          const prefix = status === "retrying" ? "🔄" : status === "error" ? "❌" : status === "done" ? "✅" : status === "warning" ? "⚠️" : status === "restart-hint" ? "🔁" : "📦";
-          setObDetailLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${prefix} [${moduleId}] ${msg}`]);
-        }
-      });
-    })();
-    return () => { if (unlisten) unlisten(); };
-  }, []);
-
   // tray quit failed: service still running
   useEffect(() => {
     let unlisten: null | (() => void) = null;
@@ -1118,7 +1090,7 @@ export function App() {
         const p = ev.payload as any;
         const msg = String(p?.message || "退出失败：后台服务仍在运行。请先停止服务。");
         setView("status");
-        setError(msg);
+        notifyError(msg);
         try {
           await refreshStatus(undefined, undefined, true);
         } catch {
@@ -1143,14 +1115,6 @@ export function App() {
         } else if (p.kind === "line") {
           const text = String(p.text || "");
           if (text) setInstallLiveLog((prev) => { const n = prev + text; return n.length > 80_000 ? n.slice(n.length - 80_000) : n; });
-        }
-      } else if (event === "module-install-progress") {
-        const msg = String(p.message || "");
-        const status = String(p.status || "");
-        const moduleId = String(p.moduleId || "");
-        if (msg) {
-          const prefix = status === "retrying" ? "🔄" : status === "error" ? "❌" : status === "done" ? "✅" : status === "warning" ? "⚠️" : status === "restart-hint" ? "🔁" : "📦";
-          setObDetailLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${prefix} [${moduleId}] ${msg}`]);
         }
       } else if (
         event === "service_status_changed" || event === "skills:changed" ||
@@ -1192,63 +1156,104 @@ export function App() {
     if (venvStatus.includes("安装完成")) setSynapseInstalled(true);
   }, [venvStatus]);
 
-  async function ensureEnvLoaded(workspaceId: string): Promise<EnvMap> {
-    if (envLoadedForWs.current === workspaceId) return envDraft;
-    let parsed: EnvMap = {};
-
-    if (shouldUseHttpApi()) {
-      try {
-        const res = await safeFetch(`${httpApiBase()}/api/config/env`);
-        const data = await res.json();
-        parsed = data.env || {};
-      } catch {
-        if (IS_TAURI && workspaceId) {
-          try {
-            const content = await invoke<string>("workspace_read_file", { workspaceId, relativePath: ".env" });
-            parsed = parseEnv(content);
-          } catch { parsed = {}; }
-        }
+  async function doCreateWorkspace() {
+    const _busyId = notifyLoading("创建工作区...");
+    try {
+      if (IS_WEB) {
+        notifyError("工作区管理暂不支持 Web 模式，请在桌面端操作");
+        return;
+      } else {
+        const ws = await invoke<WorkspaceSummary>("create_workspace", {
+          id: newWsId,
+          name: newWsName.trim(),
+          setCurrent: true,
+        });
+        await refreshAll();
+        setCurrentWorkspaceId(ws.id);
       }
-    } else if (IS_TAURI && workspaceId) {
-      try {
-        const content = await invoke<string>("workspace_read_file", { workspaceId, relativePath: ".env" });
-        parsed = parseEnv(content);
-      } catch { parsed = {}; }
+      resetEnvLoaded();
+      notifySuccess(`已创建工作区：${newWsName.trim()}（${newWsId}）`);
+    } finally {
+      dismissLoading(_busyId);
     }
-    // Set sensible defaults for first-time setup
-    const defaults: Record<string, string> = {
-      MCP_BROWSER_ENABLED: "true",
-      DESKTOP_ENABLED: "true",
-      MCP_ENABLED: "true",
-    };
-    for (const [dk, dv] of Object.entries(defaults)) {
-      if (!(dk in parsed)) parsed[dk] = dv;
-    }
-    setEnvDraft(parsed);
-    envLoadedForWs.current = workspaceId;
-    return parsed;
   }
 
   async function doSetCurrentWorkspace(id: string) {
-    setBusy("切换工作区...");
-    setError(null);
+    const _busyId = notifyLoading("切换工作区...");
     try {
       const wasRunning = serviceStatus?.running;
       if (IS_WEB) {
-        setError("工作区切换暂不支持 Web 模式，请在桌面端操作");
+        notifyError("工作区切换暂不支持 Web 模式，请在桌面端操作");
         return;
       } else {
         await invoke("set_current_workspace", { id });
       }
       await refreshAll();
-      envLoadedForWs.current = null;
+      resetEnvLoaded();
       if (wasRunning) {
-        setNotice(t("topbar.switchWorkspaceDoneRestart", { id }));
+        notifySuccess(t("topbar.switchWorkspaceDoneRestart", { id }));
       } else {
-        setNotice(t("topbar.switchWorkspaceDone", { id }));
+        notifySuccess(t("topbar.switchWorkspaceDone", { id }));
       }
     } finally {
-      setBusy(null);
+      dismissLoading(_busyId);
+    }
+  }
+
+  async function doDetectPython() {
+    const _busyId = notifyLoading("检测项目 Python 环境...");
+    try {
+      const cands = await invoke<PythonCandidate[]>("detect_python");
+      setPythonCandidates(cands);
+      const firstUsable = cands.findIndex((c) => c.isUsable);
+      setSelectedPythonIdx(firstUsable);
+      notifySuccess(firstUsable >= 0 ? "已找到可用 Python（3.11+）" : "未找到可用内置 Python（请检查安装包完整性）");
+    } catch (e) {
+      notifyError(String(e));
+    } finally {
+      dismissLoading(_busyId);
+    }
+  }
+
+  async function doInstallEmbeddedPython() {
+    const _busyId = notifyLoading("检查内置 Python...");
+    try {
+      setVenvStatus("检查内置 Python 中...");
+      const r = await invoke<BundledPythonInstallResult>("install_bundled_python", { pythonSeries: "3.11" });
+      const cand: PythonCandidate = {
+        command: r.pythonCommand,
+        versionText: `bundled (${r.tag}): ${r.assetName}`,
+        isUsable: true,
+      };
+      setPythonCandidates((prev) => [cand, ...prev.filter((p) => p.command.join(" ") !== cand.command.join(" "))]);
+      setSelectedPythonIdx(0);
+      setVenvStatus(`内置 Python 就绪：${r.pythonPath}`);
+      notifySuccess("内置 Python 可用，可以继续创建 venv");
+    } catch (e) {
+      notifyError(String(e));
+      setVenvStatus(`内置 Python 不可用：${String(e)}`);
+    } finally {
+      dismissLoading(_busyId);
+    }
+  }
+
+  async function doCreateVenv() {
+    if (!canUsePython) return;
+    const _busyId = notifyLoading("创建 venv...");
+    try {
+      setVenvStatus("创建 venv 中...");
+      const py = pythonCandidates[selectedPythonIdx].command;
+      await invoke<string>("create_venv", { pythonCommand: py, venvDir });
+      setVenvStatus(`venv 就绪：${venvDir}`);
+      setVenvReady(true);
+      setSynapseInstalled(false);
+      notifySuccess("venv 已准备好，可以安装 Synapse");
+      await persistPythonEnvConfig(venvDir);
+    } catch (e) {
+      notifyError(String(e));
+      setVenvStatus(`创建 venv 失败：${String(e)}`);
+    } finally {
+      dismissLoading(_busyId);
     }
   }
 
@@ -1269,52 +1274,136 @@ export function App() {
     }
   }
 
-  async function executeRepairPython(forceRebuild: boolean) {
-    setError(null);
-    setNotice(null);
-    setRepairStage("");
-    setRepairPercent(0);
-    setRepairDetail("");
-    setBusy(t("config.pyRepairRunning"));
-
-    const unlisten = await listen("python_repair_event", (ev) => {
-      const p = ev.payload as any;
-      if (!p || typeof p !== "object") return;
-      if (p.stage) setRepairStage(String(p.stage));
-      if (typeof p.percent === "number") setRepairPercent(p.percent);
-      if (p.detail) setRepairDetail(String(p.detail));
-    });
-
+  async function doCreateVenvFromPython() {
+    if (!canUsePython) return;
+    const _busyId = notifyLoading(t("config.pyCreatingVenv"));
     try {
-      const d = await invoke<NonNullable<typeof pyDiag>>("repair_python_env", { venvDir, forceRebuild });
-      setPyDiag(d);
-      if (d && d.summary === "healthy") {
-        setNotice(t("config.pyRepairDone"));
-        setVenvReady(true);
-        const synapseOk = d.contracts.some((c) => c.id === "C3_SYNAPSE_IN_VENV" && c.status === "pass");
-        setSynapseInstalled(synapseOk);
-        await persistPythonEnvConfig(venvDir);
-        try {
-          const cands = await invoke<PythonCandidate[]>("detect_python");
-          setPythonCandidates(cands);
-          const firstUsable = cands.findIndex((c: PythonCandidate) => c.isUsable);
-          setSelectedPythonIdx(firstUsable);
-        } catch { /* best-effort */ }
-      } else {
-        const failed = d?.contracts?.filter((c) => c.status !== "pass").map((c) => `${c.code}`).join("; ");
-        setError(t("config.pyRepairFail") + (failed ? `: ${failed}` : ""));
+      setVenvStatus(t("config.pyCreatingVenv"));
+      const py = pythonCandidates[selectedPythonIdx].command;
+      await invoke<string>("create_venv", { pythonCommand: py, venvDir });
+      setVenvStatus(t("config.pyVenvCreated", { path: venvDir }));
+      setVenvReady(true);
+      setSynapseInstalled(false);
+      await persistPythonEnvConfig(venvDir);
+      notifySuccess(t("config.pyVenvReady"));
+    } catch (e) {
+      notifyError(String(e));
+      setVenvStatus(t("config.pyVenvCreateFail") + `: ${String(e)}`);
+    } finally {
+      dismissLoading(_busyId);
+    }
+  }
+
+  async function doFetchPypiVersions() {
+    setPypiVersionsLoading(true);
+    setPypiVersions([]);
+    try {
+      const raw = await invoke<string>("fetch_pypi_versions", {
+        package: "synapse",
+        indexUrl: indexUrl.trim() ? indexUrl.trim() : null,
+      });
+      const list = JSON.parse(raw) as string[];
+      setPypiVersions(list);
+      // Auto-select: match Setup Center version if available
+      if (appVersion && list.includes(appVersion)) {
+        setSelectedPypiVersion(appVersion);
+      } else if (list.length > 0) {
+        setSelectedPypiVersion(list[0]); // latest
+      }
+    } catch (e: any) {
+      notifyError(`获取 PyPI 版本列表失败：${e}`);
+    } finally {
+      setPypiVersionsLoading(false);
+    }
+  }
+
+  async function doSetupVenvAndInstallSynapse() {
+    if (!canUsePython) {
+      notifyError("请先在 Python 步骤安装/检测并选择一个可用 Python（3.11+）。");
+      return;
+    }
+    setInstallLiveLog("");
+    setInstallProgress({ stage: "准备开始", percent: 1 });
+    const _busyId = notifyLoading("创建 venv 并安装 Synapse...");
+    try {
+      // 1) create venv (idempotent)
+      setInstallProgress({ stage: "创建 venv", percent: 10 });
+      setVenvStatus("创建 venv 中...");
+      const py = pythonCandidates[selectedPythonIdx].command;
+      await invoke<string>("create_venv", { pythonCommand: py, venvDir });
+      setVenvReady(true);
+      setSynapseInstalled(false);
+      setVenvStatus(`venv 就绪：${venvDir}`);
+      setInstallProgress({ stage: "venv 就绪", percent: 30 });
+      await persistPythonEnvConfig(venvDir);
+
+      // 2) pip install
+      setInstallProgress({ stage: "pip 安装", percent: 35 });
+      setVenvStatus("安装 Synapse 中（pip）...");
+      setInstallLog("");
+      const ex = extras.trim();
+      const extrasPart = ex ? `[${ex}]` : "";
+      const spec = (() => {
+        if (installSource === "github") {
+          const repo = githubRepo.trim() || "jyhk1314/synapse";
+          const ref = githubRef.trim() || "main";
+          const kind = githubRefType;
+          const url =
+            kind === "tag"
+              ? `https://github.com/${repo}/archive/refs/tags/${ref}.zip`
+              : `https://github.com/${repo}/archive/refs/heads/${ref}.zip`;
+          return `synapse${extrasPart} @ ${url}`;
+        }
+        if (installSource === "local") {
+          const p = localSourcePath.trim();
+          if (!p) {
+            throw new Error("请选择/填写本地源码路径（例如本仓库根目录）");
+          }
+          const url = toFileUrl(p);
+          if (!url) {
+            throw new Error("本地路径无效");
+          }
+          return `synapse${extrasPart} @ ${url}`;
+        }
+        // PyPI mode: append ==version if a specific version is selected
+        const ver = selectedPypiVersion.trim();
+        if (ver) {
+          return `synapse${extrasPart}==${ver}`;
+        }
+        return `synapse${extrasPart}`;
+      })();
+      const log = await invoke<string>("pip_install", {
+        venvDir,
+        packageSpec: spec,
+        indexUrl: indexUrl.trim() ? indexUrl.trim() : null,
+      });
+      setInstallLog(String(log || ""));
+      setSynapseInstalled(true);
+      setVenvStatus(`安装完成：${spec}`);
+      setInstallProgress({ stage: "安装完成", percent: 100 });
+      notifySuccess("Synapse 已安装，可以读取服务商列表并配置端点");
+
+      // 3) verify by attempting to list providers (makes failures visible early)
+      try {
+        await doLoadProviders();
+      } catch {
+        // ignore; doLoadProviders already sets error
       }
     } catch (e) {
-      setError(t("config.pyRepairFail") + `: ${String(e)}`);
+      const msg = String(e);
+      notifyError(msg);
+      setVenvStatus(`安装失败：${msg}`);
+      setInstallLog("");
+      if (msg.includes("缺少 Setup Center 所需模块") || msg.includes("No module named 'synapse.setup_center'")) {
+        notifySuccess("你安装到的 Synapse 不包含 Setup Center 模块。建议切换“安装来源”为 GitHub 或 本地源码，然后重新安装。");
+      }
     } finally {
-      unlisten();
-      setBusy(null);
+      dismissLoading(_busyId);
     }
   }
 
   async function doLoadProviders() {
-    setError(null);
-    setBusy("读取服务商列表...");
+    const _busyId = notifyLoading("读取服务商列表...");
     try {
       let parsed: ProviderInfo[] = [];
 
@@ -1347,10 +1436,13 @@ export function App() {
           if (!slugSet.has(bp.slug)) parsed.push(bp);
         }
       }
+      const bottomSlugs = new Set(["ollama", "lmstudio", "custom"]);
+      const top = parsed.filter(p => !bottomSlugs.has(p.slug));
+      const bottom = ["ollama", "lmstudio", "custom"]
+        .map(s => parsed.find(p => p.slug === s))
+        .filter(Boolean) as ProviderInfo[];
+      parsed = [...top, ...bottom];
       setProviders(parsed);
-      const first = parsed[0]?.slug ?? "";
-      setProviderSlug((prev) => prev || first);
-      setError(null);
 
       // 非关键：获取版本号（仅后端未运行时尝试 venv 方式）
       if (!shouldUseHttpApi()) {
@@ -1364,249 +1456,18 @@ export function App() {
     } catch (e) {
       logger.warn("App", "doLoadProviders failed", { error: String(e) });
       if (providers.length === 0) {
-        setProviders(BUILTIN_PROVIDERS);
-        const first = BUILTIN_PROVIDERS[0]?.slug ?? "";
-        setProviderSlug((prev) => prev || first);
-        setError(null);
+        const bottomSlugs2 = new Set(["ollama", "lmstudio", "custom"]);
+        const top2 = BUILTIN_PROVIDERS.filter(p => !bottomSlugs2.has(p.slug));
+        const bottom2 = ["ollama", "lmstudio", "custom"]
+          .map(s => BUILTIN_PROVIDERS.find(p => p.slug === s))
+          .filter(Boolean) as ProviderInfo[];
+        const sorted = [...top2, ...bottom2];
+        setProviders(sorted);
       }
     } finally {
-      setBusy(null);
+      dismissLoading(_busyId);
     }
   }
-
-  useEffect(() => {
-    if (!selectedProvider) return;
-    // Coding Plan：根据 provider 的 coding_plan_api_type 切换协议与 URL
-    if (codingPlanMode && selectedProvider.coding_plan_base_url) {
-      setApiType((selectedProvider.coding_plan_api_type as "openai" | "anthropic") || "anthropic");
-      if (!baseUrlTouched) setBaseUrl(selectedProvider.coding_plan_base_url);
-      setAddEpContextWindow(200000);
-      setAddEpMaxTokens((selectedProvider as ProviderInfo).default_max_tokens ?? 8192);
-    } else {
-      const t = (selectedProvider.api_type as "openai" | "anthropic") || "openai";
-      setApiType(t);
-      if (!baseUrlTouched) setBaseUrl(selectedProvider.default_base_url || "");
-      setAddEpContextWindow((selectedProvider as ProviderInfo).default_context_window ?? 200000);
-      setAddEpMaxTokens((selectedProvider as ProviderInfo).default_max_tokens ?? 0);
-    }
-    const suggested = selectedProvider.api_key_env_suggestion || envKeyFromSlug(selectedProvider.slug);
-    const used = new Set(Object.keys(envDraft || {}));
-    for (const ep of savedEndpoints) {
-      if (ep.api_key_env) used.add(ep.api_key_env);
-    }
-    if (!apiKeyEnvTouched) {
-      setApiKeyEnv(nextEnvKeyName(suggested, used));
-    }
-    const autoName = suggestEndpointName(selectedProvider.slug, selectedModelId);
-    if (!endpointNameTouched) {
-      setEndpointName(autoName);
-    }
-    if (isLocalProvider(selectedProvider) && !apiKeyValue.trim()) {
-      setApiKeyValue(localProviderPlaceholderKey(selectedProvider));
-    }
-  }, [selectedProvider, selectedModelId, envDraft, savedEndpoints, apiKeyEnvTouched, endpointNameTouched, baseUrlTouched, codingPlanMode]);
-
-  // When user switches provider via dropdown, reset auto-naming to follow the new provider.
-  useEffect(() => {
-    if (!providerSlug) return;
-    if (editModalOpen) return;
-    setApiKeyEnvTouched(false);
-    setEndpointNameTouched(false);
-    setBaseUrlTouched(false);
-    setCodingPlanMode(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [providerSlug]);
-
-  // MiniMax / 火山 Coding Plan / DashScope Coding Plan / LongCat 不可靠提供 /models：进入时直接提供内置候选，并允许继续手填。
-  useEffect(() => {
-    if (!selectedProvider) return;
-    const effectiveBaseUrl = (codingPlanMode ? selectedProvider.coding_plan_base_url : selectedProvider.default_base_url) || "";
-    if (isVolcCodingPlanProvider(selectedProvider.slug, effectiveBaseUrl)) {
-      setModels(volcCodingPlanFallbackModels(selectedProvider.slug));
-      return;
-    }
-    if (isDashScopeCodingPlanProvider(selectedProvider.slug, effectiveBaseUrl)) {
-      setModels(dashScopeCodingPlanFallbackModels(selectedProvider.slug));
-      return;
-    }
-    if (isLongCatProvider(selectedProvider.slug, effectiveBaseUrl)) {
-      setModels(longCatFallbackModels(selectedProvider.slug));
-      return;
-    }
-    if (isMiniMaxProvider(selectedProvider.slug, effectiveBaseUrl)) {
-      setModels(miniMaxFallbackModels(selectedProvider.slug));
-      return;
-    }
-  }, [selectedProvider, codingPlanMode]);
-
-  async function doFetchModels() {
-    setError(null);
-    setModels([]);
-    setSelectedModelId(""); // clear search / selection
-    setBusy("拉取模型列表...");
-    try {
-      // 本地服务商自动使用 placeholder key
-      const effectiveKey = apiKeyValue.trim() || (isLocalProvider(selectedProvider) ? localProviderPlaceholderKey(selectedProvider) : "");
-      logger.debug("App", "doFetchModels", { apiType, baseUrl, slug: selectedProvider?.slug, keyLen: effectiveKey?.length, httpApi: shouldUseHttpApi(), isLocal: isLocalProvider(selectedProvider) });
-      const parsed = await fetchModelListUnified({
-        apiType,
-        baseUrl,
-        providerSlug: selectedProvider?.slug ?? null,
-        apiKey: effectiveKey,
-      });
-      setModels(parsed);
-      setSelectedModelId("");
-      if (parsed.length > 0) {
-        setNotice(t("llm.fetchSuccess", { count: parsed.length }));
-      } else {
-        setError(t("llm.fetchErrorEmpty"));
-      }
-      setCapTouched(false);
-    } catch (e: any) {
-      logger.error("App", "doFetchModels error", { error: String(e) });
-      const raw = String(e?.message || e);
-      setError(friendlyFetchError(raw, t, selectedProvider?.name));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  /**
-   * 测试端点连接（路由原则同上）：
-   *   后端运行中 → 走后端 /api/config/list-models，验证后端与配置参数的兼容性
-   *   后端未运行 → 前端直连服务商 /models API，仅验证 API Key 和地址有效性
-   */
-  async function doTestConnection(params: {
-    testApiType: string; testBaseUrl: string; testApiKey: string; testProviderSlug?: string | null;
-  }) {
-    setConnTesting(true);
-    setConnTestResult(null);
-    const t0 = performance.now();
-    try {
-      let modelCount = 0;
-      let httpApiFailed = false;
-      if (shouldUseHttpApi()) {
-        // ── 后端运行中 → 走后端 API（验证后端兼容性 + 热加载）──
-        try {
-          const base = httpApiBase();
-          const res = await safeFetch(`${base}/api/config/list-models`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              api_type: params.testApiType,
-              base_url: params.testBaseUrl,
-              provider_slug: params.testProviderSlug || null,
-              api_key: params.testApiKey,
-            }),
-            signal: AbortSignal.timeout(30_000),
-          });
-          const data = await res.json();
-          if (data.error) throw new Error(data.error);
-          const models = Array.isArray(data.models) ? data.models : (Array.isArray(data) ? data : []);
-          modelCount = models.length;
-        } catch (httpErr) {
-          const msg = String(httpErr);
-          if (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("AbortError")) {
-            logger.warn("App", "doTestConnection: HTTP API unreachable, falling back to direct", { error: String(httpErr) });
-            httpApiFailed = true;
-          } else {
-            throw httpErr;
-          }
-        }
-      }
-      if (!shouldUseHttpApi() || httpApiFailed) {
-        // ── 后端未运行 / 不可达 → 前端直连服务商 API ──
-        const result = await fetchModelsDirectly({
-          apiType: params.testApiType,
-          baseUrl: params.testBaseUrl,
-          providerSlug: params.testProviderSlug ?? null,
-          apiKey: params.testApiKey,
-        });
-        modelCount = result.length;
-      }
-      const latency = Math.round(performance.now() - t0);
-      setConnTestResult({ ok: true, latencyMs: latency, modelCount });
-    } catch (e) {
-      const latency = Math.round(performance.now() - t0);
-      const raw = String(e);
-      // 使用通用友好化函数，testProviderSlug 可用于定位本地服务名称
-      const provName = providers.find((p) => p.slug === params.testProviderSlug)?.name;
-      const errMsg = friendlyFetchError(raw, t, provName);
-      setConnTestResult({ ok: false, latencyMs: latency, error: errMsg });
-    } finally {
-      setConnTesting(false);
-    }
-  }
-
-  /**
-   * 通用模型列表拉取（路由原则同上）：
-   *   后端运行中 → 必须走后端 HTTP API（验证后端兼容性，capability 推断更精确）
-   *   后端未运行 → 本地回退链：Tauri invoke → 前端直连服务商 API
-   *
-   * ⚠ 维护提示：前端直连 fallback 使用 fetchModelsDirectly()，
-   *   其 capability 推断是 Python 端 infer_capabilities() 的简化版。
-   *   如需更精确的推断，服务启动后会自动走后端路径。
-   */
-  async function fetchModelListUnified(params: {
-    apiType: string; baseUrl: string; providerSlug: string | null; apiKey: string;
-  }): Promise<ListedModel[]> {
-    // ── 后端运行中 → HTTP API ──
-    logger.debug("App", "fetchModelListUnified", { shouldUseHttpApi: shouldUseHttpApi(), httpApiBase: httpApiBase() });
-    if (shouldUseHttpApi()) {
-      logger.debug("App", "fetchModelListUnified: using HTTP API");
-      try {
-        const res = await safeFetch(`${httpApiBase()}/api/config/list-models`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            api_type: params.apiType,
-            base_url: params.baseUrl,
-            provider_slug: params.providerSlug || null,
-            api_key: params.apiKey,
-          }),
-          signal: AbortSignal.timeout(30_000),
-        });
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
-        return Array.isArray(data.models) ? data.models : data;
-      } catch (httpErr) {
-        // 后端 API 不可达（端口冲突、未完全启动等），回退到 Tauri/直连
-        const msg = String(httpErr);
-        if (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("AbortError")) {
-          logger.warn("App", "fetchModelListUnified: HTTP API unreachable, falling back", { error: String(httpErr) });
-        } else {
-          // 非网络错误（如后端返回业务错误），直接抛出
-          throw httpErr;
-        }
-      }
-    }
-    // ── 后端未运行 / 后端不可达 → 本地回退 ──
-    // 回退 1：Tauri invoke → Python bridge（开发模式 / 有 venv 时）
-    try {
-      const raw = await invoke<string>("synapse_list_models", {
-        venvDir,
-        apiType: params.apiType,
-        baseUrl: params.baseUrl,
-        providerSlug: params.providerSlug,
-        apiKey: params.apiKey,
-      });
-      return JSON.parse(raw) as ListedModel[];
-    } catch (e) {
-      logger.warn("App", "synapse_list_models via Python bridge failed, using direct fetch", { error: String(e) });
-    }
-    // 回退 2：前端直连服务商 API（打包模式，无 venv，onboarding 阶段）
-    return fetchModelsDirectly(params);
-  }
-
-  // When selected model changes, default capabilities from fetched model unless user manually edited.
-  useEffect(() => {
-    if (capTouched) return;
-    const caps = models.find((m) => m.id === selectedModelId)?.capabilities ?? {};
-    const list = Object.entries(caps)
-      .filter(([, v]) => v)
-      .map(([k]) => k);
-    setCapSelected(list.length ? list : ["text"]);
-  }, [selectedModelId, models, capTouched]);
 
   async function loadSavedEndpoints() {
     if (!currentWorkspaceId && dataMode !== "remote") {
@@ -1638,17 +1499,11 @@ export function App() {
             input_price: Number.isFinite(Number(t?.input_price)) ? Number(t.input_price) : 0,
             output_price: Number.isFinite(Number(t?.output_price)) ? Number(t.output_price) : 0,
           })) : undefined,
+          enabled: e?.enabled !== false,
         }))
         .filter((e: any) => e.name);
       list.sort((a, b) => a.priority - b.priority);
       setSavedEndpoints(list);
-
-      const maxP = list.reduce((m, e) => Math.max(m, Number.isFinite(e.priority) ? e.priority : 0), 0);
-      // 用户希望“从主模型开始”：当没有端点时默认 priority=1；否则默认填最后一个+1。
-      // 并且删除端点后应立刻回收/重算，不要沿用删除前的累加值。
-      if (!isEditingEndpoint) {
-        setEndpointPriority(list.length === 0 ? 1 : maxP + 1);
-      }
 
       // Load compiler endpoints
       const compilerEps: EndpointDraft[] = (Array.isArray(parsed?.compiler_endpoints) ? parsed.compiler_endpoints : [])
@@ -1666,6 +1521,7 @@ export function App() {
           timeout: Number.isFinite(Number(e.timeout)) ? Number(e.timeout) : 30,
           capabilities: Array.isArray(e.capabilities) ? e.capabilities.map((x: any) => String(x)) : ["text"],
           note: e.note ? String(e.note) : null,
+          enabled: e?.enabled !== false,
         }))
         .sort((a: EndpointDraft, b: EndpointDraft) => a.priority - b.priority);
       setSavedCompilerEndpoints(compilerEps);
@@ -1686,6 +1542,7 @@ export function App() {
           timeout: Number.isFinite(Number(e.timeout)) ? Number(e.timeout) : 60,
           capabilities: Array.isArray(e.capabilities) ? e.capabilities.map((x: any) => String(x)) : ["text"],
           note: e.note ? String(e.note) : null,
+          enabled: e?.enabled !== false,
         }))
         .sort((a: EndpointDraft, b: EndpointDraft) => a.priority - b.priority);
       setSavedSttEndpoints(sttEps);
@@ -1837,7 +1694,10 @@ export function App() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ content: JSON.parse(content) }),
           });
-          triggerConfigReload().catch(() => {});
+          const reloaded = await triggerConfigReload();
+          if (!reloaded) {
+            toast.warning("配置已保存，但热重载未生效。建议重启后端服务以应用更改。", { duration: 6000 });
+          }
           return;
         }
         if (relativePath === "data/skills.json") {
@@ -1871,28 +1731,34 @@ export function App() {
   /**
    * 通知运行中的后端热重载配置。
    * 仅在后端运行时调用有意义；后端未运行时静默跳过。
+   * 返回 true 表示重载成功，false 表示失败或后端未运行。
    */
-  async function triggerConfigReload(): Promise<void> {
-    if (!shouldUseHttpApi()) return; // 后端未运行，无需热加载
+  async function triggerConfigReload(): Promise<boolean> {
+    if (!shouldUseHttpApi()) return false;
     try {
-      await safeFetch(`${httpApiBase()}/api/config/reload`, { method: "POST", signal: AbortSignal.timeout(3000) });
-    } catch { /* reload not supported or transient error — that's ok */ }
+      const resp = await safeFetch(`${httpApiBase()}/api/config/reload`, {
+        method: "POST",
+        signal: AbortSignal.timeout(3000),
+      });
+      const data = await resp.json();
+      if (data.reloaded) return true;
+      logger.warn("App", `Config reload not applied: ${data.reason || "unknown"}`);
+      return false;
+    } catch {
+      return false;
+    }
   }
 
   /**
-   * 保存 .env 配置后触发服务重启，并轮询等待服务恢复。
-   * 如果服务未运行，仅保存不重启并提示。
+   * 纯重启：安装 IM 依赖 → 检测存活 → 触发重启 → 轮询恢复。
+   * 不含 env 保存逻辑，可独立调用（如 Bot 配置保存后重启）。
    */
-  async function applyAndRestart(keys: string[]): Promise<void> {
+  async function restartService(): Promise<void> {
     const base = httpApiBase();
-    setError(null);
-    setRestartOverlay({ phase: "saving" });
+    setRestartOverlay({ phase: "restarting" });
 
     try {
-      // Step 1: 保存配置
-      await saveEnvKeys(keys);
-
-      // Step 1.5: 自动安装已启用 IM 通道缺失的依赖（非阻塞，失败不影响重启）
+      // 自动安装已启用 IM 通道缺失的依赖（非阻塞，失败不影响重启）
       if (IS_TAURI && venvDir && currentWorkspaceId) {
         try {
           await invoke("synapse_ensure_channel_deps", {
@@ -1902,7 +1768,7 @@ export function App() {
         } catch { /* 非关键步骤，失败不影响流程 */ }
       }
 
-      // Step 2: 检测服务是否运行
+      // 检测服务是否运行
       let alive = false;
       try {
         const ping = await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(2000) });
@@ -1910,38 +1776,31 @@ export function App() {
       } catch { alive = false; }
 
       if (!alive) {
-        // 服务未运行，仅保存
         setRestartOverlay({ phase: "notRunning" });
         setTimeout(() => {
           setRestartOverlay(null);
-          setNotice(t("config.restartNotRunning"));
+          notifySuccess(t("config.restartNotRunning"));
         }, 2000);
         return;
       }
 
-      // Step 3: 触发重启
+      // 触发重启
       setRestartOverlay({ phase: "restarting" });
       const wsId = currentWorkspaceId || workspaces[0]?.id;
 
       if (IS_TAURI && wsId && venvDir && dataMode === "local") {
         // ── Tauri 本地模式：进程级重启（杀旧进程 → 启新进程） ──
-        // 比 Python 进程内重启更可靠，不受 Windows asyncio / 端口 TIME_WAIT 影响。
-
-        // 3a. 优雅关闭服务
         try {
           const shutRes = await fetch(`${base}/api/shutdown`, { method: "POST", signal: AbortSignal.timeout(2000) });
           if (shutRes.ok) await new Promise((r) => setTimeout(r, 1000));
         } catch { /* 请求可能因服务关闭而失败 */ }
 
-        // 3b. PID 级别兜底确保进程退出
         try {
           await invoke("synapse_service_stop", { workspaceId: wsId });
         } catch { /* PID 文件可能不存在 */ }
 
-        // 3c. 等待旧服务完全关闭
         await waitForServiceDown(base, 15000);
 
-        // 3d. 启动新进程
         setRestartOverlay({ phase: "waiting" });
         try {
           const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>(
@@ -1952,7 +1811,7 @@ export function App() {
           setRestartOverlay({ phase: "fail" });
           setTimeout(() => {
             setRestartOverlay(null);
-            setError(t("config.restartFail") + ": " + String(e));
+            notifyError(t("config.restartFail") + ": " + String(e));
           }, 2500);
           return;
         }
@@ -1962,11 +1821,10 @@ export function App() {
           await fetch(`${base}/api/config/restart`, { method: "POST", signal: AbortSignal.timeout(3000) });
         } catch { /* 请求可能因服务关闭而失败 */ }
 
-        // 等待服务关闭
         await waitForServiceDown(base, 15000);
       }
 
-      // Step 4: 轮询等待服务恢复
+      // 轮询等待服务恢复
       setRestartOverlay({ phase: "waiting" });
       const maxWait = IS_TAURI ? 60_000 : 30_000;
       const pollInterval = 1000;
@@ -1997,844 +1855,37 @@ export function App() {
         autoCheckEndpoints(apiBaseUrl);
         setTimeout(() => {
           setRestartOverlay(null);
-          setNotice(t("config.restartSuccess"));
+          notifySuccess(t("config.restartSuccess"));
         }, 1200);
       } else {
         setRestartOverlay({ phase: "fail" });
         setTimeout(() => {
           setRestartOverlay(null);
-          setError(t("config.restartFail"));
+          notifyError(t("config.restartFail"));
         }, 2500);
       }
     } catch (e) {
       setRestartOverlay(null);
-      setError(String(e));
+      notifyError(String(e));
     }
   }
 
-  function normalizePriority(n: any, fallback: number) {
-    const x = Number(n);
-    if (!Number.isFinite(x) || x <= 0) return fallback;
-    return Math.floor(x);
-  }
-
-  async function doFetchCompilerModels() {
-    const effectiveCompilerSlug = compilerProviderSlug === "__company__" ? COMPILER_COMPANY_DEFAULTS.provider : compilerProviderSlug;
-    const compilerSelectedProvider = providers.find((p) => p.slug === effectiveCompilerSlug) || null;
-    const isCompilerLocal = isLocalProvider(compilerSelectedProvider);
-    if (!compilerApiKeyValue.trim() && !isCompilerLocal) {
-      setError("请先填写编译端点的 API Key 值");
-      return;
-    }
-    if (!compilerBaseUrl.trim()) {
-      setError("请先填写编译端点的 Base URL");
-      return;
-    }
-    setError(null);
-    setCompilerModels([]);
-    setBusy("拉取编译端点模型列表...");
+  /**
+   * 保存 .env 配置后触发服务重启，并轮询等待服务恢复。
+   * 如果服务未运行，仅保存不重启并提示。
+   */
+  async function applyAndRestart(keys: string[]): Promise<void> {
+    setRestartOverlay({ phase: "saving" });
     try {
-      const effectiveCompilerKey = compilerApiKeyValue.trim() || (isCompilerLocal ? localProviderPlaceholderKey(compilerSelectedProvider) : "");
-      const parsed = await fetchModelListUnified({
-        apiType: compilerApiType,
-        baseUrl: compilerBaseUrl,
-        providerSlug: effectiveCompilerSlug || null,
-        apiKey: effectiveCompilerKey,
-      });
-      setCompilerModels(parsed);
-      setCompilerModel("");
-      if (parsed.length > 0) {
-        setNotice(t("llm.fetchSuccess", { count: parsed.length }));
-      } else {
-        setError(t("llm.fetchErrorEmpty"));
-      }
-    } catch (e: any) {
-      const raw = String(e?.message || e);
-      const cprov = providers.find((p) => p.slug === effectiveCompilerSlug);
-      setError(friendlyFetchError(raw, t, cprov?.name));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function doFetchSttModels() {
-    const sttSelectedProvider = providers.find((p) => p.slug === sttProviderSlug) || null;
-    const isSttLocal = isLocalProvider(sttSelectedProvider);
-    if (!sttApiKeyValue.trim() && !isSttLocal) {
-      setError("请先填写 STT 端点的 API Key 值");
-      return;
-    }
-    if (!sttBaseUrl.trim()) {
-      setError("请先填写 STT 端点的 Base URL");
-      return;
-    }
-    setError(null);
-    setSttModels([]);
-    setBusy("拉取 STT 端点模型列表...");
-    try {
-      const effectiveKey = sttApiKeyValue.trim() || (isSttLocal ? localProviderPlaceholderKey(sttSelectedProvider) : "");
-      const parsed = await fetchModelListUnified({
-        apiType: sttApiType,
-        baseUrl: sttBaseUrl,
-        providerSlug: sttProviderSlug || null,
-        apiKey: effectiveKey,
-      });
-      setSttModels(parsed);
-      setSttModel("");
-      if (parsed.length > 0) {
-        setNotice(t("llm.fetchSuccess", { count: parsed.length }));
-      } else {
-        setError(t("llm.fetchErrorEmpty"));
-      }
-    } catch (e: any) {
-      const raw = String(e?.message || e);
-      const sprov = providers.find((p) => p.slug === sttProviderSlug);
-      setError(friendlyFetchError(raw, t, sprov?.name));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function doSaveCompilerEndpoint(): Promise<boolean> {
-    if (!currentWorkspaceId && dataMode !== "remote") {
-      setError("请先创建/选择一个当前工作区");
-      return false;
-    }
-    const effectiveCompilerSlug = compilerProviderSlug === "__company__" ? COMPILER_COMPANY_DEFAULTS.provider : compilerProviderSlug;
-    if (!compilerModel.trim()) {
-      setError("请填写编译模型名称");
-      return false;
-    }
-    if (!compilerBaseUrl.trim()) {
-      setError("请填写编译端点的 Base URL");
-      return false;
-    }
-    if (!/^https?:\/\//i.test(compilerBaseUrl.trim())) {
-      setError("编译端点 Base URL 必须以 http:// 或 https:// 开头");
-      return false;
-    }
-    const compilerSelectedProvider = providers.find((p) => p.slug === effectiveCompilerSlug) || null;
-    const isCompilerLocal = isLocalProvider(compilerSelectedProvider);
-    // apiKeyEnv 兜底：即使用户没有手动编辑也能生成合理的环境变量名
-    const effectiveCompApiKeyEnv = compilerApiKeyEnv.trim()
-      || compilerSelectedProvider?.api_key_env_suggestion
-      || (compilerProviderSlug === "__company__" ? COMPILER_COMPANY_DEFAULTS.apiKeyEnv : envKeyFromSlug(compilerProviderSlug || "custom"));
-    const effectiveCompApiKeyValue = compilerApiKeyValue.trim() || (isCompilerLocal ? localProviderPlaceholderKey(compilerSelectedProvider) : "");
-    if (!isCompilerLocal && !effectiveCompApiKeyValue) {
-      setError("请填写编译端点的 API Key 值");
-      return false;
-    }
-    setBusy("写入编译端点...");
-    setError(null);
-    try {
-      // Write API key to .env — 遵循路由原则
-      const compilerEnvPayload = { entries: { [effectiveCompApiKeyEnv]: effectiveCompApiKeyValue } };
-      if (shouldUseHttpApi()) {
-        try {
-          await safeFetch(`${httpApiBase()}/api/config/env`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(compilerEnvPayload),
-          });
-        } catch {
-          if (IS_TAURI && currentWorkspaceId) {
-            await invoke("workspace_update_env", {
-              workspaceId: currentWorkspaceId,
-              entries: [{ key: effectiveCompApiKeyEnv, value: effectiveCompApiKeyValue }],
-            });
-          }
-        }
-      } else if (IS_TAURI && currentWorkspaceId) {
-        await invoke("workspace_update_env", {
-          workspaceId: currentWorkspaceId,
-          entries: [{ key: effectiveCompApiKeyEnv, value: effectiveCompApiKeyValue }],
-        });
-      }
-      setEnvDraft((e) => envSet(e, effectiveCompApiKeyEnv, effectiveCompApiKeyValue));
-
-      // Read existing JSON
-      let currentJson = "";
-      try {
-        currentJson = await readWorkspaceFile("data/llm_endpoints.json");
-      } catch { currentJson = ""; }
-      const base = currentJson ? JSON.parse(currentJson) : { endpoints: [], settings: {} };
-      base.compiler_endpoints = Array.isArray(base.compiler_endpoints) ? base.compiler_endpoints : [];
-
-      const baseName = (compilerEndpointName.trim() || `compiler-${effectiveCompilerSlug || "provider"}-${compilerModel.trim()}`).slice(0, 64);
-      const usedNames = new Set(base.compiler_endpoints.map((e: any) => String(e?.name || "")).filter(Boolean));
-      let name = baseName;
-      if (usedNames.has(name)) {
-        for (let i = 2; i < 10; i++) {
-          const n = `${baseName}-${i}`.slice(0, 64);
-          if (!usedNames.has(n)) { name = n; break; }
-        }
-      }
-
-      const endpoint = {
-        name,
-        provider: effectiveCompilerSlug || "custom",
-        api_type: compilerApiType,
-        base_url: compilerBaseUrl.trim(),
-        api_key_env: effectiveCompApiKeyEnv,
-        model: compilerModel.trim(),
-        priority: base.compiler_endpoints.length + 1,
-        max_tokens: 2048,
-        context_window: 200000,
-        timeout: 30,
-        capabilities: ["text"],
-      };
-      base.compiler_endpoints.push(endpoint);
-      base.compiler_endpoints.sort((a: any, b: any) => (Number(a?.priority) || 999) - (Number(b?.priority) || 999));
-
-      await writeWorkspaceFile("data/llm_endpoints.json", JSON.stringify(base, null, 2) + "\n");
-
-      // Reset form
-      setCompilerModel("");
-      setCompilerApiKeyValue("");
-      setCompilerEndpointName("");
-      setCompilerBaseUrl("");
-      setNotice(`编译端点 ${name} 已保存`);
-      await loadSavedEndpoints();
-      return true;
+      await saveEnvKeys(keys);
     } catch (e) {
-      setError(String(e));
-      return false;
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function doDeleteCompilerEndpoint(epName: string) {
-    if (!currentWorkspaceId && dataMode !== "remote") return;
-    setBusy("删除编译端点...");
-    setError(null);
-    try {
-      let currentJson = "";
-      try {
-        currentJson = await readWorkspaceFile("data/llm_endpoints.json");
-      } catch { currentJson = ""; }
-      const base = currentJson ? JSON.parse(currentJson) : { endpoints: [], settings: {} };
-      base.compiler_endpoints = Array.isArray(base.compiler_endpoints) ? base.compiler_endpoints : [];
-      base.compiler_endpoints = base.compiler_endpoints
-        .filter((e: any) => String(e?.name || "") !== epName)
-        .map((e: any, i: number) => ({ ...e, priority: i + 1 }));
-
-      await writeWorkspaceFile("data/llm_endpoints.json", JSON.stringify(base, null, 2) + "\n");
-
-      // Immediately update local state (don't rely solely on re-read which may be stale in remote mode)
-      setSavedCompilerEndpoints((prev) => prev.filter((e) => e.name !== epName));
-      setNotice(`编译端点 ${epName} 已删除`);
-
-      // Also re-read to sync fully (background)
-      loadSavedEndpoints().catch(() => {});
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function doSaveSttEndpoint(): Promise<boolean> {
-    if (!currentWorkspaceId && dataMode !== "remote") {
-      setError("请先创建/选择一个当前工作区");
-      return false;
-    }
-    if (!sttModel.trim()) {
-      setError("请填写 STT 模型名称");
-      return false;
-    }
-    if (!sttBaseUrl.trim()) {
-      setError("请填写 STT 端点的 Base URL");
-      return false;
-    }
-    if (!/^https?:\/\//i.test(sttBaseUrl.trim())) {
-      setError("STT 端点 Base URL 必须以 http:// 或 https:// 开头");
-      return false;
-    }
-    const sttSelectedProvider = providers.find((p) => p.slug === sttProviderSlug) || null;
-    const isSttLocal = isLocalProvider(sttSelectedProvider);
-    const effectiveSttApiKeyEnv = sttApiKeyEnv.trim()
-      || sttSelectedProvider?.api_key_env_suggestion
-      || envKeyFromSlug(sttProviderSlug || "custom");
-    const effectiveSttApiKeyValue = sttApiKeyValue.trim() || (isSttLocal ? localProviderPlaceholderKey(sttSelectedProvider) : "");
-    if (!isSttLocal && !effectiveSttApiKeyValue) {
-      setError("请填写 STT 端点的 API Key 值");
-      return false;
-    }
-    setBusy("保存 STT 端点...");
-    setError(null);
-    try {
-      const sttEnvPayload = { entries: { [effectiveSttApiKeyEnv]: effectiveSttApiKeyValue } };
-      if (shouldUseHttpApi()) {
-        try {
-          await safeFetch(`${httpApiBase()}/api/config/env`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(sttEnvPayload),
-          });
-        } catch {
-          if (IS_TAURI && currentWorkspaceId) {
-            await invoke("workspace_update_env", {
-              workspaceId: currentWorkspaceId,
-              entries: [{ key: effectiveSttApiKeyEnv, value: effectiveSttApiKeyValue }],
-            });
-          }
-        }
-      } else if (IS_TAURI && currentWorkspaceId) {
-        await invoke("workspace_update_env", {
-          workspaceId: currentWorkspaceId,
-          entries: [{ key: effectiveSttApiKeyEnv, value: effectiveSttApiKeyValue }],
-        });
-      }
-      setEnvDraft((e) => envSet(e, effectiveSttApiKeyEnv, effectiveSttApiKeyValue));
-
-      let currentJson = "";
-      try {
-        currentJson = await readWorkspaceFile("data/llm_endpoints.json");
-      } catch { currentJson = ""; }
-      const base = currentJson ? JSON.parse(currentJson) : { endpoints: [], settings: {} };
-      base.stt_endpoints = Array.isArray(base.stt_endpoints) ? base.stt_endpoints : [];
-
-      const baseName = (sttEndpointName.trim() || `stt-${sttProviderSlug || "provider"}-${sttModel.trim()}`).slice(0, 64);
-      const usedNames = new Set(base.stt_endpoints.map((e: any) => String(e?.name || "")).filter(Boolean));
-      let name = baseName;
-      if (usedNames.has(name)) {
-        for (let i = 2; i < 10; i++) {
-          const candidate = `${baseName}-${i}`.slice(0, 64);
-          if (!usedNames.has(candidate)) { name = candidate; break; }
-        }
-      }
-
-      const endpoint = {
-        name,
-        provider: sttProviderSlug || "custom",
-        api_type: sttApiType,
-        base_url: sttBaseUrl.trim(),
-        api_key_env: effectiveSttApiKeyEnv,
-        model: sttModel.trim(),
-        priority: base.stt_endpoints.length + 1,
-        max_tokens: 0,
-        context_window: 0,
-        timeout: 60,
-        capabilities: ["text"],
-      };
-      base.stt_endpoints.push(endpoint);
-      base.stt_endpoints.sort((a: any, b: any) => (Number(a?.priority) || 999) - (Number(b?.priority) || 999));
-
-      await writeWorkspaceFile("data/llm_endpoints.json", JSON.stringify(base, null, 2) + "\n");
-
-      setSttModel("");
-      setSttApiKeyValue("");
-      setSttEndpointName("");
-      setSttBaseUrl("");
-      setSttModels([]);
-      setNotice(`STT 端点 ${name} 已保存`);
-      await loadSavedEndpoints();
-      return true;
-    } catch (e) {
-      setError(String(e));
-      return false;
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function doDeleteSttEndpoint(epName: string) {
-    if (!currentWorkspaceId && dataMode !== "remote") return;
-    setBusy("删除 STT 端点...");
-    setError(null);
-    try {
-      let currentJson = "";
-      try {
-        currentJson = await readWorkspaceFile("data/llm_endpoints.json");
-      } catch { currentJson = ""; }
-      const base = currentJson ? JSON.parse(currentJson) : { endpoints: [], settings: {} };
-      base.stt_endpoints = Array.isArray(base.stt_endpoints) ? base.stt_endpoints : [];
-      base.stt_endpoints = base.stt_endpoints
-        .filter((e: any) => String(e?.name || "") !== epName)
-        .map((e: any, i: number) => ({ ...e, priority: i + 1 }));
-
-      await writeWorkspaceFile("data/llm_endpoints.json", JSON.stringify(base, null, 2) + "\n");
-
-      setSavedSttEndpoints((prev) => prev.filter((e) => e.name !== epName));
-      setNotice(`STT 端点 ${epName} 已删除`);
-
-      loadSavedEndpoints().catch(() => {});
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function doReorderByNames(orderedNames: string[]) {
-    if (!currentWorkspaceId) return;
-    setError(null);
-    setBusy("保存排序...");
-    try {
-      const { endpoints, settings } = await readEndpointsJson();
-      const map = new Map<string, any>();
-      for (const e of endpoints) {
-        const name = String(e?.name || "");
-        if (name) map.set(name, e);
-      }
-      const nextEndpoints: any[] = [];
-      let p = 1;
-      for (const name of orderedNames) {
-        const e = map.get(name);
-        if (!e) continue;
-        e.priority = p++;
-        nextEndpoints.push(e);
-        map.delete(name);
-      }
-      // append leftovers (if any) preserving original order, after the explicit list
-      for (const e of endpoints) {
-        const name = String(e?.name || "");
-        if (!name) continue;
-        if (map.has(name)) {
-          const ee = map.get(name);
-          ee.priority = p++;
-          nextEndpoints.push(ee);
-          map.delete(name);
-        }
-      }
-      await writeEndpointsJson(nextEndpoints, settings);
-      setNotice("已保存端点顺序（priority 已更新）");
-      await loadSavedEndpoints();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function doSetPrimaryEndpoint(name: string) {
-    const names = savedEndpoints.map((e) => e.name);
-    const idx = names.indexOf(name);
-    if (idx < 0) return;
-    const next = [name, ...names.filter((n) => n !== name)];
-    await doReorderByNames(next);
-  }
-
-  async function doStartEditEndpoint(name: string) {
-    const ep = savedEndpoints.find((e) => e.name === name);
-    if (!ep) return;
-    // Ensure env variables are loaded so API Key values are available in the edit modal
-    if (currentWorkspaceId) {
-      await ensureEnvLoaded(currentWorkspaceId);
-    } else if (dataMode === "remote") {
-      await ensureEnvLoaded("__remote__");
-    }
-    setEditingOriginalName(name);
-    setEditDraft({
-      name: ep.name,
-      priority: normalizePriority(ep.priority, 1),
-      providerSlug: ep.provider || "",
-      apiType: (ep.api_type as any) || "openai",
-      baseUrl: ep.base_url || "",
-      apiKeyEnv: ep.api_key_env || "",
-      apiKeyValue: "",
-      modelId: ep.model || "",
-      caps: Array.isArray(ep.capabilities) && ep.capabilities.length ? ep.capabilities : ["text"],
-      maxTokens: typeof ep.max_tokens === "number" ? ep.max_tokens : 0,
-      contextWindow: typeof ep.context_window === "number" ? ep.context_window : 200000,
-      timeout: typeof ep.timeout === "number" ? ep.timeout : 180,
-      rpmLimit: typeof ep.rpm_limit === "number" ? ep.rpm_limit : 0,
-      pricingTiers: Array.isArray(ep.pricing_tiers) ? ep.pricing_tiers.map((t: any) => ({
-        max_input: Number.isFinite(Number(t?.max_input)) ? Number(t.max_input) : 0,
-        input_price: Number.isFinite(Number(t?.input_price)) ? Number(t.input_price) : 0,
-        output_price: Number.isFinite(Number(t?.output_price)) ? Number(t.output_price) : 0,
-      })) : [],
-    });
-    setEditModalOpen(true);
-    setConnTestResult(null);
-    setNotice(null);
-  }
-
-  function resetEndpointEditor() {
-    setEditingOriginalName(null);
-    setEditDraft(null);
-    setEditModalOpen(false);
-    setEditModels([]);
-    setSecretShown((m) => ({ ...m, __EDIT_EP_KEY: false }));
-    setCodingPlanMode(false);
-  }
-
-  async function doFetchEditModels() {
-    if (!editDraft) return;
-    const editProvider = providers.find((p) => p.slug === editDraft.providerSlug);
-    const isEditLocal = isLocalProvider(editProvider);
-    const key = editDraft.apiKeyValue.trim() || envGet(envDraft, editDraft.apiKeyEnv) || (isEditLocal ? localProviderPlaceholderKey(editProvider) : "");
-    if (!isEditLocal && !key) {
-      setError("请先填写 API Key 值（或确保对应环境变量已有值）");
+      setRestartOverlay(null);
+      notifyError(String(e));
       return;
     }
-    if (!editDraft.baseUrl.trim()) {
-      setError("请先填写 Base URL");
-      return;
-    }
-    setError(null);
-    setBusy("拉取模型列表...");
-    try {
-      const parsed = await fetchModelListUnified({
-        apiType: editDraft.apiType,
-        baseUrl: editDraft.baseUrl,
-        providerSlug: editDraft.providerSlug || null,
-        apiKey: key || "local",
-      });
-      setEditModels(parsed);
-      if (parsed.length > 0) {
-        setNotice(t("llm.fetchSuccess", { count: parsed.length }));
-      } else {
-        setError(t("llm.fetchErrorEmpty"));
-      }
-    } catch (e: any) {
-      const raw = String(e?.message || e);
-      const eprov = providers.find((p) => p.slug === (editDraft?.providerSlug || ""));
-      setError(friendlyFetchError(raw, t, eprov?.name));
-    } finally {
-      setBusy(null);
-    }
+    await restartService();
   }
 
-  async function doSaveEditedEndpoint() {
-    if (!currentWorkspaceId) {
-      setError("请先创建/选择一个当前工作区");
-      return;
-    }
-    if (!editDraft || !editingOriginalName) return;
-    if (!editDraft.name.trim()) {
-      setError("端点名称不能为空");
-      return;
-    }
-    if (!editDraft.modelId.trim()) {
-      setError("模型不能为空");
-      return;
-    }
-    if (!editDraft.apiKeyEnv.trim()) {
-      setError("API Key 环境变量名不能为空");
-      return;
-    }
-    if (!editDraft.baseUrl.trim()) {
-      setError("请填写 Base URL");
-      return;
-    }
-    if (!/^https?:\/\//i.test(editDraft.baseUrl.trim())) {
-      setError("Base URL 必须以 http:// 或 https:// 开头");
-      return;
-    }
-    setBusy("保存修改...");
-    setError(null);
-    try {
-      // Update env only if user provided a value (avoid accidental overwrite)
-      if (editDraft.apiKeyValue.trim()) {
-        await ensureEnvLoaded(currentWorkspaceId);
-        setEnvDraft((e) => envSet(e, editDraft.apiKeyEnv.trim(), editDraft.apiKeyValue.trim()));
-        const envPayload = { entries: { [editDraft.apiKeyEnv.trim()]: editDraft.apiKeyValue.trim() } };
-        if (shouldUseHttpApi()) {
-          try {
-            await safeFetch(`${httpApiBase()}/api/config/env`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(envPayload),
-            });
-          } catch {
-            if (IS_TAURI && currentWorkspaceId) {
-              await invoke("workspace_update_env", {
-                workspaceId: currentWorkspaceId,
-                entries: [{ key: editDraft.apiKeyEnv.trim(), value: editDraft.apiKeyValue.trim() }],
-              });
-            }
-          }
-        } else if (IS_TAURI && currentWorkspaceId) {
-          await invoke("workspace_update_env", {
-            workspaceId: currentWorkspaceId,
-            entries: [{ key: editDraft.apiKeyEnv.trim(), value: editDraft.apiKeyValue.trim() }],
-          });
-        }
-      }
-
-      const { endpoints, settings } = await readEndpointsJson();
-      const used = new Set(endpoints.map((e: any) => String(e?.name || "")).filter(Boolean));
-      if (editDraft.name.trim() !== editingOriginalName && used.has(editDraft.name.trim())) {
-        throw new Error(`端点名称已存在：${editDraft.name.trim()}（请换一个）`);
-      }
-      const idx = endpoints.findIndex((e: any) => String(e?.name || "") === editingOriginalName);
-      const validTiers = (editDraft.pricingTiers || []).filter(
-        (t) => t.input_price > 0 || t.output_price > 0
-      );
-      const next: Record<string, any> = {
-        name: editDraft.name.trim().slice(0, 64),
-        provider: editDraft.providerSlug || "custom",
-        api_type: editDraft.apiType,
-        base_url: editDraft.baseUrl.trim(),
-        api_key_env: editDraft.apiKeyEnv.trim(),
-        model: editDraft.modelId.trim(),
-        priority: normalizePriority(editDraft.priority, 1),
-        max_tokens: editDraft.maxTokens ?? 0,
-        context_window: editDraft.contextWindow ?? 200000,
-        timeout: editDraft.timeout ?? 180,
-        rpm_limit: editDraft.rpmLimit ?? 0,
-        capabilities: editDraft.caps?.length ? editDraft.caps : ["text"],
-        extra_params:
-          (editDraft.caps || []).includes("thinking") && editDraft.providerSlug === "dashscope"
-            ? { enable_thinking: true }
-            : undefined,
-      };
-      next.pricing_tiers = validTiers.length > 0 ? validTiers : undefined;
-      if (idx >= 0) {
-        const prev = endpoints[idx] || {};
-        const merged = { ...prev, ...next };
-        if (!next.pricing_tiers) delete merged.pricing_tiers;
-        endpoints[idx] = merged;
-      } else {
-        endpoints.push(next);
-      }
-      endpoints.sort((a: any, b: any) => (Number(a?.priority) || 999) - (Number(b?.priority) || 999));
-      await writeEndpointsJson(endpoints, settings);
-      setNotice("端点已更新");
-      resetEndpointEditor();
-      await loadSavedEndpoints();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  useEffect(() => {
-    if (stepId !== "llm") return;
-    loadSavedEndpoints().catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepId, currentWorkspaceId, dataMode]);
-
-  async function doSaveEndpoint(): Promise<boolean> {
-    if (!currentWorkspaceId) {
-      setError("请先创建/选择一个当前工作区");
-      return false;
-    }
-    if (!selectedModelId) {
-      setError("请先选择模型");
-      return false;
-    }
-    if (!baseUrl.trim()) {
-      setError("请填写 Base URL");
-      return false;
-    }
-    if (!/^https?:\/\//i.test(baseUrl.trim())) {
-      setError("Base URL 必须以 http:// 或 https:// 开头");
-      return false;
-    }
-    const isLocal = isLocalProvider(selectedProvider);
-    // 本地服务商允许空 API Key（自动填入 placeholder）
-    const effectiveApiKeyValue = apiKeyValue.trim() || (isLocal ? localProviderPlaceholderKey(selectedProvider) : "");
-    // apiKeyEnv 兜底：即使 useEffect 未触发也能生成合理的环境变量名
-    const effectiveApiKeyEnv = apiKeyEnv.trim()
-      || selectedProvider?.api_key_env_suggestion
-      || envKeyFromSlug(selectedProvider?.slug || providerSlug || "custom");
-    if (!isLocal && !effectiveApiKeyValue) {
-      setError("请填写 API Key 值（会写入工作区 .env）");
-      return false;
-    }
-    setBusy(isEditingEndpoint ? "更新端点配置..." : "写入端点配置...");
-    setError(null);
-
-    try {
-      await ensureEnvLoaded(currentWorkspaceId);
-      setEnvDraft((e) => envSet(e, effectiveApiKeyEnv, effectiveApiKeyValue));
-      const envPayload = { entries: { [effectiveApiKeyEnv]: effectiveApiKeyValue } };
-
-      if (shouldUseHttpApi()) {
-        try {
-          await safeFetch(`${httpApiBase()}/api/config/env`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(envPayload),
-          });
-        } catch {
-          if (IS_TAURI && currentWorkspaceId) {
-            await invoke("workspace_update_env", {
-              workspaceId: currentWorkspaceId,
-              entries: [{ key: effectiveApiKeyEnv, value: effectiveApiKeyValue }],
-            });
-          }
-        }
-      } else if (IS_TAURI && currentWorkspaceId) {
-        await invoke("workspace_update_env", {
-          workspaceId: currentWorkspaceId,
-          entries: [{ key: effectiveApiKeyEnv, value: effectiveApiKeyValue }],
-        });
-      }
-
-      // 读取现有 llm_endpoints.json
-      let currentJson = "";
-      try {
-        currentJson = await readWorkspaceFile("data/llm_endpoints.json");
-      } catch {
-        currentJson = "";
-      }
-
-      const next = (() => {
-        const base = currentJson ? JSON.parse(currentJson) : { endpoints: [], settings: {} };
-        base.endpoints = Array.isArray(base.endpoints) ? base.endpoints : [];
-        const usedNames = new Set(base.endpoints.map((e: any) => String(e?.name || "")).filter(Boolean));
-        const baseName = (endpointName.trim() || `${providerSlug || selectedProvider?.slug || "provider"}-${selectedModelId}`).slice(0, 64);
-        const name = (() => {
-          if (isEditingEndpoint) {
-            // allow keeping the same name; prevent collision with other endpoints
-            const original = editingOriginalName || "";
-            if (baseName !== original && usedNames.has(baseName)) {
-              throw new Error(`端点名称已存在：${baseName}（请换一个）`);
-            }
-            return baseName || original;
-          }
-          if (!usedNames.has(baseName)) return baseName;
-          for (let i = 2; i < 100; i++) {
-            const n = `${baseName}-${i}`.slice(0, 64);
-            if (!usedNames.has(n)) return n;
-          }
-          return `${baseName}-${Date.now()}`.slice(0, 64);
-        })();
-        const capList = Array.isArray(capSelected) && capSelected.length ? capSelected : ["text"];
-
-        const endpoint = {
-          name,
-          provider: providerSlug || (selectedProvider?.slug ?? "custom"),
-          api_type: apiType,
-          base_url: baseUrl.trim(),
-          api_key_env: effectiveApiKeyEnv,
-          model: selectedModelId,
-          priority: normalizePriority(endpointPriority, 1),
-          max_tokens: addEpMaxTokens,
-          context_window: addEpContextWindow,
-          timeout: addEpTimeout,
-          rpm_limit: addEpRpmLimit,
-          capabilities: capList,
-          // DashScope 思考模式：Synapse 的 OpenAI provider 会识别 enable_thinking
-          extra_params:
-            capList.includes("thinking") && (providerSlug || selectedProvider?.slug) === "dashscope"
-              ? { enable_thinking: true }
-              : undefined,
-        };
-
-        if (isEditingEndpoint) {
-          const original = editingOriginalName || name;
-          const idx = base.endpoints.findIndex((e: any) => String(e?.name || "") === original);
-          if (idx < 0) {
-            base.endpoints.push(endpoint);
-          } else {
-            const prev = base.endpoints[idx] || {};
-            base.endpoints[idx] = { ...prev, ...endpoint };
-          }
-        } else {
-          // 默认行为：不覆盖同名端点；自动改名后直接追加，实现“主端点 + 备份端点”
-          base.endpoints.push(endpoint);
-        }
-        // 重新按 priority 排序（越小越优先）
-        base.endpoints.sort((a: any, b: any) => (Number(a?.priority) || 999) - (Number(b?.priority) || 999));
-
-        return JSON.stringify(base, null, 2) + "\n";
-      })();
-
-      await writeWorkspaceFile("data/llm_endpoints.json", next);
-
-      setNotice(
-        isEditingEndpoint
-          ? "端点已更新：data/llm_endpoints.json（同时已写入 API Key 到 .env）。"
-          : "端点已追加写入：data/llm_endpoints.json（同时已写入 API Key 到 .env）。你可以继续添加备份端点。",
-      );
-      if (isEditingEndpoint) resetEndpointEditor();
-      await loadSavedEndpoints();
-      return true;
-    } catch (e) {
-      setError(String(e));
-      return false;
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function doDeleteEndpoint(name: string) {
-    if (!currentWorkspaceId && dataMode !== "remote") return;
-    setError(null);
-    setBusy("删除端点...");
-    try {
-      const raw = await readWorkspaceFile("data/llm_endpoints.json");
-      const base = raw ? JSON.parse(raw) : { endpoints: [], settings: {} };
-      const eps = Array.isArray(base.endpoints) ? base.endpoints : [];
-      base.endpoints = eps.filter((e: any) => String(e?.name || "") !== name);
-      const next = JSON.stringify(base, null, 2) + "\n";
-      await writeWorkspaceFile("data/llm_endpoints.json", next);
-
-      // Immediately update local state
-      setSavedEndpoints((prev) => prev.filter((e) => e.name !== name));
-      setNotice(`已删除端点：${name}`);
-
-      // Background re-read to fully sync
-      loadSavedEndpoints().catch(() => {});
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function saveEnvKeys(keys: string[]) {
-    const entries: Record<string, string> = {};
-    for (const k of keys) {
-      if (Object.prototype.hasOwnProperty.call(envDraft, k)) {
-        entries[k] = envDraft[k] ?? "";
-      }
-    }
-    if (!Object.keys(entries).length) return;
-
-    if (shouldUseHttpApi()) {
-      // ── 后端运行中 → 优先 HTTP API（后端写入 .env 并热加载）──
-      try {
-        await safeFetch(`${httpApiBase()}/api/config/env`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ entries }),
-        });
-        return; // HTTP 成功，无需本地写入
-      } catch {
-        // HTTP 暂时不可用，回退到本地写入
-        logger.warn("App", "saveEnvKeys: HTTP failed, falling back to Tauri");
-      }
-    }
-    if (IS_TAURI && currentWorkspaceId) {
-      await ensureEnvLoaded(currentWorkspaceId);
-      const tauriEntries = Object.entries(entries).map(([key, value]) => ({ key, value }));
-      await invoke("workspace_update_env", { workspaceId: currentWorkspaceId, entries: tauriEntries });
-    }
-  }
-
-  const providerApplyUrl = useMemo(() => {
-    const slug = (selectedProvider?.slug || "").toLowerCase();
-    const map: Record<string, string> = {
-      openai: "https://platform.openai.com/api-keys",
-      anthropic: "https://console.anthropic.com/settings/keys",
-      moonshot: "https://platform.moonshot.cn/console",
-      kimi: "https://platform.moonshot.cn/console",
-      "kimi-cn": "https://platform.moonshot.cn/console",
-      "kimi-int": "https://platform.moonshot.ai/console/api-keys",
-      dashscope: "https://dashscope.console.aliyun.com/",
-      minimax: "https://platform.minimaxi.com/user-center/basic-information/interface-key",
-      "minimax-cn": "https://platform.minimaxi.com/user-center/basic-information/interface-key",
-      "minimax-int": "https://platform.minimax.io/user-center/basic-information/interface-key",
-      deepseek: "https://platform.deepseek.com/",
-      openrouter: "https://openrouter.ai/",
-      siliconflow: "https://siliconflow.cn/",
-      volcengine: "https://console.volcengine.com/ark/",
-      zhipu: "https://open.bigmodel.cn/",
-      "zhipu-cn": "https://open.bigmodel.cn/usercenter/apikeys",
-      "zhipu-int": "https://z.ai/manage-apikey/apikey-list",
-      yunwu: "https://yunwu.zeabur.app/",
-      ollama: "https://ollama.com/library",
-      lmstudio: "https://lmstudio.ai/",
-    };
-    return map[slug] || "";
-  }, [selectedProvider?.slug]);
 
   const step = steps[currentStepIdx] || steps[0];
 
@@ -2850,44 +1901,54 @@ export function App() {
           "FEISHU_ENABLED", "FEISHU_APP_ID", "FEISHU_APP_SECRET",
           "WEWORK_ENABLED", "WEWORK_CORP_ID",
           "WEWORK_TOKEN", "WEWORK_ENCODING_AES_KEY", "WEWORK_CALLBACK_PORT", "WEWORK_CALLBACK_HOST",
+          "WEWORK_MODE", "WEWORK_WS_ENABLED", "WEWORK_WS_BOT_ID", "WEWORK_WS_SECRET",
           "DINGTALK_ENABLED", "DINGTALK_CLIENT_ID", "DINGTALK_CLIENT_SECRET",
-          "ONEBOT_ENABLED", "ONEBOT_WS_URL", "ONEBOT_ACCESS_TOKEN",
+          "ONEBOT_ENABLED", "ONEBOT_MODE", "ONEBOT_WS_URL", "ONEBOT_REVERSE_HOST", "ONEBOT_REVERSE_PORT", "ONEBOT_ACCESS_TOKEN",
           "QQBOT_ENABLED", "QQBOT_APP_ID", "QQBOT_APP_SECRET", "QQBOT_SANDBOX", "QQBOT_MODE", "QQBOT_WEBHOOK_PORT", "QQBOT_WEBHOOK_PATH",
+          "WECHAT_ENABLED", "WECHAT_TOKEN",
         ];
       case "tools":
         return [
           "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "FORCE_IPV4",
-          "TOOL_MAX_PARALLEL", "FORCE_TOOL_CALL_MAX_RETRIES",
+          "TOOL_MAX_PARALLEL", "FORCE_TOOL_CALL_MAX_RETRIES", "FORCE_TOOL_CALL_IM_FLOOR", "CONFIRMATION_TEXT_MAX_RETRIES",
           "ALLOW_PARALLEL_TOOLS_WITH_INTERRUPT_CHECKS",
-          "MCP_ENABLED", "MCP_TIMEOUT", "MCP_BROWSER_ENABLED",
-          "MCP_MYSQL_ENABLED", "MCP_MYSQL_HOST", "MCP_MYSQL_USER", "MCP_MYSQL_PASSWORD", "MCP_MYSQL_DATABASE",
-          "MCP_POSTGRES_ENABLED", "MCP_POSTGRES_URL",
+          "MCP_ENABLED", "MCP_TIMEOUT",
           "DESKTOP_ENABLED", "DESKTOP_DEFAULT_MONITOR", "DESKTOP_COMPRESSION_QUALITY",
           "DESKTOP_MAX_WIDTH", "DESKTOP_MAX_HEIGHT", "DESKTOP_CACHE_TTL",
           "DESKTOP_UIA_TIMEOUT", "DESKTOP_UIA_RETRY_INTERVAL", "DESKTOP_UIA_MAX_RETRIES",
-          "DESKTOP_VISION_ENABLED", "DESKTOP_VISION_MODEL", "DESKTOP_VISION_FALLBACK_MODEL",
-          "DESKTOP_VISION_OCR_MODEL", "DESKTOP_VISION_MAX_RETRIES", "DESKTOP_VISION_TIMEOUT",
+          "DESKTOP_VISION_ENABLED", "DESKTOP_VISION_MAX_RETRIES", "DESKTOP_VISION_TIMEOUT",
           "DESKTOP_CLICK_DELAY", "DESKTOP_TYPE_INTERVAL", "DESKTOP_MOVE_DURATION",
-          "DESKTOP_FAILSAFE", "DESKTOP_PAUSE", "DESKTOP_LOG_ACTIONS", "DESKTOP_LOG_SCREENSHOTS", "DESKTOP_LOG_DIR",
+          "DESKTOP_FAILSAFE", "DESKTOP_PAUSE",
           "WHISPER_MODEL", "WHISPER_LANGUAGE", "GITHUB_TOKEN",
         ];
       case "agent":
         return [
-          "AGENT_NAME", "MAX_ITERATIONS", "AUTO_CONFIRM", "SELFCHECK_AUTOFIX",
+          "AGENT_NAME", "MAX_ITERATIONS", "SELFCHECK_AUTOFIX",
           "THINKING_MODE",
           "PROGRESS_TIMEOUT_SECONDS", "HARD_TIMEOUT_SECONDS",
-          "DATABASE_PATH", "LOG_LEVEL",
-          "LOG_DIR", "LOG_FILE_PREFIX", "LOG_MAX_SIZE_MB", "LOG_BACKUP_COUNT",
-          "LOG_RETENTION_DAYS", "LOG_FORMAT", "LOG_TO_CONSOLE", "LOG_TO_FILE",
+          "MEMORY_MODE",
           "EMBEDDING_MODEL", "EMBEDDING_DEVICE", "MODEL_DOWNLOAD_SOURCE",
           "MEMORY_HISTORY_DAYS", "MEMORY_MAX_HISTORY_FILES", "MEMORY_MAX_HISTORY_SIZE_MB",
           "PERSONA_NAME",
           "PROACTIVE_ENABLED", "PROACTIVE_MAX_DAILY_MESSAGES", "PROACTIVE_MIN_INTERVAL_MINUTES",
           "PROACTIVE_QUIET_HOURS_START", "PROACTIVE_QUIET_HOURS_END", "PROACTIVE_IDLE_THRESHOLD_HOURS",
           "STICKER_ENABLED", "STICKER_DATA_DIR",
+          "SCHEDULER_TIMEZONE", "SCHEDULER_TASK_TIMEOUT",
+        ];
+      case "advanced":
+        return [
+          "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "FORCE_IPV4",
+          "DATABASE_PATH", "LOG_LEVEL",
+          "LOG_DIR", "LOG_FILE_PREFIX", "LOG_MAX_SIZE_MB", "LOG_BACKUP_COUNT",
+          "LOG_RETENTION_DAYS", "LOG_FORMAT", "LOG_TO_CONSOLE", "LOG_TO_FILE",
           "DESKTOP_NOTIFY_ENABLED", "DESKTOP_NOTIFY_SOUND",
-          "SCHEDULER_ENABLED", "SCHEDULER_TIMEZONE", "SCHEDULER_MAX_CONCURRENT", "SCHEDULER_TASK_TIMEOUT",
           "SESSION_TIMEOUT_MINUTES", "SESSION_MAX_HISTORY", "SESSION_STORAGE_PATH",
+          "API_HOST", "TRUST_PROXY",
+          "BACKUP_ENABLED", "BACKUP_PATH", "BACKUP_CRON",
+          "BACKUP_MAX_BACKUPS", "BACKUP_INCLUDE_USERDATA", "BACKUP_INCLUDE_MEDIA",
+          "CONTEXT_MAX_WINDOW", "CONTEXT_COMPRESSION_RATIO", "CONTEXT_COMPRESSION_THRESHOLD",
+          "CONTEXT_BOUNDARY_COMPRESSION_RATIO", "CONTEXT_MIN_RECENT_TURNS",
+          "CONTEXT_ENABLE_TOOL_COMPRESSION", "CONTEXT_LARGE_TOOL_THRESHOLD",
         ];
       default:
         return [];
@@ -2897,58 +1958,23 @@ export function App() {
   /** 返回当前步骤对应的 footer 保存按钮配置，无需按钮时返回 null */
   function getFooterSaveConfig(): { keys: string[]; savedMsg: string } | null {
     switch (stepId) {
-      case "llm": {
-        const keysLLM = [
-          ...savedEndpoints.map((e) => e.api_key_env),
-          ...savedCompilerEndpoints.map((e) => e.api_key_env),
-          ...savedSttEndpoints.map((e) => e.api_key_env),
-        ].filter(Boolean);
-        return { keys: keysLLM, savedMsg: t("config.llmSaved") };
-      }
+      case "llm":
+        return null;
+
       case "im":
         return { keys: getAutoSaveKeysForStep("im"), savedMsg: t("config.imSaved") };
       case "tools":
         return { keys: getAutoSaveKeysForStep("tools"), savedMsg: t("config.toolsSaved") };
       case "agent":
         return { keys: getAutoSaveKeysForStep("agent"), savedMsg: t("config.agentSaved") };
+      case "advanced":
+        return { keys: getAutoSaveKeysForStep("advanced"), savedMsg: t("config.advancedSaved") };
       default:
         return null;
     }
   }
 
 
-  // auto-load all advanced panel data when entering the page
-  useEffect(() => {
-    if (stepId !== "advanced") { advLoadedRef.current = false; return; }
-    if (advLoadedRef.current) return;
-    advLoadedRef.current = true;
-
-    const apiUrl = shouldUseHttpApi() ? httpApiBase() : null;
-
-    if (apiUrl) {
-      // System info
-      setAdvLoading((p) => ({ ...p, sysinfo: true }));
-      safeFetch(`${apiUrl}/api/system-info`, { signal: AbortSignal.timeout(8_000) })
-        .then((r) => r.json())
-        .then((data) => {
-          const info: Record<string, string> = {};
-          if (data.os) info["OS"] = data.os;
-          if (data.synapse_version) info["Backend"] = data.synapse_version;
-          setAdvSysInfo(info);
-        })
-        .catch(() => {})
-        .finally(() => setAdvLoading((p) => ({ ...p, sysinfo: false })));
-
-      // Load current HUB_API_URL from .env
-      safeFetch(`${apiUrl}/api/config/env`, { signal: AbortSignal.timeout(5_000) })
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.env?.HUB_API_URL) setHubApiUrl(data.env.HUB_API_URL);
-        })
-        .catch(() => {});
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepId]);
 
   // keep env draft in sync when workspace changes
   useEffect(() => {
@@ -3046,21 +2072,38 @@ export function App() {
       if (useHttpApi) {
         // ── Try HTTP API, fall back to Tauri on failure ──
         let endpointSummaryResolved = false;
+        let envAlreadyLoaded = false;
+        let httpEnv: EnvMap = {};
         try {
           // Try new config API (may not exist in older service versions)
           const envRes = await safeFetch(`${effectiveApiBaseUrl}/api/config/env`);
           const envData = await envRes.json();
-          const env = envData.env || {};
-          setEnvDraft((prev) => ({ ...prev, ...env }));
-          envLoadedForWs.current = "__remote__";
+          httpEnv = envData.env || {};
+          setEnvDraft((prev) => ({ ...prev, ...httpEnv }));
+          markEnvLoaded(currentWorkspaceId || "__remote__");
+          envAlreadyLoaded = true;
 
           const epRes = await safeFetch(`${effectiveApiBaseUrl}/api/config/endpoints`);
           const epData = await epRes.json();
           const eps = Array.isArray(epData?.endpoints) ? epData.endpoints : [];
+
+          let statusMap: Record<string, boolean> = {};
+          try {
+            const statusRes = await safeFetch(`${effectiveApiBaseUrl}/api/config/endpoint-status`);
+            const statusData = await statusRes.json();
+            const statusList = Array.isArray(statusData?.endpoints) ? statusData.endpoints : [];
+            for (const s of statusList) {
+              if (s?.name) statusMap[String(s.name)] = !!s.key_present;
+            }
+          } catch { /* endpoint-status API not available, fall back to env */ }
+
           const list = eps
             .map((e: any) => {
               const keyEnv = String(e?.api_key_env || "");
-              const keyPresent = !!(keyEnv && (env[keyEnv] ?? "").trim());
+              const epName = String(e?.name || "");
+              const keyPresent = epName in statusMap
+                ? statusMap[epName]
+                : !!(keyEnv && (httpEnv[keyEnv] ?? "").trim());
               return {
                 name: String(e?.name || ""),
                 provider: String(e?.provider || ""),
@@ -3069,6 +2112,7 @@ export function App() {
                 model: String(e?.model || ""),
                 keyEnv,
                 keyPresent,
+                enabled: e?.enabled !== false,
               };
             })
             .filter((e: any) => e.name);
@@ -3094,6 +2138,7 @@ export function App() {
               model: String(m?.model || ""),
               keyEnv: "",
               keyPresent: m?.has_api_key === true,
+              enabled: m?.enabled !== false,
             })).filter((e: any) => e.name);
             if (list.length > 0) {
               setEndpointSummary(list);
@@ -3113,7 +2158,7 @@ export function App() {
         // Fall back to Tauri local file system if HTTP API completely failed
         if (!endpointSummaryResolved && currentWorkspaceId) {
           try {
-            const env = await ensureEnvLoaded(currentWorkspaceId);
+            const env = envAlreadyLoaded ? httpEnv : await ensureEnvLoaded(currentWorkspaceId);
             const raw = await readWorkspaceFile("data/llm_endpoints.json");
             const parsed = JSON.parse(raw);
             const eps = Array.isArray(parsed?.endpoints) ? parsed.endpoints : [];
@@ -3124,6 +2169,7 @@ export function App() {
                 name: String(e?.name || ""), provider: String(e?.provider || ""),
                 apiType: String(e?.api_type || ""), baseUrl: String(e?.base_url || ""),
                 model: String(e?.model || ""), keyEnv, keyPresent,
+                enabled: e?.enabled !== false,
               };
             }).filter((e: any) => e.name);
             if (list.length > 0) {
@@ -3158,11 +2204,12 @@ export function App() {
               const systemCount = skills.filter((s) => !!s.system).length;
               setSkillSummary({ count: skills.length, systemCount, externalCount: skills.length - systemCount });
               setSkillsDetail(skills.map((s) => ({
+                skill_id: String(s?.skill_id || s?.name || ""),
                 name: String(s?.name || ""), description: String(s?.description || ""),
                 system: !!s?.system, enabled: typeof s?.enabled === "boolean" ? s.enabled : undefined,
                 tool_name: s?.tool_name ?? null, category: s?.category ?? null, path: s?.path ?? null,
               })));
-            } catch { setSkillSummary(null); setSkillsDetail(null); }
+            } catch { /* keep existing skill data on failure */ }
           }
         }
 
@@ -3187,7 +2234,15 @@ export function App() {
           const channels = imData.channels || [];
           const h: Record<string, { status: string; error: string | null; lastCheckedAt: string | null }> = {};
           for (const c of channels) {
-            h[c.channel || c.name] = { status: c.status || "unknown", error: c.error || null, lastCheckedAt: c.last_checked_at || null };
+            const key = c.channel || c.name;
+            const val = { status: c.status || "unknown", error: c.error || null, lastCheckedAt: c.last_checked_at || null };
+            h[key] = val;
+            const ctype = c.channel_type || key;
+            if (ctype !== key) {
+              if (!h[ctype] || (val.status === "online" && h[ctype]?.status !== "online")) {
+                h[ctype] = val;
+              }
+            }
           }
           if (Object.keys(h).length > 0) setImHealth(h);
         } catch { /* IM status is optional */ }
@@ -3218,6 +2273,7 @@ export function App() {
             model: String(e?.model || ""),
             keyEnv,
             keyPresent,
+            enabled: e?.enabled !== false,
           };
         })
         .filter((e: any) => e.name);
@@ -3233,6 +2289,7 @@ export function App() {
         setSkillSummary({ count: skills.length, systemCount, externalCount });
         setSkillsDetail(
           skills.map((s) => ({
+            skill_id: String(s?.skill_id || s?.name || ""),
             name: String(s?.name || ""),
             description: String(s?.description || ""),
             system: !!s?.system,
@@ -3243,8 +2300,7 @@ export function App() {
           })),
         );
       } catch {
-        setSkillSummary(null);
-        setSkillsDetail(null);
+        /* keep existing skill data on failure */
       }
 
       // Local mode (HTTP not reachable): check PID-based service status
@@ -3267,7 +2323,15 @@ export function App() {
           const channels = imData.channels || [];
           const h: Record<string, { status: string; error: string | null; lastCheckedAt: string | null }> = {};
           for (const c of channels) {
-            h[c.channel || c.name] = { status: c.status || "unknown", error: c.error || null, lastCheckedAt: c.last_checked_at || null };
+            const key = c.channel || c.name;
+            const val = { status: c.status || "unknown", error: c.error || null, lastCheckedAt: c.last_checked_at || null };
+            h[key] = val;
+            const ctype = c.channel_type || key;
+            if (ctype !== key) {
+              if (!h[ctype] || (val.status === "online" && h[ctype]?.status !== "online")) {
+                h[ctype] = val;
+              }
+            }
           }
           if (Object.keys(h).length > 0) setImHealth(h);
         } catch { /* ignore - IM status is optional */ }
@@ -3394,8 +2458,7 @@ export function App() {
    * 实际启动本地服务（跳过冲突检测）。
    */
   async function doStartLocalService(effectiveWsId: string) {
-    setBusy(t("topbar.starting"));
-    setError(null);
+    let _busyId = notifyLoading(t("topbar.starting"));
     try {
       setDataMode("local");
       setApiBaseUrl("http://127.0.0.1:18900");
@@ -3410,7 +2473,7 @@ export function App() {
       });
       setServiceStatus(real);
       if (ready && real.running) {
-        setNotice(t("connect.success"));
+        notifySuccess(t("connect.success"));
         // forceAliveCheck=true to bypass stale serviceStatus closure
         await refreshStatus("local", "http://127.0.0.1:18900", true);
         // 自动检测 LLM 端点健康状态
@@ -3425,10 +2488,11 @@ export function App() {
         } catch { /* ignore */ }
       } else if (real.running) {
         // Process is alive but HTTP API not yet reachable — keep waiting in background
-        setBusy(t("topbar.starting") + "…");
+        dismissLoading(_busyId);
+        _busyId = notifyLoading(t("topbar.starting") + "…");
         const bgReady = await waitForServiceReady("http://127.0.0.1:18900", 60000);
         if (bgReady) {
-          setNotice(t("connect.success"));
+          notifySuccess(t("connect.success"));
           await refreshStatus("local", "http://127.0.0.1:18900", true);
           autoCheckEndpoints("http://127.0.0.1:18900");
           try {
@@ -3439,16 +2503,16 @@ export function App() {
             }
           } catch { /* ignore */ }
         } else {
-          setError(t("topbar.startFail") + " (HTTP API not reachable)");
+          notifyError(t("topbar.startFail") + " (HTTP API not reachable)");
           await refreshStatus("local", "http://127.0.0.1:18900", true);
         }
       } else {
-        setError(t("topbar.startFail"));
+        notifyError(t("topbar.startFail"));
       }
     } catch (e) {
-      setError(String(e));
+      notifyError(String(e));
     } finally {
-      setBusy(null);
+      dismissLoading(_busyId);
     }
   }
 
@@ -3462,19 +2526,19 @@ export function App() {
     setServiceStatus({ running: true, pid: null, pidFile: "" });
     setConflictDialog(null);
     setPendingStartWsId(null);
-    setBusy(t("connect.testing"));
+    const _busyId = notifyLoading(t("connect.testing"));
     try {
       // IMPORTANT: pass forceAliveCheck=true because setServiceStatus is async
       // and refreshStatus's closure still sees the old serviceStatus value
       await refreshStatus("local", "http://127.0.0.1:18900", true);
       autoCheckEndpoints("http://127.0.0.1:18900");
-      setNotice(t("connect.success"));
+      notifySuccess(t("connect.success"));
       // Check version mismatch using info from conflict detection (avoids extra request)
       if (ver && ver !== "unknown") checkVersionMismatch(ver);
     } catch (e) {
-      setError(String(e));
+      notifyError(String(e));
     } finally {
-      setBusy(null);
+      dismissLoading(_busyId);
     }
   }
 
@@ -3486,12 +2550,13 @@ export function App() {
     setConflictDialog(null);
     setPendingStartWsId(null);
     if (!wsId) return;
-    setBusy(t("status.stopping"));
+    const _busyId = notifyLoading(t("status.stopping"));
     try {
       await doStopService(wsId);
       // 轮询等待旧服务完全关闭（端口释放），而非固定延时
       await waitForServiceDown("http://127.0.0.1:18900", 15000);
     } catch { /* ignore stop errors */ }
+    dismissLoading(_busyId);
     await doStartLocalService(wsId);
   }
 
@@ -3531,7 +2596,7 @@ export function App() {
     } catch { /* Good — service is down */ }
     if (stillAlive) {
       // Service stubbornly alive — show warning
-      setError(t("status.stopFailed"));
+      notifyError(t("status.stopFailed"));
     }
     // Final status
     try {
@@ -3584,7 +2649,7 @@ export function App() {
 
   useEffect(() => {
     const el = serviceLogRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && logAtBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [serviceLog?.content]);
 
   // Skills selection default sync (only when user hasn't changed it)
@@ -3593,9 +2658,9 @@ export function App() {
     if (skillsTouched) return;
     const m: Record<string, boolean> = {};
     for (const s of skillsDetail) {
-      if (!s?.name) continue;
-      if (s.system) m[s.name] = true;
-      else m[s.name] = typeof s.enabled === "boolean" ? s.enabled : true;
+      if (!s?.skill_id) continue;
+      if (s.system) m[s.skill_id] = true;
+      else m[s.skill_id] = typeof s.enabled === "boolean" ? s.enabled : true;
     }
     setSkillsSelection(m);
   }, [skillsDetail, skillsTouched]);
@@ -3614,16 +2679,15 @@ export function App() {
 
   async function doRefreshSkills() {
     if (!currentWorkspaceId && dataMode !== "remote") {
-      setError("请先设置当前工作区");
+      notifyError("请先设置当前工作区");
       return;
     }
-    setError(null);
-    setBusy("读取 skills...");
+    const _busyId = notifyLoading("读取 skills...");
     try {
       let skillsList: any[] = [];
       // ── 后端运行中 → HTTP API ──
       if (shouldUseHttpApi()) {
-        const res = await safeFetch(`${httpApiBase()}/api/skills`, { signal: AbortSignal.timeout(5000) });
+        const res = await safeFetch(`${httpApiBase()}/api/skills`, { signal: AbortSignal.timeout(15_000) });
         const data = await res.json();
         skillsList = Array.isArray(data?.skills) ? data.skills : [];
       }
@@ -3643,6 +2707,7 @@ export function App() {
       setSkillSummary({ count: skillsList.length, systemCount, externalCount });
       setSkillsDetail(
         skillsList.map((s: any) => ({
+          skill_id: String(s?.skill_id || s?.name || ""),
           name: String(s?.name || ""),
           description: String(s?.description || ""),
           system: !!s?.system,
@@ -3652,30 +2717,29 @@ export function App() {
           path: s?.path ?? null,
         })),
       );
-      setNotice("已刷新 skills 列表");
+      notifySuccess("已刷新 skills 列表");
     } catch (e) {
-      setError(String(e));
+      notifyError(String(e));
     } finally {
-      setBusy(null);
+      dismissLoading(_busyId);
     }
   }
 
   async function doSaveSkillsSelection() {
     if (!currentWorkspaceId) {
-      setError("请先设置当前工作区");
+      notifyError("请先设置当前工作区");
       return;
     }
     if (!skillsDetail) {
-      setError("未读取到 skills 列表（请先刷新 skills）");
+      notifyError("未读取到 skills 列表（请先刷新 skills）");
       return;
     }
-    setError(null);
-    setBusy("保存 skills 启用状态...");
+    const _busyId = notifyLoading("保存 skills 启用状态...");
     try {
       const externalAllowlist = skillsDetail
-        .filter((s) => !s.system && !!s.name)
-        .filter((s) => !!skillsSelection[s.name])
-        .map((s) => s.name);
+        .filter((s) => !s.system && !!s.skill_id)
+        .filter((s) => !!skillsSelection[s.skill_id])
+        .map((s) => s.skill_id);
 
       const content =
         JSON.stringify(
@@ -3690,1320 +2754,155 @@ export function App() {
 
       await writeWorkspaceFile("data/skills.json", content);
       setSkillsTouched(false);
-      setNotice("已保存：data/skills.json（系统技能默认启用；外部技能按你的选择启用）");
+      notifySuccess("已保存：data/skills.json（系统技能默认启用；外部技能按你的选择启用）");
     } catch (e) {
-      setError(String(e));
+      notifyError(String(e));
     } finally {
-      setBusy(null);
+      dismissLoading(_busyId);
     }
   }
 
 
 
   function renderStatus() {
-    const effectiveWsId = currentWorkspaceId || workspaces[0]?.id || null;
-    const ws = workspaces.find((w) => w.id === effectiveWsId) || workspaces[0] || null;
-    const im = [
-      { k: "TELEGRAM_ENABLED", name: "Telegram", required: ["TELEGRAM_BOT_TOKEN"] },
-      { k: "FEISHU_ENABLED", name: t("status.feishu"), required: ["FEISHU_APP_ID", "FEISHU_APP_SECRET"] },
-      { k: "WEWORK_ENABLED", name: t("status.wework"), required: ["WEWORK_CORP_ID", "WEWORK_TOKEN", "WEWORK_ENCODING_AES_KEY"] },
-      { k: "DINGTALK_ENABLED", name: t("status.dingtalk"), required: ["DINGTALK_CLIENT_ID", "DINGTALK_CLIENT_SECRET"] },
-      { k: "ONEBOT_ENABLED", name: "OneBot", required: ["ONEBOT_WS_URL"] },
-      { k: "QQBOT_ENABLED", name: "QQ 机器人", required: ["QQBOT_APP_ID", "QQBOT_APP_SECRET"] },
-    ];
-    const imStatus = im.map((c) => {
-      const enabled = envGet(envDraft, c.k, "false").toLowerCase() === "true";
-      const missing = c.required.filter((rk) => !(envGet(envDraft, rk) || "").trim());
-      return { ...c, enabled, ok: enabled ? missing.length === 0 : true, missing };
-    });
-
     return (
-      <>
-        {/* Banner: backend not running (hide during initial probe; hide in web mode — backend is always running) */}
-        {IS_TAURI && !serviceStatus?.running && serviceStatus !== null && effectiveWsId && (
-          <div style={{
-            marginBottom: 16, padding: "16px 20px", borderRadius: 10,
-            background: "rgba(245, 158, 11, 0.15)",
-            border: "1px solid rgba(245, 158, 11, 0.4)",
-            display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap",
-          }}>
-            <div style={{ fontSize: 28, lineHeight: 1, color: "var(--warning)" }}>&#9888;</div>
-            <div style={{ flex: 1, minWidth: 180 }}>
-              <div style={{ fontWeight: 700, fontSize: 15, color: "var(--warning)", marginBottom: 4 }}>
-                {t("status.backendNotRunning")}
-              </div>
-              <div style={{ fontSize: 13, color: "var(--warning)", opacity: 0.85 }}>
-                {t("status.backendNotRunningHint")}
-              </div>
-            </div>
-            <button
-              className="btnSmall btnSmallPrimary"
-              style={{ padding: "8px 20px", fontSize: 14, fontWeight: 600, whiteSpace: "nowrap" }}
-              onClick={async () => { await startLocalServiceWithConflictCheck(effectiveWsId); }}
-              disabled={!!busy}
-            >
-              {busy || t("topbar.start")}
-            </button>
-          </div>
-        )}
-        {/* Banner: auto-starting backend (shown while serviceStatus is null and busy with auto-start) */}
-        {IS_TAURI && serviceStatus === null && !!busy && effectiveWsId && (
-          <div style={{
-            marginBottom: 16, padding: "16px 20px", borderRadius: 10,
-            background: "rgba(14, 165, 233, 0.15)",
-            border: "1px solid rgba(14, 165, 233, 0.4)",
-            display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap",
-          }}>
-            <div className="spinner" style={{ width: 22, height: 22, flexShrink: 0, color: "var(--brand)" }} />
-            <div style={{ flex: 1, minWidth: 180 }}>
-              <div style={{ fontWeight: 700, fontSize: 15, color: "var(--brand)", marginBottom: 4 }}>
-                {busy}
-              </div>
-              <div style={{ fontSize: 13, color: "var(--brand)", opacity: 0.85 }}>
-                {t("status.backendNotRunningHint")}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Top row: service + system info */}
-        <div className="statusGrid3">
-          {/* Service */}
-          <div className="statusCard">
-            <div className="statusCardHead">
-              <span className="statusCardLabel">{t("status.service")}</span>
-              {serviceStatus === null ? <DotYellow /> : heartbeatState === "alive" ? <DotGreen /> : heartbeatState === "degraded" ? <DotYellow /> : heartbeatState === "suspect" ? <DotYellow /> : serviceStatus?.running ? <DotGreen /> : <DotGray />}
-            </div>
-            <div className="statusCardValue">
-              {serviceStatus === null ? (busy || t("topbar.starting")) : heartbeatState === "degraded" ? t("status.unresponsive") : serviceStatus?.running ? t("topbar.running") : t("topbar.stopped")}
-              {serviceStatus?.pid ? <span className="statusCardSub"> PID {serviceStatus.pid}</span> : null}
-            </div>
-            {IS_TAURI && (
-            <div className="statusCardActions">
-              {!serviceStatus?.running && serviceStatus !== null && effectiveWsId && (
-                <button className="btnSmall btnSmallPrimary" onClick={async () => {
-                  await startLocalServiceWithConflictCheck(effectiveWsId);
-                }} disabled={!!busy}>{busy || t("topbar.start")}</button>
-              )}
-              {serviceStatus?.running && effectiveWsId && (<>
-                <button className="btnSmall btnSmallDanger" onClick={async () => {
-                  setBusy(t("status.stopping")); setError(null);
-                  try {
-                    await doStopService(effectiveWsId);
-                  } catch (e) { setError(String(e)); } finally { setBusy(null); }
-                }} disabled={!!busy}>{t("status.stop")}</button>
-                <button className="btnSmall" onClick={async () => {
-                  setBusy(t("status.restarting")); setError(null);
-                  try {
-                    await doStopService(effectiveWsId);
-                    await waitForServiceDown("http://127.0.0.1:18900", 15000);
-                    await doStartLocalService(effectiveWsId);
-                  } catch (e) { setError(String(e)); } finally { setBusy(null); }
-                }} disabled={!!busy}>{t("status.restart")}</button>
-              </>)}
-            </div>
-            )}
-            {/* Multi-process warning */}
-            {IS_TAURI && detectedProcesses.length > 1 && (
-              <div style={{ marginTop: 8, padding: "6px 10px", background: "rgba(245, 158, 11, 0.15)", borderRadius: 6, fontSize: 12, color: "var(--warning)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", border: "1px solid rgba(245, 158, 11, 0.3)" }}>
-                <span style={{ fontWeight: 600 }}>⚠ 检测到 {detectedProcesses.length} 个 Synapse 进程正在运行</span>
-                <span style={{ color: "var(--warning)", fontSize: 11 }}>
-                  ({detectedProcesses.map(p => `PID ${p.pid}`).join(", ")})
-                </span>
-                <button className="btnSmall btnSmallDanger" style={{ marginLeft: "auto", fontSize: 11 }} onClick={async () => {
-                  setBusy("正在停止所有进程..."); setError(null);
-                  try {
-                    const stopped = await invoke<number[]>("synapse_stop_all_processes");
-                    setDetectedProcesses([]);
-                    setNotice(`已停止 ${stopped.length} 个进程`);
-                    // Refresh status after stopping
-                    await refreshStatus();
-                  } catch (e) { setError(String(e)); } finally { setBusy(null); }
-                }} disabled={!!busy}>全部停止</button>
-              </div>
-            )}
-            {/* Degraded hint — process alive but HTTP unreachable */}
-            {heartbeatState === "degraded" && (
-              <div style={{ marginTop: 8, padding: "6px 10px", background: "rgba(245, 158, 11, 0.1)", borderRadius: 6, fontSize: 12, color: "var(--warning)", display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap", border: "1px solid rgba(245, 158, 11, 0.2)" }}>
-                <DotYellow size={8} />
-                <span>
-                  {t("status.degradedHint")}
-                  <br />
-                  <span style={{ fontSize: 11, color: "var(--warning)", opacity: 0.8 }}>{t("status.degradedAutoClean")}</span>
-                </span>
-              </div>
-            )}
-            {/* Troubleshooting panel */}
-            {(heartbeatState === "dead" && !serviceStatus?.running) && (
-              <TroubleshootPanel t={t} />
-            )}
-          </div>
-
-          {/* Workspace */}
-          <div className="statusCard">
-            <div className="statusCardHead">
-              <span className="statusCardLabel">{t("config.step.workspace")}</span>
-            </div>
-            <div className="statusCardValue">{currentWorkspaceId || "—"}</div>
-            <div className="statusCardSub" style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>{ws?.path || ""}</span>
-              {ws?.path && (
-                <button
-                  className="btnIconInline"
-                  title={t("status.openFolder")}
-                  onClick={async () => {
-                    const { openFileWithDefault } = await import("./platform");
-                    try { await openFileWithDefault(ws.path); } catch (e) { logger.error("App", "openFileWithDefault failed", { error: String(e) }); }
-                  }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-                  </svg>
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Autostart (= desktop autostart + backend auto-launch) — desktop only */}
-          {IS_TAURI && <div className="statusCard">
-            <div className="statusCardHead">
-              <span className="statusCardLabel">{t("status.autostart")}</span>
-              {autostartEnabled ? <DotGreen /> : <DotGray />}
-            </div>
-            <div className="statusCardValue">{autostartEnabled ? t("status.on") : t("status.off")}</div>
-            <div className="statusCardSub">{t("status.autostartHint")}</div>
-            <div className="statusCardActions">
-              <button className="btnSmall" onClick={async () => {
-                setBusy(t("common.loading")); setError(null);
-                try { const next = !autostartEnabled; await invoke("autostart_set_enabled", { enabled: next }); setAutostartEnabled(next); } catch (e) { setError(String(e)); } finally { setBusy(null); }
-              }} disabled={autostartEnabled === null || !!busy}>{autostartEnabled ? t("status.off") : t("status.on")}</button>
-            </div>
-          </div>}
-
-          {/* Auto-update toggle — desktop only */}
-          {IS_TAURI && <div className="statusCard">
-            <div className="statusCardHead">
-              <span className="statusCardLabel">{t("status.autoUpdate")}</span>
-              {autoUpdateEnabled ? <DotGreen /> : <DotGray />}
-            </div>
-            <div className="statusCardValue">{autoUpdateEnabled ? t("status.on") : t("status.off")}</div>
-            <div className="statusCardSub">{t("status.autoUpdateHint")}</div>
-            <div className="statusCardActions">
-              <button className="btnSmall" onClick={async () => {
-                setBusy(t("common.loading")); setError(null);
-                try {
-                  const next = !autoUpdateEnabled;
-                  await invoke("set_auto_update", { enabled: next });
-                  setAutoUpdateEnabled(next);
-                  // 关闭时清除已有的更新通知
-                  if (!next) { setNewRelease(null); setUpdateAvailable(null); setUpdateProgress({ status: "idle" }); }
-                } catch (e) { setError(String(e)); } finally { setBusy(null); }
-              }} disabled={autoUpdateEnabled === null || !!busy}>{autoUpdateEnabled ? t("status.off") : t("status.on")}</button>
-            </div>
-          </div>}
-        </div>
-
-        {/* LLM Endpoints compact table */}
-        <div className="card" style={{ marginTop: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <span className="statusCardLabel">{t("status.llmEndpoints")} ({endpointSummary.length})</span>
-            <button className="btnSmall" onClick={async () => {
-              setHealthChecking("all");
-              try {
-                let results: Array<{ name: string; status: string; latency_ms: number | null; error: string | null; error_category: string | null; consecutive_failures: number; cooldown_remaining: number; is_extended_cooldown: boolean; last_checked_at: string | null }>;
-                // health-check 必须走后端 HTTP API
-                const healthUrl = shouldUseHttpApi() ? httpApiBase() : null;
-                if (healthUrl) {
-                  const res = await safeFetch(`${healthUrl}/api/health/check`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}), signal: AbortSignal.timeout(60_000) });
-                  const data = await res.json();
-                  results = data.results || [];
-                } else {
-                  setError(t("status.needServiceRunning"));
-                  setHealthChecking(null);
-                  return;
-                }
-                const h: typeof endpointHealth = {};
-                for (const r of results) { h[r.name] = { status: r.status, latencyMs: r.latency_ms, error: r.error, errorCategory: r.error_category, consecutiveFailures: r.consecutive_failures, cooldownRemaining: r.cooldown_remaining, isExtendedCooldown: r.is_extended_cooldown, lastCheckedAt: r.last_checked_at }; }
-                setEndpointHealth(h);
-              } catch (e) { setError(String(e)); } finally { setHealthChecking(null); }
-            }} disabled={!!healthChecking || !!busy}>
-              {healthChecking === "all" ? t("status.checking") : t("status.checkAll")}
-            </button>
-          </div>
-          {endpointSummary.length === 0 ? (
-            <div className="cardHint">{t("status.noEndpoints")}</div>
-          ) : (
-            <div className="epTable">
-              <div className="epTableHeader">
-                <span>{t("status.endpoint")}</span>
-                <span>{t("status.model")}</span>
-                <span>Key</span>
-                <span>{t("sidebar.status")}</span>
-                <span></span>
-              </div>
-              {endpointSummary.map((e) => {
-                const h = endpointHealth[e.name];
-                const dotClass = h ? (h.status === "healthy" ? "healthy" : h.status === "degraded" ? "degraded" : "unhealthy") : e.keyPresent ? "unknown" : "unhealthy";
-                const fullError = h && h.status !== "healthy" ? (h.error || "") : "";
-                const label = h
-                  ? h.status === "healthy" ? (h.latencyMs != null ? h.latencyMs + "ms" : "OK") : fullError.slice(0, 30) + (fullError.length > 30 ? "…" : "")
-                  : e.keyPresent ? "—" : t("status.keyMissing");
-                return (
-                  <div key={e.name} className="epTableRow">
-                    <span className="epTableName">{e.name}</span>
-                    <span className="epTableModel">{e.model}</span>
-                    <span>{e.keyPresent ? <DotGreen /> : <DotGray />}</span>
-                    <span style={{ display: "flex", alignItems: "center", gap: 4 }} title={fullError ? (t("status.clickToCopy", "点击复制") + ": " + fullError) : undefined}>
-                      <span className={"healthDot " + dotClass} />
-                      <span
-                        className="epTableStatus"
-                        style={fullError ? { cursor: "pointer" } : undefined}
-                        onClick={fullError ? async (e) => { e.stopPropagation(); const ok = await copyToClipboard(fullError); if (ok) setNotice(t("version.copied")); } : undefined}
-                        role={fullError ? "button" : undefined}
-                      >
-                        {label}
-                      </span>
-                    </span>
-                    <button className="btnSmall" onClick={async () => {
-                      setHealthChecking(e.name);
-                      try {
-                        let r: any[];
-                        const healthUrl = shouldUseHttpApi() ? httpApiBase() : null;
-                        if (healthUrl) {
-                          const res = await safeFetch(`${healthUrl}/api/health/check`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint_name: e.name }), signal: AbortSignal.timeout(60_000) });
-                          const data = await res.json();
-                          r = data.results || [];
-                        } else {
-                          setError(t("status.needServiceRunning"));
-                          setHealthChecking(null);
-                          return;
-                        }
-                        if (r[0]) setEndpointHealth((prev: any) => ({ ...prev, [r[0].name]: { status: r[0].status, latencyMs: r[0].latency_ms, error: r[0].error, errorCategory: r[0].error_category, consecutiveFailures: r[0].consecutive_failures, cooldownRemaining: r[0].cooldown_remaining, isExtendedCooldown: r[0].is_extended_cooldown, lastCheckedAt: r[0].last_checked_at } }));
-                      } catch (err) { setError(String(err)); } finally { setHealthChecking(null); }
-                    }} disabled={!!healthChecking || !!busy}>{healthChecking === e.name ? "..." : t("status.check")}</button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* IM Channels + Skills side by side */}
-        <div className="statusGrid2" style={{ marginTop: 12 }}>
-          <div className="card" style={{ marginTop: 0 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <span className="statusCardLabel">{t("status.imChannels")}</span>
-              <button className="btnSmall" onClick={async () => {
-                setImChecking(true);
-                try {
-                  const healthUrl = shouldUseHttpApi() ? httpApiBase() : null;
-                  if (healthUrl) {
-                    const res = await safeFetch(`${healthUrl}/api/im/channels`);
-                    const data = await res.json();
-                    const channels = data.channels || [];
-                    const h: typeof imHealth = {};
-                    for (const c of channels) {
-                      h[c.channel || c.name] = { status: c.status || "unknown", error: c.error || null, lastCheckedAt: c.last_checked_at || null };
-                    }
-                    setImHealth(h);
-                  } else {
-                    setError(t("status.needServiceRunning"));
-                  }
-                } catch (err) { setError(String(err)); } finally { setImChecking(false); }
-              }} disabled={imChecking || !!busy}>
-                {imChecking ? "..." : t("status.checkAll")}
-              </button>
-            </div>
-            {imStatus.map((c) => {
-              const channelId = c.k.replace("_ENABLED", "").toLowerCase();
-              const ih = imHealth[channelId];
-              const isOnline = ih && (ih.status === "healthy" || ih.status === "online");
-              // If imHealth has data for this channel, trust it over envDraft (handles remote mode)
-              const effectiveEnabled = ih ? true : c.enabled;
-              const dot = !effectiveEnabled ? "disabled" : ih ? (isOnline ? "healthy" : "unhealthy") : c.ok ? "unknown" : "degraded";
-              return (
-                <div key={c.k} className="imStatusRow">
-                  <span className={"healthDot " + dot} />
-                  <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{c.name}</span>
-                  <span className="imStatusLabel">{!effectiveEnabled ? t("status.disabled") : ih ? (isOnline ? t("status.online") : t("status.offline")) : c.ok ? t("status.configured") : t("status.keyMissing")}</span>
-                </div>
-              );
-            })}
-          </div>
-          <div className="card" style={{ marginTop: 0 }}>
-            <span className="statusCardLabel">Skills</span>
-            {skillSummary ? (
-              <div style={{ marginTop: 8 }}>
-                <div className="statusMetric"><span>{t("status.total")}</span><b>{skillSummary.count}</b></div>
-                <div className="statusMetric"><span>{t("skills.system")}</span><b>{skillSummary.systemCount}</b></div>
-                <div className="statusMetric"><span>{t("skills.external")}</span><b>{skillSummary.externalCount}</b></div>
-              </div>
-            ) : <div className="cardHint" style={{ marginTop: 8 }}>{t("status.skillsNA")}</div>}
-            <button className="btnSmall" style={{ marginTop: 10, width: "100%" }} onClick={() => setView("skills")}>{t("status.manageSkills")}</button>
-          </div>
-        </div>
-
-        {/* Service log */}
-        {serviceStatus?.running && (
-          <div className="card" style={{ marginTop: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <span className="statusCardLabel">{t("status.log")}</span>
-              <button className="btnSmall" onClick={() => { const wsId = effectiveWsId || (dataMode === "remote" ? "__remote__" : null); if (wsId) refreshServiceLog(wsId); }}>{t("topbar.refresh")}</button>
-            </div>
-            <pre ref={serviceLogRef} className="logPre">{(serviceLog?.content || "").trim() || t("status.noLog")}</pre>
-          </div>
-        )}
-      </>
+      <StatusView
+        currentWorkspaceId={currentWorkspaceId}
+        workspaces={workspaces}
+        envDraft={envDraft}
+        serviceStatus={serviceStatus}
+        heartbeatState={heartbeatState}
+        busy={busy}
+        autostartEnabled={autostartEnabled}
+        autoUpdateEnabled={autoUpdateEnabled}
+        setAutostartEnabled={setAutostartEnabled}
+        setAutoUpdateEnabled={setAutoUpdateEnabled}
+        endpointSummary={endpointSummary}
+        endpointHealth={endpointHealth}
+        setEndpointHealth={setEndpointHealth}
+        imHealth={imHealth}
+        setImHealth={setImHealth}
+        skillSummary={skillSummary}
+        serviceLog={serviceLog}
+        serviceLogRef={serviceLogRef}
+        logAtBottomRef={logAtBottomRef}
+        detectedProcesses={detectedProcesses}
+        setDetectedProcesses={setDetectedProcesses}
+        setNewRelease={setNewRelease}
+        setUpdateAvailable={setUpdateAvailable}
+        setUpdateProgress={setUpdateProgress}
+        shouldUseHttpApi={shouldUseHttpApi}
+        httpApiBase={httpApiBase}
+        startLocalServiceWithConflictCheck={startLocalServiceWithConflictCheck}
+        refreshStatus={refreshStatus}
+        doStopService={doStopService}
+        waitForServiceDown={waitForServiceDown}
+        doStartLocalService={doStartLocalService}
+        setView={setView}
+      />
     );
-  }
-
-  // ── Add endpoint dialog state ──
-  const [addEpDialogOpen, setAddEpDialogOpen] = useState(false);
-  const [addCompDialogOpen, setAddCompDialogOpen] = useState(false);
-  const [addSttDialogOpen, setAddSttDialogOpen] = useState(false);
-
-  function openAddEpDialog() {
-    resetEndpointEditor();
-    setConnTestResult(null);
-    doLoadProviders();
-    setAddEpDialogOpen(true);
   }
 
   function renderLLM() {
     return (
-      <>
-        {/* ── Main endpoint list ── */}
-        <div className="card">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div>
-              <div className="cardTitle" style={{ marginBottom: 2 }}>{t("llm.title")}</div>
-              <div className="cardHint">{t("llm.subtitle")}</div>
-            </div>
-            <button className="btnPrimary" style={{ whiteSpace: "nowrap" }} onClick={openAddEpDialog} disabled={!!busy}>
-              + {t("llm.addEndpoint")}
-            </button>
-          </div>
-
-          {savedEndpoints.length === 0 ? (
-            <div className="cardHint" style={{ textAlign: "center", padding: "24px 0" }}>{t("llm.noEndpoints")}</div>
-          ) : (
-            <div className="epTable">
-              <div className="epTableHeader">
-                <span>{t("status.endpoint")}</span>
-                <span>{t("status.model")}</span>
-                <span>Key</span>
-                <span>Priority</span>
-                <span></span>
-              </div>
-              {savedEndpoints.map((e) => (
-                <div key={e.name} className="epTableRow">
-                  <span className="epTableName">
-                    {e.name}
-                    {savedEndpoints[0]?.name === e.name && <span style={{ marginLeft: 6, color: "var(--brand)", fontSize: 10, fontWeight: 800 }}>{t("llm.primary")}</span>}
-                  </span>
-                  <span className="epTableModel">{e.model}</span>
-                  <span>{(envDraft[e.api_key_env] || "").trim() ? <DotGreen /> : <DotGray />}</span>
-                  <span style={{ fontSize: 12 }}>{e.priority}</span>
-                  <span style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                    {savedEndpoints[0]?.name !== e.name && <button className="btnIcon" onClick={() => doSetPrimaryEndpoint(e.name)} disabled={!!busy} title={t("llm.setPrimary")}><IconChevronUp size={14} /></button>}
-                    <button className="btnIcon" onClick={() => doStartEditEndpoint(e.name)} disabled={!!busy} title={t("llm.edit")}><IconEdit size={14} /></button>
-                    <button className="btnIcon btnIconDanger" onClick={() => askConfirm(`${t("common.confirmDeleteMsg")} "${e.name}"?`, () => doDeleteEndpoint(e.name))} disabled={!!busy} title={t("common.delete")}><IconTrash size={14} /></button>
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* ── Compiler endpoints ── */}
-        <div className="card" style={{ marginTop: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <div>
-              <div className="statusCardLabel">{t("llm.compiler")}</div>
-              <div className="cardHint" style={{ fontSize: 11 }}>{t("llm.compilerHint")}</div>
-            </div>
-            <button className="btnSmall btnSmallPrimary" onClick={() => { doLoadProviders(); setCompilerProviderSlug(""); setCompilerApiType("openai"); setCompilerBaseUrl(""); setCompilerApiKeyEnv(""); setCompilerApiKeyValue(""); setCompilerModel(""); setCompilerEndpointName(""); setCompilerCodingPlan(false); setCompilerModels([]); setAddCompDialogOpen(true); }} disabled={!!busy}>
-              + {t("llm.addEndpoint")}
-            </button>
-          </div>
-          {savedCompilerEndpoints.length === 0 ? (
-            <div className="cardHint">{t("llm.noCompiler")}</div>
-          ) : (
-            <div style={{ display: "grid", gap: 6 }}>
-              {savedCompilerEndpoints.map((e) => (
-                <div key={e.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
-                  <div>
-                    <span style={{ fontWeight: 700, fontSize: 13 }}>{e.name}</span>
-                    <span style={{ color: "var(--muted)", fontSize: 11, marginLeft: 8 }}>{e.model} · {e.provider}</span>
-                  </div>
-                  <button className="btnIcon btnIconDanger" onClick={() => askConfirm(`${t("common.confirmDeleteMsg")} "${e.name}"?`, () => doDeleteCompilerEndpoint(e.name))} disabled={!!busy} title={t("common.delete")}><IconTrash size={14} /></button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* ── STT endpoints ── */}
-        <div className="card" style={{ marginTop: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <div>
-              <div className="statusCardLabel">{t("llm.stt")}</div>
-              <div className="cardHint" style={{ fontSize: 11 }}>{t("llm.sttHint")}</div>
-            </div>
-            <button className="btnSmall btnSmallPrimary" onClick={() => { doLoadProviders(); setSttProviderSlug(""); setSttApiType("openai"); setSttBaseUrl(""); setSttApiKeyEnv(""); setSttApiKeyValue(""); setSttModel(""); setSttEndpointName(""); setSttModels([]); setAddSttDialogOpen(true); }} disabled={!!busy}>
-              + {t("llm.addStt")}
-            </button>
-          </div>
-          {savedSttEndpoints.length === 0 ? (
-            <div className="cardHint">{t("llm.noStt")}</div>
-          ) : (
-            <div style={{ display: "grid", gap: 6 }}>
-              {savedSttEndpoints.map((e) => (
-                <div key={e.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
-                  <div>
-                    <span style={{ fontWeight: 700, fontSize: 13 }}>{e.name}</span>
-                    <span style={{ color: "var(--muted)", fontSize: 11, marginLeft: 8 }}>{e.model} · {e.provider}</span>
-                  </div>
-                  <button className="btnIcon btnIconDanger" onClick={() => askConfirm(`${t("common.confirmDeleteMsg")} "${e.name}"?`, () => doDeleteSttEndpoint(e.name))} disabled={!!busy} title={t("common.delete")}><IconTrash size={14} /></button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* ── Add endpoint dialog ── */}
-        {addEpDialogOpen && (
-          <div className="modalOverlay" onClick={() => setAddEpDialogOpen(false)}>
-            <div className="modalContent" onClick={(e) => e.stopPropagation()}>
-              <div className="dialogHeader">
-                <div className="cardTitle">{isEditingEndpoint ? t("llm.editEndpoint") : t("llm.addEndpoint")}</div>
-                <button className="dialogCloseBtn" onClick={() => { setAddEpDialogOpen(false); resetEndpointEditor(); }}><IconX size={14} /></button>
-              </div>
-
-              <div className="dialogBody">
-              {/* Provider */}
-              <div className="dialogSection">
-                <div className="dialogLabel">{t("llm.provider")}</div>
-                <ProviderSearchSelect
-                  value={providerSlug}
-                  onChange={(v) => setProviderSlug(v)}
-                  options={sortProvidersForDisplay(providers).map((p) => ({ value: p.slug, label: p.name }))}
-                  placeholder={providers.length === 0 ? t("common.loading") : undefined}
-                  disabled={providers.length === 0}
-                />
-                {providerApplyUrl && <div className="help" style={{ marginTop: 6, paddingLeft: 2 }}>Key: <a href={providerApplyUrl} target="_blank" rel="noreferrer">{providerApplyUrl}</a></div>}
-              </div>
-
-              {/* Coding Plan toggle — only shown when provider supports it */}
-              {selectedProvider?.coding_plan_base_url && (
-                <div className="dialogSection">
-                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
-                    <input
-                      type="checkbox"
-                      checked={codingPlanMode}
-                      onChange={(e) => { setCodingPlanMode(e.target.checked); setBaseUrlTouched(false); }}
-                      style={{ width: 16, height: 16, accentColor: "var(--brand)" }}
-                    />
-                    <span style={{ fontSize: 13, fontWeight: 500 }}>{t("llm.codingPlan")}</span>
-                  </label>
-                  <div className="help" style={{ marginTop: 4, paddingLeft: 24 }}>{t("llm.codingPlanHint")}</div>
-                </div>
-              )}
-
-              {/* Base URL */}
-              <div className="dialogSection">
-                <div className="dialogLabel">{t("llm.baseUrl")}</div>
-                <input
-                  value={baseUrl}
-                  onChange={(e) => { setBaseUrl(e.target.value); setBaseUrlTouched(true); }}
-                  placeholder={selectedProvider?.default_base_url || "https://api.example.com/v1"}
-                  style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 13 }}
-                />
-                <div className="help" style={{ marginTop: 4, paddingLeft: 2 }}>{t("llm.baseUrlHint")}</div>
-              </div>
-
-              {/* API Key */}
-              <div className="dialogSection">
-                <div className="dialogLabel">API Key {isLocalProvider(selectedProvider) && <span style={{ color: "var(--muted)", fontSize: 11, fontWeight: 400 }}>({t("llm.localNoKey")})</span>}</div>
-                <input
-                  value={apiKeyValue}
-                  onChange={(e) => setApiKeyValue(e.target.value)}
-                  placeholder={isLocalProvider(selectedProvider) ? t("llm.localKeyPlaceholder") : "sk-..."}
-                  type={(secretShown.__LLM_API_KEY && !IS_WEB) ? "text" : "password"}
-                />
-                {isLocalProvider(selectedProvider) && (
-                  <div className="help" style={{ marginTop: 4, paddingLeft: 2, color: "var(--brand)" }}>{t("llm.localHint")}</div>
-                )}
-              </div>
-
-              {/* Model name — always visible; fetch is optional */}
-              <div className="dialogSection">
-                <div className="dialogLabel">{t("llm.selectModel")}</div>
-                <SearchSelect
-                  value={selectedModelId}
-                  onChange={(v) => setSelectedModelId(v)}
-                  options={models.map((m) => m.id)}
-                  placeholder={models.length > 0 ? t("llm.searchModel") : t("llm.modelPlaceholder")}
-                  disabled={!!busy}
-                />
-                {models.length === 0 && (
-                  <div className="help" style={{ marginTop: 4, paddingLeft: 2, display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ opacity: 0.7 }}>{t("llm.modelManualHint")}</span>
-                    {selectedProvider?.supports_model_list !== false && (
-                      <button onClick={doFetchModels} className="btnSmall" disabled={(!apiKeyValue.trim() && !isLocalProvider(selectedProvider)) || !baseUrl.trim() || !!busy}
-                        style={{ fontSize: 11, padding: "2px 10px", borderRadius: 6 }}>
-                        {t("llm.fetchModels")}
-                      </button>
-                    )}
-                  </div>
-                )}
-                {models.length > 0 && (
-                  <div className="help" style={{ marginTop: 4, paddingLeft: 2, display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ opacity: 0.6 }}>{t("llm.modelFetched", { count: models.length })}</span>
-                    <button onClick={doFetchModels} className="btnSmall" disabled={(!apiKeyValue.trim() && !isLocalProvider(selectedProvider)) || !baseUrl.trim() || !!busy}
-                      style={{ fontSize: 11, padding: "2px 10px", borderRadius: 6 }}>
-                      {t("llm.refetch")}
-                    </button>
-                  </div>
-                )}
-                {error && (
-                  <div style={{ marginTop: 6, padding: "6px 10px", background: "rgba(229,57,53,0.12)", border: "1px solid rgba(229,57,53,0.3)", borderRadius: 6, fontSize: 12, color: "#e53935", wordBreak: "break-all" }}>
-                    ⚠ {error}
-                  </div>
-                )}
-              </div>
-
-              <div className="dialogSection">
-                <div className="dialogLabel">{t("llm.endpointName")}</div>
-                <input
-                  value={endpointName}
-                  onChange={(e) => { setEndpointNameTouched(true); setEndpointName(e.target.value); }}
-                  placeholder="dashscope-qwen3-max"
-                />
-              </div>
-
-              {/* Capabilities as chips */}
-              <div className="dialogSection">
-                <div className="dialogLabel">{t("llm.capabilities")}</div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {[
-                    { k: "text", name: t("llm.capText") },
-                    { k: "thinking", name: t("llm.capThinking") },
-                    { k: "vision", name: t("llm.capVision") },
-                    { k: "video", name: t("llm.capVideo") },
-                    { k: "tools", name: t("llm.capTools") },
-                  ].map((c) => {
-                    const on = capSelected.includes(c.k);
-                    return (
-                      <span key={c.k} className={`capChip ${on ? "capChipActive" : ""}`}
-                        onClick={() => { setCapTouched(true); setCapSelected((prev) => { const set = new Set(prev); if (set.has(c.k)) set.delete(c.k); else set.add(c.k); const out = Array.from(set); return out.length ? out : ["text"]; }); }}
-                      >{on ? "\u2713 " : ""}{c.name}</span>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Advanced (collapsed) */}
-              <details className="dialogDetails">
-                <summary>{t("llm.advanced")}</summary>
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  <div>
-                    <div className="dialogLabel">{t("llm.advApiType")}</div>
-                    <select value={apiType} onChange={(e) => setApiType(e.target.value as any)} style={{ width: 180, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 13 }}>
-                      <option value="openai">openai</option>
-                      <option value="anthropic">anthropic</option>
-                    </select>
-                  </div>
-                  <div>
-                    <div className="dialogLabel">{t("llm.advKeyEnv")}</div>
-                    <input value={apiKeyEnv} onChange={(e) => { setApiKeyEnvTouched(true); setApiKeyEnv(e.target.value); }} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 13 }} />
-                  </div>
-                  <div>
-                    <div className="dialogLabel">{t("llm.advPriority")}</div>
-                    <input type="number" value={String(endpointPriority)} onChange={(e) => setEndpointPriority(Number(e.target.value))} style={{ width: 100, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 13 }} />
-                  </div>
-                  <div>
-                    <div className="dialogLabel">{t("llm.advMaxTokens")}</div>
-                    <input type="number" min={0} value={addEpMaxTokens} onChange={(e) => setAddEpMaxTokens(Math.max(0, parseInt(e.target.value) || 0))} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 13 }} />
-                    <div className="help" style={{ fontSize: 11, marginTop: 2 }}>{t("llm.advMaxTokensHint")}</div>
-                  </div>
-                  <div>
-                    <div className="dialogLabel">{t("llm.advContextWindow")}</div>
-                    <input type="number" min={1024} value={addEpContextWindow} onChange={(e) => setAddEpContextWindow(Math.max(1024, parseInt(e.target.value) || 200000))} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 13 }} />
-                    <div className="help" style={{ fontSize: 11, marginTop: 2 }}>{t("llm.advContextWindowHint")}</div>
-                  </div>
-                  <div>
-                    <div className="dialogLabel">{t("llm.advTimeout")}</div>
-                    <input type="number" min={10} value={addEpTimeout} onChange={(e) => setAddEpTimeout(Math.max(10, parseInt(e.target.value) || 180))} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 13 }} />
-                    <div className="help" style={{ fontSize: 11, marginTop: 2 }}>{t("llm.advTimeoutHint")}</div>
-                  </div>
-                  <div>
-                    <div className="dialogLabel">{t("llm.advRpmLimit")}</div>
-                    <input type="number" min={0} value={addEpRpmLimit} onChange={(e) => setAddEpRpmLimit(Math.max(0, parseInt(e.target.value) || 0))} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 13 }} />
-                    <div className="help" style={{ fontSize: 11, marginTop: 2 }}>{t("llm.advRpmLimitHint")}</div>
-                  </div>
-                </div>
-              </details>
-              </div>
-
-              {/* 连接测试结果（预留固定高度，避免把底部按钮“顶”动） */}
-              <div className="connTestSlot">
-                {connTestResult ? (
-                  <div className={`connTestResult ${connTestResult.ok ? "connTestOk" : "connTestFail"}`}>
-                    {connTestResult.ok
-                      ? `${t("llm.testSuccess")} · ${connTestResult.latencyMs}ms · ${t("llm.testModelCount", { count: connTestResult.modelCount ?? 0 })}`
-                      : `${t("llm.testFailed")}：${connTestResult.error} (${connTestResult.latencyMs}ms)`}
-                  </div>
-                ) : (
-                  <div className="connTestResult connTestPlaceholder" />
-                )}
-              </div>
-
-              {/* Footer — fixed at bottom */}
-              <div className="dialogFooter">
-                <button className="btnSecondary endpointFooterBtn" onClick={() => { setAddEpDialogOpen(false); resetEndpointEditor(); setConnTestResult(null); }}>{t("common.cancel")}</button>
-                <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                  <button
-                    className="btnSecondary endpointFooterBtn"
-                    disabled={(!apiKeyValue.trim() && !isLocalProvider(selectedProvider)) || !baseUrl.trim() || connTesting}
-                    onClick={() => doTestConnection({ testApiType: apiType, testBaseUrl: baseUrl, testApiKey: apiKeyValue.trim() || (isLocalProvider(selectedProvider) ? localProviderPlaceholderKey(selectedProvider) : ""), testProviderSlug: selectedProvider?.slug })}
-                  >
-                    {connTesting ? t("llm.testTesting") : t("llm.testConnection")}
-                  </button>
-                  {(() => {
-                    const _isLocal = isLocalProvider(selectedProvider);
-                    const missing: string[] = [];
-                    if (!baseUrl.trim()) missing.push("Base URL");
-                    if (!_isLocal && !apiKeyValue.trim()) missing.push("API Key");
-                    if (!selectedModelId.trim()) missing.push(t("status.model"));
-                    if (!currentWorkspaceId && dataMode !== "remote") missing.push(t("workspace.title") || "工作区");
-                    const btnDisabled = missing.length > 0 || !!busy;
-                    return (
-                      <div className="endpointPrimaryWrap">
-                        <button className="btnPrimary endpointFooterBtn" onClick={async () => { const ok = await doSaveEndpoint(); if (ok) { setAddEpDialogOpen(false); setConnTestResult(null); } }} disabled={btnDisabled}>
-                          {isEditingEndpoint ? t("common.save") : t("llm.addEndpoint")}
-                        </button>
-                        <span className="endpointPrimaryHint">
-                          {btnDisabled && !busy && missing.length > 0 ? (
-                            <>
-                            {t("common.missingFields") || "缺少"}: {missing.join(", ")}
-                            </>
-                          ) : null}
-                        </span>
-                      </div>
-                    );
-                  })()}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── Edit endpoint modal (aligned with add dialog) ── */}
-        {editModalOpen && editDraft && (
-          <div className="modalOverlay" onClick={() => resetEndpointEditor()}>
-            <div className="modalContent" onClick={(e) => e.stopPropagation()}>
-              <div className="dialogHeader">
-                <div className="cardTitle">{t("llm.editEndpoint")}: {editDraft.name}</div>
-                <button className="dialogCloseBtn" onClick={() => resetEndpointEditor()}><IconX size={14} /></button>
-              </div>
-              <div className="dialogBody">
-
-              {/* Provider (read-only) */}
-              <div className="dialogSection">
-                <div className="dialogLabel">{t("llm.provider")}</div>
-                <input value={(() => { const p = providers.find((x) => x.slug === editDraft.providerSlug); return p ? p.name : (editDraft.providerSlug || "custom"); })()} disabled style={{ opacity: 0.7, cursor: "not-allowed" }} />
-                <div className="help" style={{ fontSize: 11, marginTop: 2 }}>{t("llm.editProviderHint") || "服务商在创建时确定，不可更改"}</div>
-              </div>
-
-              {/* Base URL */}
-              <div className="dialogSection">
-                <div className="dialogLabel">{t("llm.baseUrl")}</div>
-                <input value={editDraft.baseUrl || ""} onChange={(e) => setEditDraft({ ...editDraft, baseUrl: e.target.value })} />
-                <div className="help" style={{ marginTop: 4, paddingLeft: 2 }}>{t("llm.baseUrlHint")}</div>
-              </div>
-
-              {/* API Key */}
-              <div className="dialogSection">
-                <div className="dialogLabel">API Key {isLocalProvider(providers.find((p) => p.slug === editDraft.providerSlug)) && <span style={{ color: "var(--muted)", fontSize: 11, fontWeight: 400 }}>({t("llm.localNoKey")})</span>}</div>
-                <div style={{ position: "relative" }}>
-                  <input value={envDraft[editDraft.apiKeyEnv || ""] || ""} onChange={(e) => { const k = editDraft.apiKeyEnv || ""; const v = e.target.value; setEnvDraft((m) => ({ ...m, [k]: v })); setEditDraft((d) => d ? { ...d, apiKeyValue: v } : d); }} type={(secretShown.__EDIT_EP_KEY && !IS_WEB) ? "text" : "password"} style={{ paddingRight: 44, width: "100%" }} placeholder={isLocalProvider(providers.find((p) => p.slug === editDraft.providerSlug)) ? t("llm.localKeyPlaceholder") : "sk-..."} />
-                  {!IS_WEB && <button type="button" className="btnEye" onClick={() => setSecretShown((m) => ({ ...m, __EDIT_EP_KEY: !m.__EDIT_EP_KEY }))} title={secretShown.__EDIT_EP_KEY ? "隐藏" : "显示"}>
-                    {secretShown.__EDIT_EP_KEY ? <IconEyeOff size={16} /> : <IconEye size={16} />}
-                  </button>}
-                </div>
-                {isLocalProvider(providers.find((p) => p.slug === editDraft.providerSlug)) && <div className="help" style={{ marginTop: 4, paddingLeft: 2, color: "var(--brand)" }}>{t("llm.localHint")}</div>}
-              </div>
-
-              {/* Model */}
-              <div className="dialogSection">
-                <div className="dialogLabel">{t("status.model")}</div>
-                <SearchSelect
-                  value={editDraft.modelId || ""}
-                  onChange={(v) => setEditDraft({ ...editDraft, modelId: v })}
-                  options={editModels.length > 0 ? editModels.map(m => m.id) : [editDraft.modelId || ""].filter(Boolean)}
-                  placeholder={editModels.length > 0 ? t("llm.searchModel") : (editDraft.modelId || t("llm.modelPlaceholder"))}
-                  disabled={!!busy}
-                />
-                <div className="help" style={{ marginTop: 4, paddingLeft: 2, display: "flex", alignItems: "center", gap: 6 }}>
-                  <button onClick={doFetchEditModels} className="btnSmall" disabled={(!isLocalProvider(providers.find((p) => p.slug === editDraft.providerSlug)) && !(envDraft[editDraft.apiKeyEnv || ""] || "").trim()) || !(editDraft.baseUrl || "").trim() || !!busy}
-                    style={{ fontSize: 11, padding: "2px 10px", borderRadius: 6 }}>
-                    {t("llm.fetchModels")}
-                  </button>
-                  {editModels.length > 0 && <span style={{ opacity: 0.6 }}>{t("llm.modelFetched", { count: editModels.length })}</span>}
-                </div>
-                {error && (
-                  <div style={{ marginTop: 6, padding: "6px 10px", background: "rgba(229,57,53,0.12)", border: "1px solid rgba(229,57,53,0.3)", borderRadius: 6, fontSize: 12, color: "#e53935", wordBreak: "break-all" }}>
-                    ⚠ {error}
-                  </div>
-                )}
-              </div>
-
-              {/* Capabilities as chips */}
-              <div className="dialogSection">
-                <div className="dialogLabel">{t("llm.capabilities")}</div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {[
-                    { k: "text", name: t("llm.capText") },
-                    { k: "thinking", name: t("llm.capThinking") },
-                    { k: "vision", name: t("llm.capVision") },
-                    { k: "video", name: t("llm.capVideo") },
-                    { k: "tools", name: t("llm.capTools") },
-                  ].map((c) => {
-                    const on = (editDraft.caps || []).includes(c.k);
-                    return (
-                      <span key={c.k} className={`capChip ${on ? "capChipActive" : ""}`}
-                        onClick={() => setEditDraft((d) => {
-                          if (!d) return d;
-                          const set = new Set(d.caps || []);
-                          if (set.has(c.k)) set.delete(c.k); else set.add(c.k);
-                          const out = Array.from(set);
-                          return { ...d, caps: out.length ? out : ["text"] };
-                        })}
-                      >{on ? "\u2713 " : ""}{c.name}</span>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Advanced (collapsed) */}
-              <details style={{ margin: "8px 0 4px 0" }}>
-                <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 500, color: "var(--fg-secondary, #888)", userSelect: "none", padding: "4px 0" }}>
-                  ⚙ {t("llm.advancedParams") || t("llm.advanced") || "高级参数"}
-                </summary>
-                <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "8px 0 4px 0" }}>
-                  <div className="dialogSection" style={{ margin: 0 }}>
-                    <div className="dialogLabel" style={{ fontSize: 12 }}>{t("llm.advApiType")}</div>
-                    <select value={editDraft.apiType} onChange={(e) => setEditDraft({ ...editDraft, apiType: e.target.value as any })} style={{ width: 180, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 13 }}>
-                      <option value="openai">openai</option>
-                      <option value="anthropic">anthropic</option>
-                    </select>
-                  </div>
-                  <div className="dialogSection" style={{ margin: 0 }}>
-                    <div className="dialogLabel" style={{ fontSize: 12 }}>{t("llm.advKeyEnv")}</div>
-                    <input value={editDraft.apiKeyEnv} onChange={(e) => setEditDraft({ ...editDraft, apiKeyEnv: e.target.value })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 13 }} />
-                  </div>
-                  <div className="dialogSection" style={{ margin: 0 }}>
-                    <div className="dialogLabel" style={{ fontSize: 12 }}>{t("llm.advPriority")}</div>
-                    <input type="number" value={editDraft.priority} onChange={(e) => setEditDraft({ ...editDraft, priority: Number(e.target.value) || 1 })} style={{ width: 100, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 13 }} />
-                  </div>
-                  <div className="dialogSection" style={{ margin: 0 }}>
-                    <div className="dialogLabel" style={{ fontSize: 12 }}>{t("llm.advMaxTokens")}</div>
-                    <input type="number" min={0} value={editDraft.maxTokens} onChange={(e) => setEditDraft({ ...editDraft, maxTokens: Math.max(0, parseInt(e.target.value) || 0) })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 13 }} />
-                    <div className="help" style={{ fontSize: 11, marginTop: 2 }}>{t("llm.advMaxTokensHint")}</div>
-                  </div>
-                  <div className="dialogSection" style={{ margin: 0 }}>
-                    <div className="dialogLabel" style={{ fontSize: 12 }}>{t("llm.advContextWindow")}</div>
-                    <input type="number" min={1024} value={editDraft.contextWindow} onChange={(e) => setEditDraft({ ...editDraft, contextWindow: Math.max(1024, parseInt(e.target.value) || 200000) })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 13 }} />
-                    <div className="help" style={{ fontSize: 11, marginTop: 2 }}>{t("llm.advContextWindowHint")}</div>
-                  </div>
-                  <div className="dialogSection" style={{ margin: 0 }}>
-                    <div className="dialogLabel" style={{ fontSize: 12 }}>{t("llm.advTimeout")}</div>
-                    <input type="number" min={10} value={editDraft.timeout} onChange={(e) => setEditDraft({ ...editDraft, timeout: Math.max(10, parseInt(e.target.value) || 180) })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 13 }} />
-                    <div className="help" style={{ fontSize: 11, marginTop: 2 }}>{t("llm.advTimeoutHint")}</div>
-                  </div>
-                  <div className="dialogSection" style={{ margin: 0 }}>
-                    <div className="dialogLabel" style={{ fontSize: 12 }}>{t("llm.advRpmLimit")}</div>
-                    <input type="number" min={0} value={editDraft.rpmLimit} onChange={(e) => setEditDraft({ ...editDraft, rpmLimit: Math.max(0, parseInt(e.target.value) || 0) })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 13 }} />
-                    <div className="help" style={{ fontSize: 11, marginTop: 2 }}>{t("llm.advRpmLimitHint")}</div>
-                  </div>
-                </div>
-              </details>
-              </div>
-
-              {/* 阶梯定价配置 */}
-              <div style={{ marginTop: 12 }}>
-              <details>
-                <summary style={{ cursor: "pointer", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 8 }}>
-                  定价配置（可选，用于费用估算）
-                </summary>
-                <div style={{ padding: "8px 0" }}>
-                  <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 8 }}>
-                    阶梯定价：按每次请求的 input_tokens 匹配档位，价格单位为每百万 token（CNY）
-                  </div>
-                  {(editDraft.pricingTiers || []).map((tier, idx) => (
-                    <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 32px", gap: 6, marginBottom: 6, alignItems: "center" }}>
-                      <div>
-                        {idx === 0 && <div style={{ fontSize: 10, color: "var(--text-secondary)", marginBottom: 2 }}>最大输入 tokens</div>}
-                        <input type="number" min={0} placeholder="128000" value={tier.max_input || ""} onChange={(e) => {
-                          const tiers = [...(editDraft.pricingTiers || [])];
-                          tiers[idx] = { ...tiers[idx], max_input: parseInt(e.target.value) || 0 };
-                          setEditDraft({ ...editDraft, pricingTiers: tiers });
-                        }} style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--line)", fontSize: 12 }} />
-                      </div>
-                      <div>
-                        {idx === 0 && <div style={{ fontSize: 10, color: "var(--text-secondary)", marginBottom: 2 }}>输入价格/M</div>}
-                        <input type="number" min={0} step={0.01} placeholder="1.2" value={tier.input_price || ""} onChange={(e) => {
-                          const tiers = [...(editDraft.pricingTiers || [])];
-                          tiers[idx] = { ...tiers[idx], input_price: parseFloat(e.target.value) || 0 };
-                          setEditDraft({ ...editDraft, pricingTiers: tiers });
-                        }} style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--line)", fontSize: 12 }} />
-                      </div>
-                      <div>
-                        {idx === 0 && <div style={{ fontSize: 10, color: "var(--text-secondary)", marginBottom: 2 }}>输出价格/M</div>}
-                        <input type="number" min={0} step={0.01} placeholder="7.2" value={tier.output_price || ""} onChange={(e) => {
-                          const tiers = [...(editDraft.pricingTiers || [])];
-                          tiers[idx] = { ...tiers[idx], output_price: parseFloat(e.target.value) || 0 };
-                          setEditDraft({ ...editDraft, pricingTiers: tiers });
-                        }} style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--line)", fontSize: 12 }} />
-                      </div>
-                      <button onClick={() => {
-                        const tiers = (editDraft.pricingTiers || []).filter((_, i) => i !== idx);
-                        setEditDraft({ ...editDraft, pricingTiers: tiers });
-                      }} style={{ padding: "4px 6px", borderRadius: 4, border: "1px solid var(--line)", background: "var(--bg)", cursor: "pointer", fontSize: 12, color: "var(--text-secondary)", marginTop: idx === 0 ? 16 : 0 }}>✕</button>
-                    </div>
-                  ))}
-                  <button onClick={() => {
-                    const tiers = [...(editDraft.pricingTiers || []), { max_input: 0, input_price: 0, output_price: 0 }];
-                    setEditDraft({ ...editDraft, pricingTiers: tiers });
-                  }} style={{ padding: "4px 12px", borderRadius: 6, border: "1px dashed var(--line)", background: "var(--bg)", cursor: "pointer", fontSize: 11, color: "var(--text-secondary)" }}>
-                    + 添加档位
-                  </button>
-                </div>
-              </details>
-              </div>
-
-              {/* 连接测试结果 */}
-              {connTestResult && (
-                <div className={`connTestResult ${connTestResult.ok ? "connTestOk" : "connTestFail"}`}>
-                  {connTestResult.ok
-                    ? `${t("llm.testSuccess")} · ${connTestResult.latencyMs}ms · ${t("llm.testModelCount", { count: connTestResult.modelCount ?? 0 })}`
-                    : `${t("llm.testFailed")}：${connTestResult.error} (${connTestResult.latencyMs}ms)`}
-                </div>
-              )}
-
-              <div className="dialogFooter">
-                <button className="btnSmall" style={{ padding: "8px 18px" }} onClick={() => { resetEndpointEditor(); setConnTestResult(null); }}>{t("common.cancel")}</button>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <button
-                    className="btnSmall"
-                    style={{ padding: "8px 18px" }}
-                    disabled={(!isLocalProvider(providers.find((p) => p.slug === editDraft.providerSlug)) && !(envDraft[editDraft.apiKeyEnv || ""] || "").trim()) || !(editDraft.baseUrl || "").trim() || connTesting}
-                    onClick={() => { const _ep = providers.find((p) => p.slug === editDraft.providerSlug); doTestConnection({
-                      testApiType: editDraft.apiType || "openai",
-                      testBaseUrl: editDraft.baseUrl || "",
-                      testApiKey: (envDraft[editDraft.apiKeyEnv || ""] || "").trim() || (isLocalProvider(_ep) ? localProviderPlaceholderKey(_ep) : ""),
-                      testProviderSlug: editDraft.providerSlug,
-                    }); }}
-                  >
-                    {connTesting ? t("llm.testTesting") : t("llm.testConnection")}
-                  </button>
-                  <button className="btnPrimary" style={{ padding: "8px 18px" }} onClick={async () => { await doSaveEditedEndpoint(); setConnTestResult(null); }} disabled={!!busy}>{t("common.save")}</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── Add compiler dialog ── */}
-        {addCompDialogOpen && (
-          <div className="modalOverlay" onClick={() => setAddCompDialogOpen(false)}>
-            <div className="modalContent" onClick={(e) => e.stopPropagation()}>
-              <div className="dialogHeader">
-                <div className="cardTitle">{t("llm.addCompiler")}</div>
-                <button className="dialogCloseBtn" onClick={() => setAddCompDialogOpen(false)}><IconX size={14} /></button>
-              </div>
-              <div className="dialogBody">
-              <div className="dialogSection">
-                <div className="dialogLabel">{t("llm.provider")}</div>
-                <ProviderSearchSelect
-                  value={compilerProviderSlug}
-                  onChange={(slug) => {
-                    setCompilerProviderSlug(slug);
-                    setCompilerCodingPlan(false);
-                    if (slug === "__company__") {
-                      setCompilerApiType("openai");
-                      setCompilerBaseUrl(COMPILER_COMPANY_DEFAULTS.baseUrl);
-                      setCompilerApiKeyEnv(COMPILER_COMPANY_DEFAULTS.apiKeyEnv);
-                      setCompilerModel(COMPILER_COMPANY_DEFAULTS.model);
-                      setCompilerApiKeyValue(envDraft[COMPILER_COMPANY_DEFAULTS.apiKeyEnv] ?? "");
-                    } else if (slug === "__custom__") {
-                      setCompilerApiType("openai");
-                      setCompilerBaseUrl("");
-                      setCompilerApiKeyEnv("CUSTOM_COMPILER_API_KEY");
-                      setCompilerApiKeyValue("");
-                    } else {
-                      const p = providers.find((x) => x.slug === slug);
-                      if (p) {
-                        setCompilerApiType((p.api_type as any) || "openai");
-                        setCompilerBaseUrl(p.default_base_url || "");
-                        const suggested = p.api_key_env_suggestion || envKeyFromSlug(p.slug);
-                        const used = new Set(Object.keys(envDraft || {}));
-                        for (const ep of [...savedEndpoints, ...savedCompilerEndpoints]) { if (ep.api_key_env) used.add(ep.api_key_env); }
-                        setCompilerApiKeyEnv(nextEnvKeyName(suggested, used));
-                        if (isLocalProvider(p)) {
-                          setCompilerApiKeyValue(localProviderPlaceholderKey(p));
-                        } else {
-                          setCompilerApiKeyValue("");
-                        }
-                      }
-                    }
-                  }}
-                  options={sortProvidersForDisplay(providers).map((p) => ({ value: p.slug, label: p.name }))}
-                  extraOptions={[
-                    { value: "__company__", label: t("llm.compilerPresetCompany") },
-                    { value: "__custom__", label: t("llm.compilerPresetCustom") },
-                  ]}
-                />
-              </div>
-              {/* Coding Plan toggle for compiler endpoint */}
-              {(() => { const cp = providers.find((x) => x.slug === compilerProviderSlug); return cp?.coding_plan_base_url ? (
-                <div className="dialogSection">
-                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
-                    <input
-                      type="checkbox"
-                      checked={compilerCodingPlan}
-                      onChange={(e) => {
-                        const on = e.target.checked;
-                        setCompilerCodingPlan(on);
-                        if (cp) {
-                          if (on && cp.coding_plan_base_url) {
-                            setCompilerBaseUrl(cp.coding_plan_base_url);
-                            setCompilerApiType("anthropic");
-                          } else {
-                            setCompilerBaseUrl(cp.default_base_url || "");
-                            setCompilerApiType((cp.api_type as "openai" | "anthropic") || "openai");
-                          }
-                        }
-                      }}
-                      style={{ width: 16, height: 16, accentColor: "var(--brand)" }}
-                    />
-                    <span style={{ fontSize: 13, fontWeight: 500 }}>{t("llm.codingPlan")}</span>
-                  </label>
-                  <div className="help" style={{ marginTop: 4, paddingLeft: 24 }}>{t("llm.codingPlanHint")}</div>
-                </div>
-              ) : null; })()}
-              <div className="dialogSection">
-                <div className="dialogLabel">{t("llm.baseUrl")}</div>
-                <input value={compilerBaseUrl} onChange={(e) => setCompilerBaseUrl(e.target.value)} placeholder="https://api.example.com/v1" />
-                <div className="cardHint" style={{ fontSize: 11, marginTop: 2 }}>{t("llm.baseUrlHint")}</div>
-              </div>
-              <div className="dialogSection">
-                <div className="dialogLabel">{t("llm.apiKeyEnv")}</div>
-                <input value={compilerApiKeyEnv} onChange={(e) => setCompilerApiKeyEnv(e.target.value)} placeholder="MY_API_KEY" />
-              </div>
-              <div className="dialogSection">
-                <div className="dialogLabel">API Key {isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug)) && <span style={{ color: "var(--muted)", fontSize: 11, fontWeight: 400 }}>({t("llm.localNoKey")})</span>}</div>
-                <input value={compilerApiKeyValue} onChange={(e) => setCompilerApiKeyValue(e.target.value)} placeholder={isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug)) ? t("llm.localKeyPlaceholder") : "sk-..."} type="password" />
-                {isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug)) && (
-                  <div className="help" style={{ marginTop: 4, paddingLeft: 2, color: "var(--brand)" }}>{t("llm.localHint")}</div>
-                )}
-              </div>
-              {/* Model name — always visible; fetch is optional */}
-              <div className="dialogSection">
-                <div className="dialogLabel">{t("status.model")}</div>
-                <SearchSelect value={compilerModel} onChange={(v) => setCompilerModel(v)} options={compilerModels.map((m) => m.id)} placeholder={compilerModels.length > 0 ? t("llm.searchModel") : t("llm.modelPlaceholder")} disabled={!!busy} />
-                {compilerModels.length === 0 && (
-                  <div className="help" style={{ marginTop: 4, paddingLeft: 2, display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ opacity: 0.7 }}>{t("llm.modelManualHint")}</span>
-                    <button onClick={doFetchCompilerModels} className="btnSmall" disabled={(!compilerApiKeyValue.trim() && !isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug))) || !compilerBaseUrl.trim() || !!busy}
-                      style={{ fontSize: 11, padding: "2px 10px", borderRadius: 6 }}>
-                      {t("llm.fetchModels")}
-                    </button>
-                  </div>
-                )}
-                {compilerModels.length > 0 && (
-                  <div className="help" style={{ marginTop: 4, paddingLeft: 2, display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ opacity: 0.6 }}>{t("llm.modelFetched", { count: compilerModels.length })}</span>
-                    <button onClick={doFetchCompilerModels} className="btnSmall" disabled={(!compilerApiKeyValue.trim() && !isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug))) || !compilerBaseUrl.trim() || !!busy}
-                      style={{ fontSize: 11, padding: "2px 10px", borderRadius: 6 }}>
-                      {t("llm.refetch")}
-                    </button>
-                  </div>
-                )}
-              </div>
-              <div className="dialogSection">
-                <div className="dialogLabel">{t("llm.endpointName")} <span style={{ color: "var(--muted)", fontSize: 11 }}>({t("common.optional")})</span></div>
-                <input value={compilerEndpointName} onChange={(e) => setCompilerEndpointName(e.target.value)} placeholder={`compiler-${compilerProviderSlug || "custom"}-${compilerModel || "model"}`} />
-              </div>
-              </div>
-
-              {/* 连接测试结果 */}
-              {connTestResult && (
-                <div className={`connTestResult ${connTestResult.ok ? "connTestOk" : "connTestFail"}`}>
-                  {connTestResult.ok
-                    ? `${t("llm.testSuccess")} · ${connTestResult.latencyMs}ms · ${t("llm.testModelCount", { count: connTestResult.modelCount ?? 0 })}`
-                    : `${t("llm.testFailed")}：${connTestResult.error} (${connTestResult.latencyMs}ms)`}
-                </div>
-              )}
-
-              <div className="dialogFooter">
-                <button className="btnSecondary endpointFooterBtn" onClick={() => { setAddCompDialogOpen(false); setConnTestResult(null); }}>{t("common.cancel")}</button>
-                <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                  <button
-                    className="btnSecondary endpointFooterBtn"
-                    disabled={(!compilerApiKeyValue.trim() && !isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug))) || !compilerBaseUrl.trim() || connTesting}
-                    onClick={() => { const _cp = providers.find((p) => p.slug === compilerProviderSlug); doTestConnection({
-                      testApiType: compilerApiType,
-                      testBaseUrl: compilerBaseUrl,
-                      testApiKey: compilerApiKeyValue.trim() || (isLocalProvider(_cp) ? localProviderPlaceholderKey(_cp) : ""),
-                      testProviderSlug: compilerProviderSlug || null,
-                    }); }}
-                  >
-                    {connTesting ? t("llm.testTesting") : t("llm.testConnection")}
-                  </button>
-                  {(() => {
-                    const _isCompLocal = isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug));
-                    const cMissing: string[] = [];
-                    if (!compilerModel.trim()) cMissing.push(t("status.model"));
-                    if (!_isCompLocal && !compilerApiKeyEnv.trim()) cMissing.push("Key Env Name");
-                    if (!_isCompLocal && !compilerApiKeyValue.trim()) cMissing.push("API Key");
-                    if (!currentWorkspaceId && dataMode !== "remote") cMissing.push(t("workspace.title") || "工作区");
-                    const cBtnDisabled = cMissing.length > 0 || !!busy;
-                    return (
-                      <div className="endpointPrimaryWrap">
-                        <button className="btnPrimary endpointFooterBtn" onClick={async () => { const ok = await doSaveCompilerEndpoint(); if (ok) { setAddCompDialogOpen(false); setConnTestResult(null); } }} disabled={cBtnDisabled}>
-                          {t("llm.addEndpoint")}
-                        </button>
-                        <span className="endpointPrimaryHint">
-                          {cBtnDisabled && !busy && cMissing.length > 0 ? (
-                            <>{t("common.missingFields") || "缺少"}: {cMissing.join(", ")}</>
-                          ) : null}
-                        </span>
-                      </div>
-                    );
-                  })()}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── Add STT dialog (aligned with compiler dialog) ── */}
-        {addSttDialogOpen && (
-          <div className="modalOverlay" onClick={() => setAddSttDialogOpen(false)}>
-            <div className="modalContent" onClick={(e) => e.stopPropagation()}>
-              <div className="dialogHeader">
-                <div className="cardTitle">{t("llm.addStt")}</div>
-                <button className="dialogCloseBtn" onClick={() => { setAddSttDialogOpen(false); setConnTestResult(null); }}><IconX size={14} /></button>
-              </div>
-              <div className="dialogBody">
-              <div className="dialogSection">
-                <div className="dialogLabel">{t("llm.provider")}</div>
-                <ProviderSearchSelect
-                  value={sttProviderSlug}
-                  onChange={(slug) => {
-                    setSttProviderSlug(slug);
-                    if (slug === "__custom__") {
-                      setSttApiType("openai");
-                      setSttBaseUrl("");
-                      setSttApiKeyEnv("CUSTOM_STT_API_KEY");
-                      setSttApiKeyValue("");
-                      setSttModels([]);
-                      setSttModel("");
-                    } else {
-                      const p = providers.find((x) => x.slug === slug);
-                      if (p) {
-                        setSttApiType((p.api_type as any) || "openai");
-                        setSttBaseUrl(p.default_base_url || "");
-                        const suggested = p.api_key_env_suggestion || envKeyFromSlug(p.slug);
-                        const used = new Set(Object.keys(envDraft || {}));
-                        for (const ep of [...savedEndpoints, ...savedCompilerEndpoints, ...savedSttEndpoints]) { if (ep.api_key_env) used.add(ep.api_key_env); }
-                        setSttApiKeyEnv(nextEnvKeyName(suggested, used));
-                        if (isLocalProvider(p)) {
-                          setSttApiKeyValue(localProviderPlaceholderKey(p));
-                        } else {
-                          setSttApiKeyValue("");
-                        }
-                      }
-                      const rec = STT_RECOMMENDED_MODELS[slug];
-                      if (rec?.length) {
-                        setSttModels(rec.map((m) => ({ id: m.id, name: m.id, capabilities: {} })));
-                        setSttModel(rec[0].id);
-                      } else {
-                        setSttModels([]);
-                        setSttModel("");
-                      }
-                    }
-                  }}
-                  options={sortProvidersForDisplay(providers).map((p) => ({ value: p.slug, label: p.name }))}
-                  extraOptions={[{ value: "__custom__", label: t("llm.customProvider") }]}
-                />
-              </div>
-              <div className="dialogSection">
-                <div className="dialogLabel">{t("llm.baseUrl")}</div>
-                <input value={sttBaseUrl} onChange={(e) => setSttBaseUrl(e.target.value)} placeholder="https://api.example.com/v1" />
-                <div className="cardHint" style={{ fontSize: 11, marginTop: 2 }}>{t("llm.baseUrlHint")}</div>
-              </div>
-              <div className="dialogSection">
-                <div className="dialogLabel">{t("llm.apiKeyEnv")}</div>
-                <input value={sttApiKeyEnv} onChange={(e) => setSttApiKeyEnv(e.target.value)} placeholder="MY_API_KEY" />
-              </div>
-              <div className="dialogSection">
-                <div className="dialogLabel">API Key {isLocalProvider(providers.find((p) => p.slug === sttProviderSlug)) && <span style={{ color: "var(--muted)", fontSize: 11, fontWeight: 400 }}>({t("llm.localNoKey")})</span>}</div>
-                <input value={sttApiKeyValue} onChange={(e) => setSttApiKeyValue(e.target.value)} placeholder={isLocalProvider(providers.find((p) => p.slug === sttProviderSlug)) ? t("llm.localKeyPlaceholder") : "sk-..."} type="password" />
-                {isLocalProvider(providers.find((p) => p.slug === sttProviderSlug)) && (
-                  <div className="help" style={{ marginTop: 4, paddingLeft: 2, color: "var(--brand)" }}>{t("llm.localHint")}</div>
-                )}
-              </div>
-              <div className="dialogSection">
-                <div className="dialogLabel">{t("status.model")}</div>
-                <SearchSelect value={sttModel} onChange={(v) => setSttModel(v)} options={sttModels.map((m) => m.id)} placeholder={sttModels.length > 0 ? t("llm.searchModel") : t("llm.modelPlaceholder")} disabled={!!busy} />
-                {sttModels.length === 0 && (
-                  <div className="help" style={{ marginTop: 4, paddingLeft: 2, display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ opacity: 0.7 }}>{t("llm.modelManualHint")}</span>
-                    <button onClick={doFetchSttModels} className="btnSmall" disabled={(!sttApiKeyValue.trim() && !isLocalProvider(providers.find((p) => p.slug === sttProviderSlug))) || !sttBaseUrl.trim() || !!busy}
-                      style={{ fontSize: 11, padding: "2px 10px", borderRadius: 6 }}>
-                      {t("llm.fetchModels")}
-                    </button>
-                  </div>
-                )}
-                {sttModels.length > 0 && (
-                  <div className="help" style={{ marginTop: 4, paddingLeft: 2, display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ opacity: 0.6 }}>{STT_RECOMMENDED_MODELS[sttProviderSlug] ? "" : t("llm.modelFetched", { count: sttModels.length })}</span>
-                    <button onClick={doFetchSttModels} className="btnSmall" disabled={(!sttApiKeyValue.trim() && !isLocalProvider(providers.find((p) => p.slug === sttProviderSlug))) || !sttBaseUrl.trim() || !!busy}
-                      style={{ fontSize: 11, padding: "2px 10px", borderRadius: 6 }}>
-                      {t("llm.fetchModels")}
-                    </button>
-                  </div>
-                )}
-                {(() => {
-                  const rec = STT_RECOMMENDED_MODELS[sttProviderSlug];
-                  if (!rec?.length) return null;
-                  return (
-                    <div className="help" style={{ marginTop: 4, paddingLeft: 2, fontSize: 11, opacity: 0.7, lineHeight: 1.6 }}>
-                      {rec.map((m) => (
-                        <span key={m.id} style={{ marginRight: 12 }}>
-                          <code style={{ background: "rgba(0,0,0,0.05)", padding: "1px 5px", borderRadius: 4, cursor: "pointer" }} onClick={() => setSttModel(m.id)}>{m.id}</code>
-                          {m.note && <span style={{ marginLeft: 3, color: "var(--brand)" }}>{m.note}</span>}
-                        </span>
-                      ))}
-                    </div>
-                  );
-                })()}
-              </div>
-              <div className="dialogSection">
-                <div className="dialogLabel">{t("llm.endpointName")} <span style={{ color: "var(--muted)", fontSize: 11 }}>({t("common.optional")})</span></div>
-                <input value={sttEndpointName} onChange={(e) => setSttEndpointName(e.target.value)} placeholder={`stt-${sttProviderSlug || "custom"}-${sttModel || "model"}`} />
-              </div>
-              </div>
-
-              {connTestResult && (
-                <div className={`connTestResult ${connTestResult.ok ? "connTestOk" : "connTestFail"}`}>
-                  {connTestResult.ok
-                    ? `${t("llm.testSuccess")} · ${connTestResult.latencyMs}ms · ${t("llm.testModelCount", { count: connTestResult.modelCount ?? 0 })}`
-                    : `${t("llm.testFailed")}：${connTestResult.error} (${connTestResult.latencyMs}ms)`}
-                </div>
-              )}
-
-              <div className="dialogFooter">
-                <button className="btnSecondary endpointFooterBtn" onClick={() => { setAddSttDialogOpen(false); setConnTestResult(null); }}>{t("common.cancel")}</button>
-                <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                  <button
-                    className="btnSecondary endpointFooterBtn"
-                    disabled={(!sttApiKeyValue.trim() && !isLocalProvider(providers.find((p) => p.slug === sttProviderSlug))) || !sttBaseUrl.trim() || connTesting}
-                    onClick={() => { const _sp = providers.find((p) => p.slug === sttProviderSlug); doTestConnection({
-                      testApiType: sttApiType,
-                      testBaseUrl: sttBaseUrl,
-                      testApiKey: sttApiKeyValue.trim() || (isLocalProvider(_sp) ? localProviderPlaceholderKey(_sp) : ""),
-                      testProviderSlug: sttProviderSlug || null,
-                    }); }}
-                  >
-                    {connTesting ? t("llm.testTesting") : t("llm.testConnection")}
-                  </button>
-                  {(() => {
-                    const _isSttLocal = isLocalProvider(providers.find((p) => p.slug === sttProviderSlug));
-                    const sMissing: string[] = [];
-                    if (!sttModel.trim()) sMissing.push(t("status.model"));
-                    if (!_isSttLocal && !sttApiKeyValue.trim()) sMissing.push("API Key");
-                    if (!currentWorkspaceId && dataMode !== "remote") sMissing.push(t("workspace.title") || "工作区");
-                    const sBtnDisabled = sMissing.length > 0 || !!busy;
-                    return (
-                      <div className="endpointPrimaryWrap">
-                        <button className="btnPrimary endpointFooterBtn" onClick={async () => { const ok = await doSaveSttEndpoint(); if (ok) { setAddSttDialogOpen(false); setConnTestResult(null); } }} disabled={sBtnDisabled}>
-                          {t("llm.addStt")}
-                        </button>
-                        <span className="endpointPrimaryHint">
-                          {sBtnDisabled && !busy && sMissing.length > 0 ? (
-                            <>{t("common.missingFields") || "缺少"}: {sMissing.join(", ")}</>
-                          ) : null}
-                        </span>
-                      </div>
-                    );
-                  })()}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </>
+      <LLMView
+        savedEndpoints={savedEndpoints}
+        savedCompilerEndpoints={savedCompilerEndpoints}
+        savedSttEndpoints={savedSttEndpoints}
+        setSavedEndpoints={setSavedEndpoints}
+        setSavedCompilerEndpoints={setSavedCompilerEndpoints}
+        setSavedSttEndpoints={setSavedSttEndpoints}
+        envDraft={envDraft}
+        setEnvDraft={setEnvDraft}
+        secretShown={secretShown}
+        setSecretShown={setSecretShown}
+        busy={busy}
+        currentWorkspaceId={currentWorkspaceId}
+        dataMode={dataMode}
+        shouldUseHttpApi={shouldUseHttpApi}
+        httpApiBase={httpApiBase}
+        askConfirm={askConfirm}
+        providers={providers}
+        doLoadProviders={doLoadProviders}
+        loadSavedEndpoints={loadSavedEndpoints}
+        readWorkspaceFile={readWorkspaceFile}
+        writeWorkspaceFile={writeWorkspaceFile}
+        venvDir={venvDir}
+        ensureEnvLoaded={ensureEnvLoaded}
+        serviceRunning={!!serviceStatus?.running}
+      />
     );
   }
 
   // FieldText/FieldBool/FieldSelect/FieldCombo/TelegramPairingCodeHint -> ./components/EnvFields.tsx
   // Wrapper closures that pass envDraft/onEnvChange automatically to extracted field components
   const _envBase = { envDraft, onEnvChange: setEnvDraft, busy };
-  const _secretCtx = { secretShown, onToggleSecret: (k: string) => setSecretShown((m: Record<string, boolean>) => ({ ...m, [k]: !m[k] })) };
   const FT = (p: { k: string; label: string; placeholder?: string; help?: string; type?: "text" | "password" }) =>
-    <FieldText {...p} {..._envBase} {..._secretCtx} />;
+    <FieldText key={p.k} {...p} {..._envBase} />;
   const FB = (p: { k: string; label: string; help?: string; defaultValue?: boolean }) =>
-    <FieldBool {...p} {..._envBase} />;
+    <FieldBool key={p.k} {...p} {..._envBase} />;
   const FS = (p: { k: string; label: string; options: { value: string; label: string }[]; help?: string }) =>
-    <FieldSelect {...p} {..._envBase} />;
+    <FieldSelect key={p.k} {...p} {..._envBase} />;
   const FC = (p: { k: string; label: string; options: { value: string; label: string }[]; placeholder?: string; help?: string }) =>
-    <FieldCombo {...p} {..._envBase} />;
+    <FieldCombo key={p.k} {...p} {..._envBase} />;
+  const FR = (p: { k: string; label: string; help?: string; min: number; max: number; step: number; defaultValue: number; unit?: string }) =>
+    <FieldSlider key={p.k} {...p} {..._envBase} />;
 
   async function renderIntegrationsSave(keys: string[], successText: string) {
-    if (!currentWorkspaceId) { setError(t("common.error")); return; }
-    setBusy(t("common.loading"));
-    setError(null);
+    if (!currentWorkspaceId) { notifyError(t("common.error")); return; }
+    const _busyId = notifyLoading(t("common.loading"));
     try {
-      await saveEnvKeys(keys);
-      setNotice(successText);
+      const result = await saveEnvKeys(keys);
+      if (result.restartRequired) {
+        toast.warning(
+          t("config.savedNeedRestart", "已保存，需要重启服务才能生效"),
+          {
+            duration: 8000,
+            action: {
+              label: t("config.restartNow", "立即重启"),
+              onClick: () => restartService(),
+            },
+          },
+        );
+      } else {
+        notifySuccess(successText);
+      }
     } finally {
-      setBusy(null);
+      dismissLoading(_busyId);
     }
   }
 
   const _configViewProps = {
-    envDraft, setEnvDraft, busy, secretShown,
-    onToggleSecret: (k: string) => setSecretShown((m: Record<string, boolean>) => ({ ...m, [k]: !m[k] })),
-    currentWorkspaceId, setNotice,
+    envDraft, setEnvDraft,
+    currentWorkspaceId,
+    disabledViews, toggleViewDisabled,
   };
 
-  function renderIM(opts?: { onboarding?: boolean }) {
-    return <IMConfigView
-      {..._configViewProps}
-      apiBaseUrl={httpApiBase()}
-      onNavigateToBotConfig={opts?.onboarding ? undefined : (presetType) => { setView("im"); }}
-      {...(opts?.onboarding ? { pendingBots: obPendingBots, onPendingBotsChange: setObPendingBots } : {})}
-    />;
+  function renderIM(wizardMode?: boolean) {
+    return (
+      <IMConfigView
+        {..._configViewProps}
+        venvDir={venvDir}
+        apiBaseUrl={apiBaseUrl}
+        onRequestRestart={restartService}
+        wizardMode={wizardMode}
+        multiAgentEnabled={multiAgentEnabled}
+      />
+    );
   }
 
   function renderTools() {
     const keysTools = [
       "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "FORCE_IPV4",
-      "TOOL_MAX_PARALLEL", "FORCE_TOOL_CALL_MAX_RETRIES", "ALLOW_PARALLEL_TOOLS_WITH_INTERRUPT_CHECKS",
-      "MCP_ENABLED", "MCP_TIMEOUT", "MCP_BROWSER_ENABLED",
-      "MCP_MYSQL_ENABLED", "MCP_MYSQL_HOST", "MCP_MYSQL_USER", "MCP_MYSQL_PASSWORD", "MCP_MYSQL_DATABASE",
-      "MCP_POSTGRES_ENABLED", "MCP_POSTGRES_URL",
+      "TOOL_MAX_PARALLEL", "FORCE_TOOL_CALL_MAX_RETRIES", "FORCE_TOOL_CALL_IM_FLOOR", "CONFIRMATION_TEXT_MAX_RETRIES",
+      "ALLOW_PARALLEL_TOOLS_WITH_INTERRUPT_CHECKS",
+      "MCP_ENABLED", "MCP_TIMEOUT",
       "DESKTOP_ENABLED", "DESKTOP_DEFAULT_MONITOR", "DESKTOP_COMPRESSION_QUALITY",
       "DESKTOP_MAX_WIDTH", "DESKTOP_MAX_HEIGHT", "DESKTOP_CACHE_TTL",
       "DESKTOP_UIA_TIMEOUT", "DESKTOP_UIA_RETRY_INTERVAL", "DESKTOP_UIA_MAX_RETRIES",
-      "DESKTOP_VISION_ENABLED", "DESKTOP_VISION_MODEL", "DESKTOP_VISION_FALLBACK_MODEL",
-      "DESKTOP_VISION_OCR_MODEL", "DESKTOP_VISION_MAX_RETRIES", "DESKTOP_VISION_TIMEOUT",
+      "DESKTOP_VISION_ENABLED", "DESKTOP_VISION_MAX_RETRIES", "DESKTOP_VISION_TIMEOUT",
       "DESKTOP_CLICK_DELAY", "DESKTOP_TYPE_INTERVAL", "DESKTOP_MOVE_DURATION",
-      "DESKTOP_FAILSAFE", "DESKTOP_PAUSE", "DESKTOP_LOG_ACTIONS", "DESKTOP_LOG_SCREENSHOTS", "DESKTOP_LOG_DIR",
+      "DESKTOP_FAILSAFE", "DESKTOP_PAUSE",
       "WHISPER_MODEL", "WHISPER_LANGUAGE", "GITHUB_TOKEN",
     ];
 
@@ -5014,200 +2913,220 @@ export function App() {
     return (
       <>
         <div className="card">
-          <div className="cardTitle">{t("config.toolsTitle")}</div>
-          <div className="cardHint">{t("config.toolsHint")}</div>
-          <div className="divider" />
+          <h3 className="text-base font-bold tracking-tight">{t("config.toolsTitle")}</h3>
+          <p className="text-sm text-muted-foreground mt-1 mb-3">{t("config.toolsHint")}</p>
 
-          {/* ── MCP (open by default, browser enabled) ── */}
-          <details className="configDetails" open>
-            <summary>{t("config.toolsMCP")}</summary>
-            <div className="configDetailsBody">
-              <FB k="MCP_ENABLED" label={t("config.toolsMCPEnable")} help={t("config.toolsMCPEnableHelp")} />
-              <div className="grid2">
-                <FB k="MCP_BROWSER_ENABLED" label="Browser MCP" help={t("config.toolsMCPBrowserHelp")} />
-                <FT k="MCP_TIMEOUT" label="Timeout (s)" placeholder="60" />
+          {/* ── MCP ── */}
+          <details className="group rounded-lg border border-border">
+            <summary className="cursor-pointer flex items-center justify-between px-4 py-2.5 text-sm font-medium select-none list-none [&::-webkit-details-marker]:hidden hover:bg-accent/50 transition-colors">
+              <span className="flex items-center gap-1.5">
+                <ChevronRight className="size-4 shrink-0 transition-transform group-open:rotate-90 text-muted-foreground" />
+                {t("config.toolsMCP")}
+              </span>
+              <label className="inline-flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none" onClick={(e) => e.stopPropagation()}>
+                <span>{disabledViews.includes("mcp") ? t("config.toolsSkillsDisabled") : t("config.toolsSkillsEnabled")}</span>
+                <div
+                  onClick={async () => {
+                    const willDisable = !disabledViews.includes("mcp");
+                    toggleViewDisabled("mcp");
+                    setEnvDraft((p) => ({ ...p, MCP_ENABLED: willDisable ? "false" : "true" }));
+                    try {
+                      const entries = { MCP_ENABLED: willDisable ? "false" : "true" };
+                      if (shouldUseHttpApi()) {
+                        await safeFetch(`${httpApiBase()}/api/config/env`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ entries }),
+                        });
+                        notifySuccess(willDisable
+                          ? t("config.mcpDisabledNeedRestart", { defaultValue: "MCP 已禁用，重启后生效" })
+                          : t("config.mcpEnabledNeedRestart", { defaultValue: "MCP 已启用，重启后生效" }));
+                      }
+                    } catch { /* ignore */ }
+                  }}
+                  className="relative shrink-0 transition-colors duration-200 rounded-full"
+                  style={{
+                    width: 40, height: 22,
+                    background: disabledViews.includes("mcp") ? "var(--line, #d1d5db)" : "var(--ok, #22c55e)",
+                  }}
+                >
+                  <div className="absolute top-0.5 rounded-full bg-white shadow-sm transition-[left] duration-200" style={{
+                    width: 18, height: 18,
+                    left: disabledViews.includes("mcp") ? 2 : 20,
+                  }} />
               </div>
-              <div className="divider" />
-              <FB k="MCP_MYSQL_ENABLED" label="MySQL" />
+              </label>
+            </summary>
+            <div className="flex flex-col gap-2.5 px-4 py-3 border-t border-border">
               <div className="grid2">
-                <FT k="MCP_MYSQL_HOST" label="Host" placeholder="localhost" />
-                <FT k="MCP_MYSQL_USER" label="User" placeholder="root" />
-                <FT k="MCP_MYSQL_PASSWORD" label="Password" type="password" />
-                <FT k="MCP_MYSQL_DATABASE" label="Database" placeholder="mydb" />
+                {FT({ k: "MCP_TIMEOUT", label: "Timeout (s)", placeholder: "60" })}
               </div>
-              <div className="divider" />
-              <FB k="MCP_POSTGRES_ENABLED" label="PostgreSQL" />
-              <FT k="MCP_POSTGRES_URL" label="URL" placeholder="postgresql://user:pass@localhost/db" />
             </div>
           </details>
 
-          {/* ── Desktop Automation (open by default, enabled) ── */}
-          <details className="configDetails" open>
-            <summary>{t("config.toolsDesktop")}</summary>
-            <div className="configDetailsBody">
-              <FB k="DESKTOP_ENABLED" label={t("config.toolsDesktopEnable")} help={t("config.toolsDesktopHelp")} />
+          {/* ── Skills ── */}
+          <details className="group/skills rounded-lg border border-border mt-2">
+            <summary className="cursor-pointer flex items-center justify-between px-4 py-2.5 text-sm font-medium select-none list-none [&::-webkit-details-marker]:hidden hover:bg-accent/50 transition-colors">
+              <span className="flex items-center gap-1.5">
+                <ChevronRight className="size-4 shrink-0 transition-transform group-open/skills:rotate-90 text-muted-foreground" />
+                {t("config.toolsSkills")}
+              </span>
+              <label className="inline-flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none" onClick={(e) => e.stopPropagation()}>
+                <span>{disabledViews.includes("skills") ? t("config.toolsSkillsDisabled") : t("config.toolsSkillsEnabled")}</span>
+                <div
+                  onClick={() => toggleViewDisabled("skills")}
+                  className="relative shrink-0 transition-colors duration-200 rounded-full"
+                  style={{
+                    width: 40, height: 22,
+                    background: disabledViews.includes("skills") ? "var(--line, #d1d5db)" : "var(--ok, #22c55e)",
+                  }}
+                >
+                  <div className="absolute top-0.5 rounded-full bg-white shadow-sm transition-[left] duration-200" style={{
+                    width: 18, height: 18,
+                    left: disabledViews.includes("skills") ? 2 : 20,
+                  }} />
+                </div>
+              </label>
+            </summary>
+            <div className="flex items-center gap-2 px-4 py-3 border-t border-border">
+              <button
+                className="px-3 py-1.5 text-xs font-medium rounded-md border border-border hover:bg-accent/50 transition-colors"
+                onClick={() => {
+                  if (!skillsDetail) return;
+                  const m: Record<string, boolean> = {};
+                  for (const s of skillsDetail) { if (s?.skill_id) m[s.skill_id] = true; }
+                  setSkillsSelection(m);
+                  setSkillsTouched(true);
+                }}
+              >
+                {t("config.toolsEnableAll")}
+              </button>
+              <button
+                className="px-3 py-1.5 text-xs font-medium rounded-md border border-border hover:bg-accent/50 transition-colors"
+                onClick={() => {
+                  if (!skillsDetail) return;
+                  const m: Record<string, boolean> = {};
+                  for (const s of skillsDetail) { if (s?.skill_id) m[s.skill_id] = false; }
+                  setSkillsSelection(m);
+                  setSkillsTouched(true);
+                }}
+              >
+                {t("config.toolsDisableAll")}
+              </button>
+              <span className="text-xs text-muted-foreground ml-auto">
+                {skillsDetail ? t("config.toolsSkillsCount", { enabled: Object.values(skillsSelection).filter(Boolean).length, total: skillsDetail.length }) : ""}
+              </span>
+            </div>
+          </details>
+
+          {/* ── Desktop Automation ── */}
+          <details className="group/desktop rounded-lg border border-border mt-2">
+            <summary className="cursor-pointer flex items-center justify-between px-4 py-2.5 text-sm font-medium select-none list-none [&::-webkit-details-marker]:hidden hover:bg-accent/50 transition-colors">
+              <span className="flex items-center gap-1.5">
+                <ChevronRight className="size-4 shrink-0 transition-transform group-open/desktop:rotate-90 text-muted-foreground" />
+                {t("config.toolsDesktop")}
+              </span>
+              <label className="inline-flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none" onClick={(e) => e.stopPropagation()}>
+                <span>{envDraft["DESKTOP_ENABLED"] === "false" ? t("config.toolsSkillsDisabled") : t("config.toolsSkillsEnabled")}</span>
+                <div
+                  onClick={() => setEnvDraft((p) => ({ ...p, DESKTOP_ENABLED: p.DESKTOP_ENABLED === "false" ? "true" : "false" }))}
+                  className="relative shrink-0 transition-colors duration-200 rounded-full"
+                  style={{
+                    width: 40, height: 22,
+                    background: envDraft["DESKTOP_ENABLED"] === "false" ? "var(--line, #d1d5db)" : "var(--ok, #22c55e)",
+                  }}
+                >
+                  <div className="absolute top-0.5 rounded-full bg-white shadow-sm transition-[left] duration-200" style={{
+                    width: 18, height: 18,
+                    left: envDraft["DESKTOP_ENABLED"] === "false" ? 2 : 20,
+                  }} />
+                </div>
+              </label>
+            </summary>
+            <div className="flex flex-col gap-2.5 px-4 py-3 border-t border-border">
               <div className="grid3">
-                <FT k="DESKTOP_DEFAULT_MONITOR" label={t("config.toolsMonitor")} placeholder="0" />
-                <FT k="DESKTOP_MAX_WIDTH" label={t("config.toolsMaxW")} placeholder="1920" />
-                <FT k="DESKTOP_MAX_HEIGHT" label={t("config.toolsMaxH")} placeholder="1080" />
+                {FT({ k: "DESKTOP_DEFAULT_MONITOR", label: t("config.toolsMonitor"), placeholder: "0" })}
+                {FT({ k: "DESKTOP_MAX_WIDTH", label: t("config.toolsMaxW"), placeholder: "1920" })}
+                {FT({ k: "DESKTOP_MAX_HEIGHT", label: t("config.toolsMaxH"), placeholder: "1080" })}
               </div>
-              <details className="configDetails">
-                <summary>{t("config.toolsDesktopAdvanced")}</summary>
-                <div className="configDetailsBody">
+              <details className="group/deskadv rounded-lg border border-border">
+                <summary className="cursor-pointer flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium select-none list-none [&::-webkit-details-marker]:hidden hover:bg-accent/50 transition-colors text-muted-foreground">
+                  <ChevronRight className="size-4 shrink-0 transition-transform group-open/deskadv:rotate-90" />
+                  {t("config.toolsDesktopAdvanced")}
+                </summary>
+                <div className="flex flex-col gap-2.5 px-4 py-3 border-t border-border">
                   <div className="grid3">
-                    <FT k="DESKTOP_COMPRESSION_QUALITY" label={t("config.toolsCompression")} placeholder="85" />
-                    <FT k="DESKTOP_CACHE_TTL" label="Cache TTL" placeholder="1.0" />
-                    <FB k="DESKTOP_FAILSAFE" label="Failsafe" />
+                    {FT({ k: "DESKTOP_COMPRESSION_QUALITY", label: t("config.toolsCompression"), placeholder: "85" })}
+                    {FT({ k: "DESKTOP_CACHE_TTL", label: "Cache TTL", placeholder: "1.0" })}
+                    {FB({ k: "DESKTOP_FAILSAFE", label: "Failsafe" })}
                   </div>
-                  <FB k="DESKTOP_VISION_ENABLED" label={t("config.toolsVision")} help={t("config.toolsVisionHelp")} />
-                  <div className="grid2">
-                    <FT k="DESKTOP_VISION_MODEL" label={t("config.toolsVisionModel")} placeholder="qwen3-vl-plus" />
-                    <FT k="DESKTOP_VISION_OCR_MODEL" label="OCR" placeholder="qwen-vl-ocr" />
-                  </div>
+                  {FB({ k: "DESKTOP_VISION_ENABLED", label: t("config.toolsVision"), help: t("config.toolsVisionHelp") })}
                   <div className="grid3">
-                    <FT k="DESKTOP_CLICK_DELAY" label="Click Delay" placeholder="0.1" />
-                    <FT k="DESKTOP_TYPE_INTERVAL" label="Type Interval" placeholder="0.03" />
-                    <FT k="DESKTOP_MOVE_DURATION" label="Move Duration" placeholder="0.15" />
+                    {FT({ k: "DESKTOP_CLICK_DELAY", label: "Click Delay", placeholder: "0.1" })}
+                    {FT({ k: "DESKTOP_TYPE_INTERVAL", label: "Type Interval", placeholder: "0.03" })}
+                    {FT({ k: "DESKTOP_MOVE_DURATION", label: "Move Duration", placeholder: "0.15" })}
                   </div>
                 </div>
               </details>
             </div>
           </details>
 
-          {/* ── Model Downloads & Voice Recognition (prominent, open by default) ── */}
-          <details className="configDetails" open>
-            <summary>{t("config.toolsDownloadVoice")}</summary>
-            <div className="configDetailsBody">
+          {/* ── Model Downloads & Voice Recognition — hidden (not actively used) ── */}
+
+          {/* ── Tool Parallelism ── */}
+          <details className="group/net rounded-lg border border-border mt-2">
+            <summary className="cursor-pointer flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium select-none list-none [&::-webkit-details-marker]:hidden hover:bg-accent/50 transition-colors">
+              <ChevronRight className="size-4 shrink-0 transition-transform group-open/net:rotate-90 text-muted-foreground" />
+              {t("config.toolsParallel")}
+            </summary>
+            <div className="flex flex-col gap-2.5 px-4 py-3 border-t border-border">
               <div className="grid2">
-                <FS k="MODEL_DOWNLOAD_SOURCE" label={t("config.agentDownloadSource")} options={[
-                  { value: "auto", label: "Auto (自动选择最快源)" },
-                  { value: "hf-mirror", label: "hf-mirror (国内镜像 🇨🇳)" },
-                  { value: "modelscope", label: "ModelScope (魔搭社区 🇨🇳)" },
-                  { value: "huggingface", label: "HuggingFace (官方)" },
-                ]} />
-                <FS k="WHISPER_LANGUAGE" label={t("config.toolsWhisperLang")} options={[
-                  { value: "zh", label: "中文 (zh)" },
-                  { value: "en", label: "English (en, .en model)" },
-                  { value: "auto", label: "Auto (自动检测)" },
-                ]} />
-              </div>
-              <div className="grid2">
-                <FC k="WHISPER_MODEL" label={t("config.toolsWhisperModel")} help={t("config.toolsWhisperHelp")} options={[
-                  { value: "tiny", label: "tiny (~39MB)" },
-                  { value: "base", label: "base (~74MB)" },
-                  { value: "small", label: "small (~244MB)" },
-                  { value: "medium", label: "medium (~769MB)" },
-                  { value: "large", label: "large (~1.5GB)" },
-                ]} placeholder="base" />
-                <FT k="GITHUB_TOKEN" label="GitHub Token" placeholder="" type="password" help={t("config.toolsGithubHelp")} />
+                {FT({ k: "TOOL_MAX_PARALLEL", label: t("config.toolsParallel"), placeholder: "1", help: t("config.toolsParallelHelp") })}
               </div>
             </div>
           </details>
 
-          {/* ── Network & Proxy ── */}
-          <details className="configDetails">
-            <summary>{t("config.toolsNetwork")}</summary>
-            <div className="configDetailsBody">
-              <div className="grid3">
-                <FT k="HTTP_PROXY" label="HTTP_PROXY" placeholder="http://127.0.0.1:7890" />
-                <FT k="HTTPS_PROXY" label="HTTPS_PROXY" placeholder="http://127.0.0.1:7890" />
-                <FT k="ALL_PROXY" label="ALL_PROXY" placeholder="socks5://..." />
+          {/* ── Hallucination Guard ── */}
+          <details className="group/hguard rounded-lg border border-border mt-2">
+            <summary className="cursor-pointer flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium select-none list-none [&::-webkit-details-marker]:hidden hover:bg-accent/50 transition-colors">
+              <ChevronDown className="size-4 shrink-0 transition-transform group-open/hguard:rotate-180 text-muted-foreground" />
+              {t("config.toolsHallucinationGuard")}
+            </summary>
+            <div className="flex flex-col gap-2.5 px-4 py-3 border-t border-border">
+              <p className="text-xs text-muted-foreground">{t("config.toolsHallucinationGuardHint")}</p>
+              <div className="grid2">
+                {FS({ k: "FORCE_TOOL_CALL_MAX_RETRIES", label: t("config.toolsForceRetry"), options: [
+                  { value: "0", label: t("config.guardOff") },
+                  { value: "1", label: "1" },
+                  { value: "2", label: "2" },
+                  { value: "3", label: "3" },
+                ] })}
+                {FS({ k: "FORCE_TOOL_CALL_IM_FLOOR", label: t("config.toolsImFloor"), options: [
+                  { value: "0", label: t("config.guardSameAsGlobal") },
+                  { value: "1", label: "1" },
+                  { value: "2", label: "2" },
+                ] })}
               </div>
               <div className="grid2">
-                <FB k="FORCE_IPV4" label={t("config.toolsForceIPv4")} help={t("config.toolsForceIPv4Help")} />
-                <FT k="TOOL_MAX_PARALLEL" label={t("config.toolsParallel")} placeholder="1" help={t("config.toolsParallelHelp")} />
+                {FS({ k: "CONFIRMATION_TEXT_MAX_RETRIES", label: t("config.toolsConfirmTextRetry"), options: [
+                  { value: "0", label: t("config.guardOff") },
+                  { value: "1", label: "1" },
+                  { value: "2", label: "2" },
+                  { value: "3", label: "3" },
+                ] })}
               </div>
             </div>
           </details>
 
-          {/* ── Other ── */}
-          <details className="configDetails">
-            <summary>{t("config.toolsOther")}</summary>
-            <div className="configDetailsBody">
-              <div className="grid2">
-                <FT k="FORCE_TOOL_CALL_MAX_RETRIES" label={t("config.toolsForceRetry")} placeholder="1" />
-              </div>
-            </div>
-          </details>
-
-          <div className="divider" />
-
-          {/* ── Skills (collapsed, at bottom) ── */}
-          <details className="configDetails">
-            <summary>{t("config.toolsSkills")} {skillsDetail ? `(${systemSkills.length + externalSkills.length})` : ""}</summary>
-            <div className="configDetailsBody">
-              <div className="row" style={{ justifyContent: "flex-end", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-                <button className="btnSmall" onClick={() => {
-                  if (!skillsDetail) return; setSkillsTouched(true);
-                  const m: Record<string, boolean> = {};
-                  for (const s of skillsDetail) m[s.name] = true;
-                  setSkillsSelection(m);
-                }} disabled={!skillsDetail || !!busy}>{t("config.toolsEnableAll")}</button>
-                <button className="btnSmall" onClick={() => {
-                  if (!skillsDetail) return; setSkillsTouched(true);
-                  const m: Record<string, boolean> = {};
-                  for (const s of skillsDetail) m[s.name] = !!s.system;
-                  setSkillsSelection(m);
-                }} disabled={!skillsDetail || !!busy}>{t("config.toolsSystemOnly")}</button>
-                <button className="btnSmall" onClick={doRefreshSkills} disabled={!currentWorkspaceId || !!busy}>{t("config.toolsRefresh")}</button>
-                <button className="btnSmall btnSmallPrimary" onClick={doSaveSkillsSelection}
-                  disabled={!currentWorkspaceId || !skillsDetail || !!busy}>{t("config.toolsSaveSkills")}</button>
-              </div>
-
-              {!skillsDetail ? (
-                <div className="cardHint">{t("config.toolsNoSkills")}</div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  {systemSkills.length > 0 && (
-                    <div className="help">{t("config.toolsSystemLabel", { count: systemSkills.length })}</div>
-                  )}
-                  {systemSkills.map((s) => {
-                    const lang = i18n.language?.startsWith("zh") ? "zh" : i18n.language || "zh";
-                    const dName = s.name_i18n?.[lang] || s.name;
-                    const dDesc = s.description_i18n?.[lang] || s.description;
-                    return (
-                      <div key={s.name} className="row" style={{ justifyContent: "space-between", alignItems: "center", padding: "2px 0" }}>
-                        <div style={{ minWidth: 0 }}><b>{dName}</b>{dName !== s.name && <span style={{ opacity: 0.4, marginLeft: 4, fontSize: 11, fontFamily: "monospace" }}>{s.name}</span>} <span className="pill" style={{ fontSize: 11 }}>{t("skills.system")}</span>
-                          <span className="help" style={{ marginLeft: 8 }}>{dDesc}</span></div>
-                      </div>
-                    );
-                  })}
-                  {externalSkills.length > 0 && (
-                    <>
-                      <div className="divider" />
-                      <div className="help">{t("config.toolsExternalLabel", { count: externalSkills.length })}</div>
-                    </>
-                  )}
-                  {externalSkills.map((s) => {
-                    const on = !!skillsSelection[s.name];
-                    const lang = i18n.language?.startsWith("zh") ? "zh" : i18n.language || "zh";
-                    const dName = s.name_i18n?.[lang] || s.name;
-                    const dDesc = s.description_i18n?.[lang] || s.description;
-                    return (
-                      <div key={s.name} className="row" style={{ justifyContent: "space-between", alignItems: "center", padding: "2px 0" }}>
-                        <div style={{ flex: 1, minWidth: 0 }}><b>{dName}</b>{dName !== s.name && <span style={{ opacity: 0.4, marginLeft: 4, fontSize: 11, fontFamily: "monospace" }}>{s.name}</span>}
-                          <span className="help" style={{ marginLeft: 8 }}>{dDesc}</span></div>
-                        <label className="pill" style={{ cursor: "pointer", userSelect: "none", flexShrink: 0 }}>
-                          <input style={{ width: 14, height: 14 }} type="checkbox" checked={on}
-                            onChange={(e) => { setSkillsTouched(true); setSkillsSelection((m) => ({ ...m, [s.name]: e.target.checked })); }} />
-                          {t("config.enable")}
-                        </label>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </details>
+          {/* ── Skills toggle (moved below, no longer here) ── */}
 
         </div>
 
         {/* ── CLI 命令行工具管理 (desktop only) ── */}
         {IS_TAURI && (
         <div className="card" style={{ marginTop: 16 }}>
-          <div className="cardTitle">{t("config.cliTitle")}</div>
-          <div className="cardHint">{t("config.cliDesc")}</div>
-          <div className="divider" />
+          <h3 className="text-base font-bold tracking-tight">{t("config.cliTitle")}</h3>
+          <p className="text-sm text-muted-foreground mt-1 mb-3">{t("config.cliDesc")}</p>
           <CliManager />
         </div>
         )}
@@ -5218,711 +3137,30 @@ export function App() {
   // CliManager -> ./components/CliManager.tsx
 
   function renderAgentSystem() {
-    return <AgentSystemView {..._configViewProps} />;
+    return <AgentSystemView {..._configViewProps} serviceRunning={!!serviceStatus?.running} apiBaseUrl={apiBaseUrl} />;
   }
 
   function renderAdvanced() {
-
-    async function runDiagnose() {
-      if (!venvDir) return;
-      setBusy(t("adv.diagnosing"));
-      try {
-        const d = await invoke<NonNullable<typeof pyDiag>>("diagnose_python_env", { venvDir });
-        setPyDiag(d);
-      } catch (e) { setError(String(e)); } finally { setBusy(null); }
-    }
-
-    async function runRepair(forceRebuild = false) {
-      if (!venvDir) return;
-      setBusy(t("adv.repairing"));
-      setRepairStage(""); setRepairPercent(0); setRepairDetail("");
-      const unlisten = await listen("python_repair_event", (ev) => {
-        const p = ev.payload as any;
-        if (!p || typeof p !== "object") return;
-        if (p.stage) setRepairStage(String(p.stage));
-        if (typeof p.percent === "number") setRepairPercent(p.percent);
-        if (p.detail) setRepairDetail(String(p.detail));
-      });
-      try {
-        const d = await invoke<NonNullable<typeof pyDiag>>("repair_python_env", { venvDir, forceRebuild });
-        setPyDiag(d);
-        if (d && d.summary === "healthy") setNotice(t("adv.repairDone"));
-        else if (d) setError(t("adv.repairPartial"));
-      } catch (e) { setError(String(e)); } finally { unlisten(); setBusy(null); setRepairStage(""); }
-    }
-
-    async function runExportDiagReport() {
-      if (!venvDir) return;
-      setBusy(t("adv.diagnosing"));
-      try {
-        const reportPath = await invoke<string>("export_python_diagnostic_report", { venvDir });
-        setNotice(t("adv.diagReportExported", { path: reportPath }));
-      } catch (e) {
-        setError(String(e));
-      } finally {
-        setBusy(null);
-      }
-    }
-
-    async function runReset(removeVenv: boolean, removeEmbedded: boolean) {
-      setBusy(t("adv.resetting"));
-      try {
-        await invoke<string>("remove_synapse_runtime", { removeVenv: removeVenv, removeEmbeddedPython: removeEmbedded });
-        setPyDiag(null);
-        setNotice(t("adv.resetDone"));
-      } catch (e) { setError(String(e)); } finally { setBusy(null); }
-    }
-
-    async function fetchSystemInfo() {
-      const url = shouldUseHttpApi() ? httpApiBase() : null;
-      if (!url) { setError(t("adv.needService")); return; }
-      try {
-        const res = await safeFetch(`${url}/api/system-info`, { signal: AbortSignal.timeout(8_000) });
-        const data = await res.json();
-        const info: Record<string, string> = {};
-        if (data.os) info[t("adv.sysOs")] = data.os;
-        if (data.synapse_version) info[t("adv.sysVersion")] = data.synapse_version;
-        setAdvSysInfo(info);
-      } catch (e) { setError(String(e)); }
-    }
-
-    // ── 系统运维区域 ──
-
-    const opsWs = workspaces.find(w => w.id === (currentWorkspaceId || "default"));
-    const opsWsPath = opsWs?.path || "";
-    const opsLogsPath = opsWsPath ? joinPath(opsWsPath, "logs") : "";
-    const opsIdentityPath = opsWsPath ? joinPath(opsWsPath, "identity") : "";
-
-    const opsPathRows: { label: string; path: string }[] = [
-      { label: t("adv.opsWorkspacePath"), path: opsWsPath },
-      { label: t("adv.opsLogsPath"), path: opsLogsPath },
-      { label: t("adv.opsIdentityPath"), path: opsIdentityPath },
-    ];
-
-    async function opsOpenFolder(p: string) {
-      if (!p) return;
-      try {
-        await invoke("show_item_in_folder", { path: p });
-      } catch {
-        try {
-          await invoke("open_file_with_default", { path: p });
-        } catch {
-          if (opsWsPath && opsWsPath !== p) {
-            try { await invoke("open_file_with_default", { path: opsWsPath }); } catch (e) { setError(String(e)); }
-          }
-        }
-      }
-    }
-
-    async function opsHandleBundleExport() {
-      if (!currentWorkspaceId) return;
-      try {
-        const ts = Math.floor(Date.now() / 1000);
-        const filename = `synapse-diagnostic-${ts}.zip`;
-        const { save } = await import("@tauri-apps/plugin-dialog");
-        const defaultDir = info?.homeDir ? joinPath(info.homeDir, "Downloads") : undefined;
-        const chosen = await save({
-          defaultPath: defaultDir ? joinPath(defaultDir, filename) : filename,
-          filters: [{ name: "ZIP Archive", extensions: ["zip"] }],
-        });
-        if (!chosen) return;
-        setBusy(t("adv.opsLogExporting"));
-        let sysInfoJson: string | undefined;
-        if (shouldUseHttpApi()) {
-          try {
-            const res = await safeFetch(`${httpApiBase()}/api/system-info`, { signal: AbortSignal.timeout(5_000) });
-            const data = await res.json();
-            sysInfoJson = JSON.stringify(data, null, 2);
-          } catch { /* best-effort */ }
-        }
-        const dest = await invoke<string>("export_diagnostic_bundle", {
-          workspaceId: currentWorkspaceId,
-          systemInfoJson: sysInfoJson ?? null,
-          destPath: chosen,
-        });
-        setNotice(t("adv.opsLogExportSuccess", { path: dest }));
-        await invoke("show_item_in_folder", { path: dest });
-      } catch (e) { setError(String(e)); } finally { setBusy(null); }
-    }
-
-    async function exportEnv() {
-      if (!currentWorkspaceId || !IS_TAURI) { if (!IS_TAURI) setError("Web 模式暂不支持导出 .env"); return; }
-      try {
-        const content = await invoke<string>("workspace_read_file", { workspaceId: currentWorkspaceId, relativePath: ".env" });
-        const blob = new Blob([content], { type: "text/plain" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `synapse-${currentWorkspaceId}.env`;
-        a.click();
-        URL.revokeObjectURL(url);
-        setNotice(t("adv.exportDone"));
-      } catch (e) { setError(String(e)); }
-    }
-
-    async function importEnv() {
-      const input = document.createElement("input");
-      input.type = "file";
-      input.accept = ".env,text/plain";
-      input.onchange = async () => {
-        const file = input.files?.[0];
-        if (!file || !currentWorkspaceId) return;
-        try {
-          const text = await file.text();
-          const parsed = parseEnv(text);
-          setEnvDraft((prev) => {
-            let draft = prev;
-            for (const [k, v] of Object.entries(parsed)) {
-              draft = envSet(draft, k, v);
-            }
-            return draft;
-          });
-          setNotice(t("adv.importDone", { count: Object.keys(parsed).length }));
-        } catch (e) { setError(String(e)); }
-      };
-      input.click();
-    }
-
-    // ── Backup functions ──
-
-    async function loadBackupSettings() {
-      const url = shouldUseHttpApi() ? httpApiBase() : null;
-      if (url) {
-        try {
-          const res = await safeFetch(`${url}/api/workspace/backup-settings`, { signal: AbortSignal.timeout(5_000) });
-          const data = await res.json();
-          if (data.settings) {
-            setBackupSettings(data.settings);
-            setBackupSettingsLoaded(true);
-          }
-        } catch { /* backend not available, use defaults */ }
-      } else if (IS_TAURI && currentWorkspaceId) {
-        try {
-          const content = await invoke<string>("workspace_read_file", { workspaceId: currentWorkspaceId, relativePath: "data/backup_settings.json" });
-          const parsed = JSON.parse(content);
-          setBackupSettings((prev) => ({ ...prev, ...parsed }));
-          setBackupSettingsLoaded(true);
-        } catch { /* file doesn't exist yet, use defaults */ }
-      }
-    }
-
-    async function saveBackupSettings() {
-      const url = shouldUseHttpApi() ? httpApiBase() : null;
-      if (url) {
-        try {
-          await safeFetch(`${url}/api/workspace/backup-settings`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(backupSettings),
-            signal: AbortSignal.timeout(5_000),
-          });
-          setNotice(t("adv.backupSaved"));
-        } catch (e) { setError(String(e)); }
-      } else if (IS_TAURI && currentWorkspaceId) {
-        try {
-          await invoke("workspace_write_file", {
-            workspaceId: currentWorkspaceId,
-            relativePath: "data/backup_settings.json",
-            content: JSON.stringify(backupSettings, null, 2) + "\n",
-          });
-          setNotice(t("adv.backupSaved"));
-        } catch (e) { setError(String(e)); }
-      }
-    }
-
-    async function runBackupNow() {
-      if (!currentWorkspaceId) return;
-      let outputDir = backupSettings.backup_path;
-      if (!outputDir) {
-        // Use dialog to pick folder
-        try {
-          const { openFileDialog } = await import("./platform");
-          const selected = await openFileDialog({ directory: true, title: t("adv.backupPath") });
-          if (!selected) return;
-          outputDir = selected;
-          setBackupSettings((prev) => ({ ...prev, backup_path: outputDir }));
-        } catch (e) { setError(String(e)); return; }
-      }
-      setBusy(t("adv.backupExporting"));
-      try {
-        const apiPort = (serviceStatus && "port" in serviceStatus ? serviceStatus.port : undefined) || 18900;
-        const result = await invoke<{ status: string; path?: string; filename?: string; size_bytes?: number }>(
-          "export_workspace_backup",
-          {
-            workspaceId: currentWorkspaceId,
-            outputDir,
-            includeUserdata: backupSettings.include_userdata,
-            includeMedia: backupSettings.include_media,
-            apiPort,
-          }
-        );
-        setNotice(t("adv.backupDone", { path: result.filename || result.path || "" }));
-        loadBackupHistory();
-      } catch (e) { setError(String(e)); } finally { setBusy(null); }
-    }
-
-    async function executeBackupImport(zipPath: string) {
-      if (!currentWorkspaceId) return;
-      try {
-        setBusy(t("adv.backupExporting"));
-        const apiPort = (serviceStatus && "port" in serviceStatus ? serviceStatus.port : undefined) || 18900;
-        const result = await invoke<{ status: string; restored_count?: number }>(
-          "import_workspace_backup",
-          { workspaceId: currentWorkspaceId, zipPath, apiPort }
-        );
-        setNotice(t("adv.backupImportDone", { count: result.restored_count ?? 0 }));
-      } catch (e) { setError(String(e)); } finally { setBusy(null); }
-    }
-
-    async function runBackupImport() {
-      if (!currentWorkspaceId) return;
-      try {
-        const { openFileDialog } = await import("./platform");
-        const zipPath = await openFileDialog({ title: t("adv.backupImport"), filters: [{ name: "Backup", extensions: ["zip"] }] });
-        if (!zipPath) return;
-        askConfirm(t("adv.backupImportConfirm"), () => executeBackupImport(zipPath));
-      } catch (e) { setError(String(e)); }
-    }
-
-    async function loadBackupHistory() {
-      const url = shouldUseHttpApi() ? httpApiBase() : null;
-      if (!url || !backupSettings.backup_path) { setBackupHistory([]); return; }
-      try {
-        const res = await safeFetch(`${url}/api/workspace/backups`, { signal: AbortSignal.timeout(5_000) });
-        const data = await res.json();
-        setBackupHistory(data.backups || []);
-      } catch { setBackupHistory([]); }
-    }
-
-    async function browseBackupPath() {
-      try {
-        const { openFileDialog } = await import("./platform");
-        const selected = await openFileDialog({ directory: true, title: t("adv.backupPath") });
-        if (selected) {
-          setBackupSettings((prev) => ({ ...prev, backup_path: selected }));
-        }
-      } catch (e) { setError(String(e)); }
-    }
-
-    // Load backup settings on first render
-    if (!backupSettingsLoaded) { loadBackupSettings(); }
-
-    const sectionHeader = (key: string, title: string) => (
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 0" }}>
-        <span style={{ fontWeight: 600, fontSize: 14 }}>{title}</span>
-        {advLoading[key] && <span className="spinner" style={{ width: 14, height: 14, flexShrink: 0 }} />}
-      </div>
-    );
-
-    const diagItem = (label: string, status: "pass" | "warn" | "fail" | undefined, detail?: string | null) => (
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", fontSize: 13 }}>
-        <span style={{
-          width: 8,
-          height: 8,
-          borderRadius: "50%",
-          flexShrink: 0,
-          background: status === "pass" ? "#10b981" : status === "warn" ? "#f59e0b" : "#ef4444",
-        }} />
-        <span style={{ fontWeight: 500, minWidth: 140 }}>{label}</span>
-        <span style={{ color: "var(--muted)", fontSize: 12, wordBreak: "break-all" }}>{detail || "—"}</span>
-      </div>
-    );
-
     return (
-      <>
-        {/* ── Python 环境诊断 (desktop only) ── */}
-        <div className="card" style={IS_WEB ? { display: "none" } : undefined}>
-          {sectionHeader("python", t("adv.pythonTitle"))}
-            <div style={{ paddingLeft: 22 }}>
-              {pyDiag ? (
-                <>
-                  <div className="cardHint" style={{ marginBottom: 6 }}>
-                    {t("adv.diagSummary")}:{" "}
-                    <b>{{ healthy: t("adv.summaryHealthy"), repairable: t("adv.summaryRepairable"), broken: t("adv.summaryBroken") }[pyDiag.summary]}</b>
-                  </div>
-                  {pyDiag.contracts.map((c) => (
-                    <div key={c.id}>
-                      {diagItem(c.title, c.status, `${c.code}${c.evidence?.[0] ? ` — ${c.evidence[0]}` : ""}`)}
-                    </div>
-                  ))}
-                  {pyDiag.contracts.some((c) => c.status !== "pass") && (
-                    <div style={{ marginTop: 8, padding: "8px 12px", background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: 8, fontSize: 12, color: "var(--warning)" }}>
-                      {pyDiag.contracts.filter((c) => c.status !== "pass").map((c) => (
-                        <div key={c.id} style={{ padding: "2px 0" }}>
-                          ⚠ {c.fixHint || c.code}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              ) : advLoading.python ? (
-                <div className="cardHint" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span className="spinner" style={{ width: 14, height: 14 }} />
-                  {t("adv.diagnosing")}
-                </div>
-              ) : (
-                <div className="cardHint">{t("adv.pyNoDiag")}</div>
-              )}
-              {repairStage && (
-                <div style={{ marginTop: 10, padding: "8px 12px", background: "rgba(14,165,233,0.1)", borderRadius: 8, fontSize: 12 }}>
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>{repairStage}</div>
-                  <div style={{ width: "100%", height: 6, background: "var(--line)", borderRadius: 3, overflow: "hidden" }}>
-                    <div style={{ width: `${repairPercent}%`, height: "100%", background: "var(--brand, #0ea5e9)", borderRadius: 3, transition: "width 0.3s" }} />
-                  </div>
-                  {repairDetail && <div style={{ marginTop: 4, color: "var(--muted)" }}>{repairDetail}</div>}
-                </div>
-              )}
-              <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-                <button className="btnSmall" onClick={runDiagnose} disabled={!!busy}>{t("adv.diagnose")}</button>
-                <button className="btnSmall" onClick={runExportDiagReport} disabled={!!busy}>{t("adv.exportDiagReport")}</button>
-              </div>
-            </div>
-        </div>
-
-        {/* ── 系统信息 ── */}
-        <div className="card" style={{ marginTop: 12 }}>
-          {sectionHeader("sysinfo", t("adv.sysTitle"))}
-            <div style={{ paddingLeft: 22 }}>
-              {!advSysInfo ? (
-                advLoading.sysinfo ? (
-                  <div className="cardHint" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span className="spinner" style={{ width: 14, height: 14 }} />
-                    {t("common.loading")}
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <button className="btnSmall" onClick={fetchSystemInfo} disabled={!!busy || !serviceStatus?.running}>{t("adv.sysLoad")}</button>
-                    {!serviceStatus?.running && <span className="cardHint">{t("adv.needService")}</span>}
-                  </div>
-                )
-              ) : (
-                <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 16px", fontSize: 13 }}>
-                  {Object.entries(advSysInfo).map(([k, v]) => (
-                    <Fragment key={k}>
-                      <span style={{ fontWeight: 500, color: "var(--muted)" }}>{k}</span>
-                      <span>{v}</span>
-                    </Fragment>
-                  ))}
-                  <span style={{ fontWeight: 500, color: "var(--muted)" }}>Desktop</span>
-                  <span>{desktopVersion}</span>
-                </div>
-              )}
-            </div>
-        </div>
-
-        {/* ── 系统运维 ── */}
-        {IS_TAURI && (
-        <div className="card" style={{ marginTop: 12 }}>
-          {sectionHeader("ops", t("adv.opsTitle"))}
-          <div style={{ paddingLeft: 22 }}>
-            {/* 路径信息 */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 8, color: "var(--muted)" }}>{t("adv.opsPaths")}</div>
-              <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: "6px 12px", alignItems: "center", fontSize: 13 }}>
-                {opsPathRows.map((row) => (
-                  <Fragment key={row.label}>
-                    <span style={{ fontWeight: 500, whiteSpace: "nowrap" }}>{row.label}</span>
-                    <span style={{ wordBreak: "break-all", color: "var(--muted)", fontSize: 12, fontFamily: "monospace" }}>{row.path || "—"}</span>
-                    <button className="btnSmall" onClick={() => opsOpenFolder(row.path)} disabled={!row.path}>{t("adv.opsOpenFolder")}</button>
-                  </Fragment>
-                ))}
-              </div>
-            </div>
-
-            {/* 环境变量管理 */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 8, color: "var(--muted)" }}>{t("adv.opsEnvManage")}</div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button className="btnSmall" onClick={exportEnv} disabled={!!busy || !currentWorkspaceId}>{t("adv.opsEnvExport")}</button>
-                <button className="btnSmall" onClick={importEnv} disabled={!!busy || !currentWorkspaceId}>{t("adv.opsEnvImport")}</button>
-              </div>
-            </div>
-
-            {/* 诊断日志导出 */}
-            <div>
-              <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 4, color: "var(--muted)" }}>{t("adv.opsLogExport")}</div>
-              <div className="cardHint" style={{ marginBottom: 8 }}>{t("adv.opsLogExportDesc")}</div>
-              <button className="btnSmall" onClick={opsHandleBundleExport} disabled={!!busy || !currentWorkspaceId}>
-                {busy === t("adv.opsLogExporting") ? t("adv.opsLogExporting") : t("adv.opsLogExportBtn")}
-              </button>
-            </div>
-          </div>
-        </div>
-        )}
-
-        {/* ── 平台连接（Agent Hub / Skill Store） ── */}
-        <div className="card" style={{ marginTop: 12 }}>
-          {sectionHeader("hub", t("adv.hubTitle"))}
-          <div style={{ paddingLeft: 22 }}>
-            <div className="cardHint" style={{ marginBottom: 8 }}>{t("adv.hubHint")}</div>
-            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <input
-                type="text"
-                value={hubApiUrl}
-                onChange={(e) => setHubApiUrl(e.target.value)}
-                placeholder={t("adv.hubUrlPlaceholder")}
-                style={{ flex: 1, maxWidth: 380, fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--fg)" }}
-              />
-              <button
-                className="btnSmall btnSmallPrimary"
-                disabled={!!busy}
-                onClick={async () => {
-                  const val = hubApiUrl.trim() || "https://synapse.ai/api";
-                  if (shouldUseHttpApi()) {
-                    try {
-                      await safeFetch(`${httpApiBase()}/api/config/env`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ entries: { HUB_API_URL: val } }),
-                      });
-                      setNotice(t("adv.hubSaved"));
-                    } catch (e) { setError(String(e)); }
-                  } else {
-                    setEnvDraft((prev) => envSet(prev, "HUB_API_URL", val));
-                    setNotice(t("adv.hubSaved"));
-                  }
-                }}
-              >
-                {t("common.save") || "Save"}
-              </button>
-              <button
-                className="btnSmall"
-                disabled={!!busy}
-                onClick={async () => {
-                  const url = (hubApiUrl.trim() || "https://synapse.ai/api").replace(/\/$/, "");
-                  try {
-                    const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(6000) });
-                    if (res.ok) setNotice(t("adv.hubTestOk"));
-                    else setError(t("adv.hubTestFail"));
-                  } catch { setError(t("adv.hubTestFail")); }
-                }}
-              >
-                {t("adv.hubTest")}
-              </button>
-            </div>
-
-            {/* Store visibility toggle */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--line)" }}>
-              <div>
-                <div style={{ fontSize: 13, color: "var(--fg)" }}>{t("adv.storeToggleLabel")}</div>
-                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{t("adv.storeToggleHint")}</div>
-              </div>
-              <div
-                onClick={() => {
-                  const next = !storeVisible;
-                  setStoreVisible(next);
-                  localStorage.setItem("synapse_storeVisible", String(next));
-                }}
-                style={{
-                  width: 40, height: 22, borderRadius: 11, cursor: "pointer",
-                  background: storeVisible ? "var(--ok)" : "var(--line)",
-                  position: "relative", transition: "background 0.2s", flexShrink: 0,
-                }}
-              >
-                <div style={{
-                  width: 18, height: 18, borderRadius: 9, background: "#fff",
-                  position: "absolute", top: 2,
-                  left: storeVisible ? 20 : 2,
-                  transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
-                }} />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* ── Web 访问网络配置 ── */}
-        <div className="card" style={{ marginTop: 12 }}>
-          {sectionHeader("webnet", t("adv.webNetworkTitle", { defaultValue: "Web 访问 / 网络" }))}
-          <div style={{ paddingLeft: 22 }}>
-            <div className="cardHint" style={{ marginBottom: 8 }}>
-              {t("adv.webNetworkHint", { defaultValue: "控制 HTTP API 服务的监听范围和代理设置。修改后需重启后端生效。" })}
-            </div>
-            <FieldBool k="API_HOST" label={t("adv.apiHostLabel", { defaultValue: "允许外部访问（局域网/公网）" })}
-              help={t("adv.apiHostHelp", { defaultValue: "开启后监听 0.0.0.0，允许其他设备通过 IP 访问 Web 端。关闭则仅本机可访问。" })}
-              envDraft={{ ...envDraft, API_HOST: (envDraft.API_HOST === "0.0.0.0") ? "true" : "false" }}
-              onEnvChange={(fn) => {
-                const next = fn({ API_HOST: (envDraft.API_HOST === "0.0.0.0") ? "true" : "false" });
-                if (next.API_HOST === "true") {
-                  askConfirm(
-                    t("adv.apiHostWarn"),
-                    () => setEnvDraft((prev) => ({ ...prev, API_HOST: "0.0.0.0" })),
-                  );
-                } else {
-                  setEnvDraft((prev) => ({ ...prev, API_HOST: "127.0.0.1" }));
-                }
-              }}
-            />
-            <FieldBool k="TRUST_PROXY" label={t("adv.trustProxyLabel", { defaultValue: "反向代理模式（Nginx/Caddy）" })}
-              help={t("adv.trustProxyHelp", { defaultValue: "通过反向代理部署时必须开启。开启后读取 X-Forwarded-For 获取真实 IP，并关闭本地免密。" })}
-              envDraft={envDraft} onEnvChange={(fn) => setEnvDraft((prev) => fn(prev))}
-            />
-            <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center" }}>
-              <button className="btnSmall" disabled={!!busy} onClick={async () => {
-                setBusy(t("common.loading"));
-                try {
-                  await saveEnvKeys(["API_HOST", "TRUST_PROXY"]);
-                  setNotice(t("adv.webNetworkSaved", { defaultValue: "网络设置已保存，重启后端后生效" }));
-                } catch (e: any) { setError(String(e)); }
-                finally { setBusy(null); }
-              }}>{t("common.save", { defaultValue: "保存" })}</button>
-              <span style={{ fontSize: 11, color: "var(--muted)", opacity: 0.7 }}>
-                {t("adv.webNetworkRestartHint", { defaultValue: "保存后需在状态面板重启后端生效" })}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* ── Web 访问密码管理 (desktop local only, change-password API requires localhost) ── */}
-        {!IS_TAURI && (
-        <div className="card" style={{ marginTop: 12 }}>
-          {sectionHeader("webpw", t("adv.webPasswordTitle"))}
-          <div style={{ paddingLeft: 22 }}>
-            <div className="cardHint" style={{ marginBottom: 8 }}>{t("adv.webPasswordHint")}</div>
-            <WebPasswordManager apiBase={httpApiBase()} busy={busy} setBusy={setBusy} setNotice={setNotice} setError={setError} />
-          </div>
-        </div>
-        )}
-
-        {/* ── .env 导出/导入（Web 模式保留，Tauri 模式在系统运维卡片中） ── */}
-        {!IS_TAURI && (
-        <div className="card" style={{ marginTop: 12 }}>
-          {sectionHeader("envio", t("adv.export").replace(" .env", "") + " / " + t("adv.import").replace(" .env", "") + " .env")}
-            <div style={{ paddingLeft: 22 }}>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className="btnSmall" onClick={exportEnv} disabled={!currentWorkspaceId || !!busy}>{t("adv.export")}</button>
-                <button className="btnSmall" onClick={importEnv} disabled={!currentWorkspaceId || !!busy}>{t("adv.import")}</button>
-              </div>
-            </div>
-        </div>
-        )}
-
-        {/* ── 数据备份与恢复 ── */}
-        <div className="card" style={{ marginTop: 12 }}>
-          {sectionHeader("backup", t("adv.backupTitle"))}
-            <div style={{ paddingLeft: 22 }}>
-              <div className="cardHint" style={{ marginBottom: 8 }}>{t("adv.backupHint")}</div>
-
-              {/* 定时备份开关 */}
-              <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "10px 0" }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, whiteSpace: "nowrap" }}>
-                  <input type="checkbox" checked={backupSettings.enabled} onChange={(e) => setBackupSettings((p) => ({ ...p, enabled: e.target.checked }))} style={{ width: 16, height: 16, flexShrink: 0 }} />
-                  {t("adv.backupEnabled")}
-                </label>
-              </div>
-
-              {/* 备份路径 */}
-              <div style={{ margin: "8px 0" }}>
-                <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 4, color: "var(--muted)" }}>{t("adv.backupPath")}</div>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <input
-                    type="text"
-                    value={backupSettings.backup_path}
-                    onChange={(e) => setBackupSettings((p) => ({ ...p, backup_path: e.target.value }))}
-                    placeholder={t("adv.backupPathPlaceholder")}
-                    style={{ flex: 1, fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--fg)" }}
-                  />
-                  <button className="btnSmall" onClick={browseBackupPath} disabled={!!busy}>{t("adv.backupBrowse")}</button>
-                </div>
-              </div>
-
-              {/* 备份频率 */}
-              {backupSettings.enabled && (
-                <div style={{ margin: "8px 0" }}>
-                  <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 4, color: "var(--muted)" }}>{t("adv.backupSchedule")}</div>
-                  <select
-                    value={backupSettings.cron === "0 2 * * *" ? "daily" : backupSettings.cron === "0 2 * * 0" ? "weekly" : "custom"}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === "daily") setBackupSettings((p) => ({ ...p, cron: "0 2 * * *" }));
-                      else if (v === "weekly") setBackupSettings((p) => ({ ...p, cron: "0 2 * * 0" }));
-                    }}
-                    style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--fg)" }}
-                  >
-                    <option value="daily">{t("adv.backupScheduleDaily")}</option>
-                    <option value="weekly">{t("adv.backupScheduleWeekly")}</option>
-                    <option value="custom">{t("adv.backupScheduleCustom")}</option>
-                  </select>
-                  {backupSettings.cron !== "0 2 * * *" && backupSettings.cron !== "0 2 * * 0" && (
-                    <input
-                      type="text"
-                      value={backupSettings.cron}
-                      onChange={(e) => setBackupSettings((p) => ({ ...p, cron: e.target.value }))}
-                      style={{ marginLeft: 8, fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--fg)", width: 140 }}
-                    />
-                  )}
-                </div>
-              )}
-
-              {/* 保留备份数 */}
-              <div style={{ margin: "8px 0" }}>
-                <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 4, color: "var(--muted)" }}>{t("adv.backupMaxKeep")}</div>
-                <input
-                  type="number"
-                  min={1} max={100}
-                  value={backupSettings.max_backups}
-                  onChange={(e) => setBackupSettings((p) => ({ ...p, max_backups: Math.max(1, parseInt(e.target.value) || 5) }))}
-                  style={{ fontSize: 12, padding: "6px 10px", borderRadius: 6, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--fg)", width: 80 }}
-                />
-              </div>
-
-              {/* 数据选项 */}
-              <div style={{ display: "flex", gap: 16, margin: "10px 0", flexWrap: "wrap" }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, whiteSpace: "nowrap" }}>
-                  <input type="checkbox" checked={backupSettings.include_userdata} onChange={(e) => setBackupSettings((p) => ({ ...p, include_userdata: e.target.checked }))} style={{ width: 16, height: 16, flexShrink: 0 }} />
-                  {t("adv.backupIncludeUserdata")}
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, whiteSpace: "nowrap" }}>
-                  <input type="checkbox" checked={backupSettings.include_media} onChange={(e) => setBackupSettings((p) => ({ ...p, include_media: e.target.checked }))} style={{ width: 16, height: 16, flexShrink: 0 }} />
-                  {t("adv.backupIncludeMedia")}
-                </label>
-              </div>
-
-              {/* 操作按钮 */}
-              <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-                <button className="btnSmall btnSmallPrimary" onClick={async () => { await saveBackupSettings(); }} disabled={!!busy}>
-                  {t("common.save") || "保存设置"}
-                </button>
-                {IS_TAURI && <button className="btnSmall" onClick={runBackupNow} disabled={!currentWorkspaceId || !!busy}>
-                  {t("adv.backupNow")}
-                </button>}
-                {IS_TAURI && <button className="btnSmall" onClick={runBackupImport} disabled={!currentWorkspaceId || !!busy}>
-                  {t("adv.backupImport")}
-                </button>}
-              </div>
-
-              {/* 历史备份列表 */}
-              {backupSettings.backup_path && (
-                <div style={{ marginTop: 14 }}>
-                  <div
-                    style={{ fontSize: 13, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
-                    onClick={() => { setBackupShowHistory((p) => !p); if (!backupShowHistory) loadBackupHistory(); }}
-                  >
-                    <span style={{ transform: backupShowHistory ? "rotate(90deg)" : "rotate(0)", transition: "transform 0.15s", display: "inline-block" }}>▸</span>
-                    {t("adv.backupHistory")}
-                  </div>
-                  {backupShowHistory && (
-                    <div style={{ marginTop: 6 }}>
-                      {backupHistory.length === 0 ? (
-                        <div className="cardHint" style={{ fontSize: 12 }}>{t("adv.backupNoHistory")}</div>
-                      ) : (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          {backupHistory.map((b) => (
-                            <div key={b.filename} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, padding: "4px 8px", borderRadius: 6, background: "var(--bg)" }}>
-                              <span style={{ fontFamily: "monospace" }}>{b.filename}</span>
-                              <span style={{ color: "var(--muted)", whiteSpace: "nowrap", marginLeft: 12 }}>
-                                {(b.size_bytes / 1024 / 1024).toFixed(1)} MB
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-        </div>
-      </>
+      <AdvancedView
+        envDraft={envDraft}
+        setEnvDraft={setEnvDraft}
+        busy={busy}
+        workspaces={workspaces}
+        currentWorkspaceId={currentWorkspaceId}
+        serviceStatus={serviceStatus}
+        dataMode={dataMode}
+        info={info}
+        storeVisible={storeVisible}
+        setStoreVisible={setStoreVisible}
+        desktopVersion={desktopVersion}
+        shouldUseHttpApi={shouldUseHttpApi}
+        httpApiBase={httpApiBase}
+        askConfirm={askConfirm}
+        refreshAll={refreshAll}
+        restartService={restartService}
+        setView={setView}
+      />
     );
   }
 
@@ -5936,10 +3174,11 @@ export function App() {
       // agent (基础)
       "AGENT_NAME",
       "MAX_ITERATIONS",
-      "AUTO_CONFIRM",
       "THINKING_MODE",
       "TOOL_MAX_PARALLEL",
       "FORCE_TOOL_CALL_MAX_RETRIES",
+      "FORCE_TOOL_CALL_IM_FLOOR",
+      "CONFIRMATION_TEXT_MAX_RETRIES",
       "ALLOW_PARALLEL_TOOLS_WITH_INTERRUPT_CHECKS",
       // timeouts
       "PROGRESS_TIMEOUT_SECONDS",
@@ -5960,6 +3199,7 @@ export function App() {
       "WHISPER_MODEL",
       "WHISPER_LANGUAGE",
       // memory / embedding
+      "MEMORY_MODE",
       "EMBEDDING_MODEL",
       "EMBEDDING_DEVICE",
       "MODEL_DOWNLOAD_SOURCE",
@@ -5979,9 +3219,7 @@ export function App() {
       "STICKER_ENABLED",
       "STICKER_DATA_DIR",
       // scheduler
-      "SCHEDULER_ENABLED",
       "SCHEDULER_TIMEZONE",
-      "SCHEDULER_MAX_CONCURRENT",
       "SCHEDULER_TASK_TIMEOUT",
       // session
       "SESSION_TIMEOUT_MINUTES",
@@ -6004,11 +3242,18 @@ export function App() {
       "WEWORK_ENCODING_AES_KEY",
       "WEWORK_CALLBACK_PORT",
       "WEWORK_CALLBACK_HOST",
+      "WEWORK_MODE",
+      "WEWORK_WS_ENABLED",
+      "WEWORK_WS_BOT_ID",
+      "WEWORK_WS_SECRET",
       "DINGTALK_ENABLED",
       "DINGTALK_CLIENT_ID",
       "DINGTALK_CLIENT_SECRET",
       "ONEBOT_ENABLED",
+      "ONEBOT_MODE",
       "ONEBOT_WS_URL",
+      "ONEBOT_REVERSE_HOST",
+      "ONEBOT_REVERSE_PORT",
       "ONEBOT_ACCESS_TOKEN",
       "QQBOT_ENABLED",
       "QQBOT_APP_ID",
@@ -6017,17 +3262,12 @@ export function App() {
       "QQBOT_MODE",
       "QQBOT_WEBHOOK_PORT",
       "QQBOT_WEBHOOK_PATH",
+      // WeChat (iLink Bot API)
+      "WECHAT_ENABLED",
+      "WECHAT_TOKEN",
       // MCP (docs/mcp-integration.md)
       "MCP_ENABLED",
       "MCP_TIMEOUT",
-      "MCP_BROWSER_ENABLED",
-      "MCP_MYSQL_ENABLED",
-      "MCP_MYSQL_HOST",
-      "MCP_MYSQL_USER",
-      "MCP_MYSQL_PASSWORD",
-      "MCP_MYSQL_DATABASE",
-      "MCP_POSTGRES_ENABLED",
-      "MCP_POSTGRES_URL",
       // Desktop automation
       "DESKTOP_ENABLED",
       "DESKTOP_DEFAULT_MONITOR",
@@ -6039,9 +3279,6 @@ export function App() {
       "DESKTOP_UIA_RETRY_INTERVAL",
       "DESKTOP_UIA_MAX_RETRIES",
       "DESKTOP_VISION_ENABLED",
-      "DESKTOP_VISION_MODEL",
-      "DESKTOP_VISION_FALLBACK_MODEL",
-      "DESKTOP_VISION_OCR_MODEL",
       "DESKTOP_VISION_MAX_RETRIES",
       "DESKTOP_VISION_TIMEOUT",
       "DESKTOP_CLICK_DELAY",
@@ -6049,9 +3286,6 @@ export function App() {
       "DESKTOP_MOVE_DURATION",
       "DESKTOP_FAILSAFE",
       "DESKTOP_PAUSE",
-      "DESKTOP_LOG_ACTIONS",
-      "DESKTOP_LOG_SCREENSHOTS",
-      "DESKTOP_LOG_DIR",
       // browser-use / openai compatibility (used by browser_mcp)
       "OPENAI_API_BASE",
       "OPENAI_BASE_URL",
@@ -6087,14 +3321,14 @@ export function App() {
               网络代理与并行
             </div>
             <div className="grid3">
-              <FT k="HTTP_PROXY" label="HTTP_PROXY" placeholder="http://127.0.0.1:7890" />
-              <FT k="HTTPS_PROXY" label="HTTPS_PROXY" placeholder="http://127.0.0.1:7890" />
-              <FT k="ALL_PROXY" label="ALL_PROXY" placeholder="socks5://127.0.0.1:1080" />
+              {FT({ k: "HTTP_PROXY", label: "HTTP_PROXY", placeholder: "http://127.0.0.1:7890" })}
+              {FT({ k: "HTTPS_PROXY", label: "HTTPS_PROXY", placeholder: "http://127.0.0.1:7890" })}
+              {FT({ k: "ALL_PROXY", label: "ALL_PROXY", placeholder: "socks5://127.0.0.1:1080" })}
             </div>
             <div className="grid3" style={{ marginTop: 10 }}>
-              <FB k="FORCE_IPV4" label="强制 IPv4" help="某些 VPN/IPv6 环境下有用" />
-              <FT k="TOOL_MAX_PARALLEL" label="TOOL_MAX_PARALLEL" placeholder="1" help="单轮多工具并行数（默认 1=串行）" />
-              <FT k="LOG_LEVEL" label="LOG_LEVEL" placeholder="INFO" help="DEBUG/INFO/WARNING/ERROR" />
+              {FB({ k: "FORCE_IPV4", label: "强制 IPv4", help: "某些 VPN/IPv6 环境下有用" })}
+              {FT({ k: "TOOL_MAX_PARALLEL", label: "TOOL_MAX_PARALLEL", placeholder: "1", help: "单轮多工具并行数（默认 1=串行）" })}
+              {FT({ k: "LOG_LEVEL", label: "LOG_LEVEL", placeholder: "INFO", help: "DEBUG/INFO/WARNING/ERROR" })}
             </div>
           </div>
 
@@ -6114,12 +3348,12 @@ export function App() {
                 apply: "https://t.me/BotFather",
                 body: (
                   <>
-                    <FT k="TELEGRAM_BOT_TOKEN" label="Bot Token" placeholder="从 BotFather 获取（仅会显示一次）" type="password" />
-                    <FT k="TELEGRAM_PROXY" label="代理（可选）" placeholder="http://127.0.0.1:7890 / socks5://..." />
-                    <FB k="TELEGRAM_REQUIRE_PAIRING" label={t("config.imPairing")} />
-                    <FT k="TELEGRAM_PAIRING_CODE" label={t("config.imPairingCode")} placeholder={t("config.imPairingCodeHint")} />
-                    <TelegramPairingCodeHint currentWorkspaceId={currentWorkspaceId} />
-                    <FT k="TELEGRAM_WEBHOOK_URL" label="Webhook URL" placeholder="https://..." />
+                    {FT({ k: "TELEGRAM_BOT_TOKEN", label: "Bot Token", placeholder: "从 BotFather 获取（仅会显示一次）", type: "password" })}
+                    {FT({ k: "TELEGRAM_PROXY", label: "代理（可选）", placeholder: "http://127.0.0.1:7890 / socks5://..." })}
+                    {FB({ k: "TELEGRAM_REQUIRE_PAIRING", label: t("config.imPairing") })}
+                    {FT({ k: "TELEGRAM_PAIRING_CODE", label: t("config.imPairingCode"), placeholder: t("config.imPairingCodeHint") })}
+                    <TelegramPairingCodeHint currentWorkspaceId={currentWorkspaceId} envDraft={envDraft} onEnvChange={setEnvDraft} />
+                    {FT({ k: "TELEGRAM_WEBHOOK_URL", label: "Webhook URL", placeholder: "https://..." })}
                   </>
                 ),
               },
@@ -6129,35 +3363,69 @@ export function App() {
                 apply: "https://open.feishu.cn/",
                 body: (
                   <>
-                    <FT k="FEISHU_APP_ID" label="App ID" placeholder="" />
-                    <FT k="FEISHU_APP_SECRET" label="App Secret" placeholder="" type="password" />
+                    {FT({ k: "FEISHU_APP_ID", label: "App ID", placeholder: "" })}
+                    {FT({ k: "FEISHU_APP_SECRET", label: "App Secret", placeholder: "", type: "password" })}
                   </>
                 ),
               },
-              {
-                title: "企业微信（需要 synapse[wework]）",
-                enabledKey: "WEWORK_ENABLED",
-                apply: "https://work.weixin.qq.com/",
-                body: (
-                  <>
-                    <FT k="WEWORK_CORP_ID" label="Corp ID" />
-                    <FT k="WEWORK_TOKEN" label="回调 Token" placeholder="在企业微信后台「接收消息」设置中获取" />
-                    <FT k="WEWORK_ENCODING_AES_KEY" label="EncodingAESKey" placeholder="在企业微信后台「接收消息」设置中获取" type="password" />
-                    <FT k="WEWORK_CALLBACK_PORT" label="回调端口" placeholder="9880" />
-                    <div style={{ fontSize: 12, color: "var(--muted)", margin: "4px 0 0 0", lineHeight: 1.6 }}>
-                      💡 企业微信后台「接收消息服务器配置」的 URL 请填：<code style={{ background: "#f5f5f5", padding: "1px 5px", borderRadius: 4, fontSize: 11 }}>http://your-domain:9880/callback</code>
-                    </div>
-                  </>
-                ),
-              },
+              (() => {
+                const wMode = (envDraft["WEWORK_MODE"] || "websocket") as "http" | "websocket";
+                const isWs = wMode === "websocket";
+                return {
+                  title: "企业微信（需要 synapse[wework]）",
+                  enabledKey: isWs ? "WEWORK_WS_ENABLED" : "WEWORK_ENABLED",
+                  apply: "https://work.weixin.qq.com/",
+                  body: (
+                    <>
+                      <div style={{ marginBottom: 8 }}>
+                        <div className="label">{t("config.imWeworkMode")}</div>
+                        <ToggleGroup type="single" variant="outline" size="sm" value={wMode} onValueChange={(v) => {
+                          if (!v) return;
+                          const m = v as "http" | "websocket";
+                                const oldKey = isWs ? "WEWORK_WS_ENABLED" : "WEWORK_ENABLED";
+                                const newKey = m === "websocket" ? "WEWORK_WS_ENABLED" : "WEWORK_ENABLED";
+                                setEnvDraft((d) => {
+                                  const wasEnabled = (d[oldKey] || "false").toLowerCase() === "true";
+                            const next: Record<string, string> = { ...d, WEWORK_MODE: m };
+                            if (wasEnabled && oldKey !== newKey) { next[oldKey] = "false"; next[newKey] = "true"; }
+                                  return next;
+                                });
+                        }} className="mt-1 [&_[data-state=on]]:bg-primary [&_[data-state=on]]:text-primary-foreground">
+                          <ToggleGroupItem value="http">{t("config.imWeworkModeHttp")}</ToggleGroupItem>
+                          <ToggleGroupItem value="websocket">{t("config.imWeworkModeWs")}</ToggleGroupItem>
+                        </ToggleGroup>
+                        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                          {isWs ? t("config.imWeworkModeWsHint") : t("config.imWeworkModeHttpHint")}
+                        </div>
+                      </div>
+                      {isWs ? (
+                        <>
+                          {FT({ k: "WEWORK_WS_BOT_ID", label: t("config.imWeworkBotId") })}
+                          {FT({ k: "WEWORK_WS_SECRET", label: t("config.imWeworkSecret"), type: "password" })}
+                        </>
+                      ) : (
+                        <>
+                          {FT({ k: "WEWORK_CORP_ID", label: "Corp ID" })}
+                          {FT({ k: "WEWORK_TOKEN", label: "回调 Token", placeholder: "在企业微信后台「接收消息」设置中获取" })}
+                          {FT({ k: "WEWORK_ENCODING_AES_KEY", label: "EncodingAESKey", placeholder: "在企业微信后台「接收消息」设置中获取", type: "password" })}
+                          {FT({ k: "WEWORK_CALLBACK_PORT", label: "回调端口", placeholder: "9880" })}
+                          <div style={{ fontSize: 12, color: "var(--muted)", margin: "4px 0 0 0", lineHeight: 1.6 }}>
+                            💡 企业微信后台「接收消息服务器配置」的 URL 请填：<code style={{ background: "#f5f5f5", padding: "1px 5px", borderRadius: 4, fontSize: 11 }}>http://your-domain:9880/callback</code>
+                          </div>
+                        </>
+                      )}
+                    </>
+                  ),
+                };
+              })(),
               {
                 title: "钉钉（需要 synapse[dingtalk]）",
                 enabledKey: "DINGTALK_ENABLED",
                 apply: "https://open.dingtalk.com/",
                 body: (
                   <>
-                    <FT k="DINGTALK_CLIENT_ID" label="Client ID" />
-                    <FT k="DINGTALK_CLIENT_SECRET" label="Client Secret" type="password" />
+                    {FT({ k: "DINGTALK_CLIENT_ID", label: "Client ID" })}
+                    {FT({ k: "DINGTALK_CLIENT_SECRET", label: "Client Secret", type: "password" })}
                   </>
                 ),
               },
@@ -6167,17 +3435,15 @@ export function App() {
                 apply: "https://bot.q.qq.com/wiki/develop/api-v2/",
                 body: (
                   <>
-                    <FT k="QQBOT_APP_ID" label="AppID" placeholder="q.qq.com 开发设置" />
-                    <FT k="QQBOT_APP_SECRET" label="AppSecret" type="password" placeholder="q.qq.com 开发设置" />
-                    <FB k="QQBOT_SANDBOX" label={t("config.imQQBotSandbox")} />
+                    {FT({ k: "QQBOT_APP_ID", label: "AppID", placeholder: "q.qq.com 开发设置" })}
+                    {FT({ k: "QQBOT_APP_SECRET", label: "AppSecret", type: "password", placeholder: "q.qq.com 开发设置" })}
+                    {FB({ k: "QQBOT_SANDBOX", label: t("config.imQQBotSandbox") })}
                     <div style={{ marginTop: 8 }}>
                       <div className="label">{t("config.imQQBotMode")}</div>
-                      <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
-                        {["websocket", "webhook"].map((m) => (
-                          <button key={m} className={(envDraft["QQBOT_MODE"] || "websocket") === m ? "capChipActive" : "capChip"}
-                            onClick={() => setEnvDraft((d) => ({ ...d, QQBOT_MODE: m }))}>{m === "websocket" ? "WebSocket" : "Webhook"}</button>
-                        ))}
-                      </div>
+                      <ToggleGroup type="single" variant="outline" size="sm" value={envDraft["QQBOT_MODE"] || "websocket"} onValueChange={(v) => { if (v) setEnvDraft((d) => ({ ...d, QQBOT_MODE: v })); }} className="mt-1 [&_[data-state=on]]:bg-primary [&_[data-state=on]]:text-primary-foreground">
+                        <ToggleGroupItem value="websocket">WebSocket</ToggleGroupItem>
+                        <ToggleGroupItem value="webhook">Webhook</ToggleGroupItem>
+                      </ToggleGroup>
                       <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
                         {(envDraft["QQBOT_MODE"] || "websocket") === "websocket"
                           ? t("config.imQQBotModeWsHint")
@@ -6186,24 +3452,56 @@ export function App() {
                     </div>
                     {(envDraft["QQBOT_MODE"] === "webhook") && (
                       <>
-                        <FT k="QQBOT_WEBHOOK_PORT" label={t("config.imQQBotWebhookPort")} placeholder="9890" />
-                        <FT k="QQBOT_WEBHOOK_PATH" label={t("config.imQQBotWebhookPath")} placeholder="/qqbot/callback" />
+                        {FT({ k: "QQBOT_WEBHOOK_PORT", label: t("config.imQQBotWebhookPort"), placeholder: "9890" })}
+                        {FT({ k: "QQBOT_WEBHOOK_PATH", label: t("config.imQQBotWebhookPath"), placeholder: "/qqbot/callback" })}
                       </>
                     )}
                   </>
                 ),
               },
               {
+                title: t("config.imWechat") + "（需要 synapse[wechat]）",
+                enabledKey: "WECHAT_ENABLED",
+                apply: "",
+                body: (
+                  <>
+                    {FT({ k: "WECHAT_TOKEN", label: "Token", type: "password", placeholder: t("wechat.tokenHint") })}
+                    <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>{t("wechat.hint")}</p>
+                  </>
+                ),
+              },
+              (() => {
+                const obMode = (envDraft["ONEBOT_MODE"] || "reverse") as "reverse" | "forward";
+                const isReverse = obMode === "reverse";
+                return {
                 title: "OneBot（需要 synapse[onebot] + NapCat/Lagrange）",
                 enabledKey: "ONEBOT_ENABLED",
                 apply: "https://github.com/botuniverse/onebot-11",
                 body: (
                   <>
-                    <FT k="ONEBOT_WS_URL" label="WebSocket URL" placeholder="ws://127.0.0.1:8080" />
-                    <FT k="ONEBOT_ACCESS_TOKEN" label="Access Token" type="password" placeholder={t("config.imOneBotTokenHint")} />
+                      <div style={{ marginBottom: 8 }}>
+                        <div className="label">{t("config.imOneBotMode")}</div>
+                        <ToggleGroup type="single" variant="outline" size="sm" value={obMode} onValueChange={(v) => { if (v) setEnvDraft((d) => ({ ...d, ONEBOT_MODE: v })); }} className="mt-1 [&_[data-state=on]]:bg-primary [&_[data-state=on]]:text-primary-foreground">
+                          <ToggleGroupItem value="reverse">{t("config.imOneBotModeReverse")}</ToggleGroupItem>
+                          <ToggleGroupItem value="forward">{t("config.imOneBotModeForward")}</ToggleGroupItem>
+                        </ToggleGroup>
+                        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                          {isReverse ? t("config.imOneBotModeReverseHint") : t("config.imOneBotModeForwardHint")}
+                        </div>
+                      </div>
+                      {isReverse ? (
+                        <>
+                          {FT({ k: "ONEBOT_REVERSE_HOST", label: t("config.imOneBotReverseHost"), placeholder: "0.0.0.0" })}
+                          {FT({ k: "ONEBOT_REVERSE_PORT", label: t("config.imOneBotReversePort"), placeholder: "6700" })}
+                        </>
+                      ) : (
+                        FT({ k: "ONEBOT_WS_URL", label: "WebSocket URL", placeholder: "ws://127.0.0.1:8080" })
+                      )}
+                      {FT({ k: "ONEBOT_ACCESS_TOKEN", label: "Access Token", type: "password", placeholder: t("config.imOneBotTokenHint") })}
                   </>
                 ),
-              },
+                };
+              })(),
             ].map((c) => {
               const enabled = envGet(envDraft, c.enabledKey, "false").toLowerCase() === "true";
               return (
@@ -6246,79 +3544,97 @@ export function App() {
             </div>
             <div className="grid2">
               <div className="card" style={{ marginTop: 0 }}>
-                <div className="label" style={{ marginBottom: 8 }}>
-                  MCP
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                  <div className="label" style={{ marginBottom: 0 }}>MCP</div>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--fg2)", cursor: "pointer", userSelect: "none" }} onClick={(e) => e.stopPropagation()}>
+                    <span>{envDraft["MCP_ENABLED"] === "false" ? "已禁用" : "已启用"}</span>
+                    <div
+                      onClick={() => setEnvDraft((p) => ({ ...p, MCP_ENABLED: p.MCP_ENABLED === "false" ? "true" : "false" }))}
+                      style={{
+                        position: "relative", width: 40, height: 22, borderRadius: 11,
+                        background: envDraft["MCP_ENABLED"] === "false" ? "var(--line, #d1d5db)" : "var(--ok, #22c55e)",
+                        transition: "background 0.2s", flexShrink: 0,
+                      }}
+                    >
+                      <div style={{
+                        position: "absolute", top: 2, width: 18, height: 18, borderRadius: 9,
+                        background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,.15)",
+                        left: envDraft["MCP_ENABLED"] === "false" ? 2 : 20,
+                        transition: "left 0.2s",
+                      }} />
                 </div>
-                <FB k="MCP_ENABLED" label="启用 MCP" help="连接外部 MCP 服务/工具" />
-                <div className="grid2" style={{ marginTop: 10 }}>
-                  <FB k="MCP_BROWSER_ENABLED" label="Browser MCP" help="Playwright 浏览器自动化" />
-                  <FT k="MCP_TIMEOUT" label="MCP_TIMEOUT" placeholder="60" />
+                  </label>
                 </div>
-                <div className="divider" />
-                <FB k="MCP_MYSQL_ENABLED" label="MySQL MCP" />
-                <div className="grid2" style={{ marginTop: 10 }}>
-                  <FT k="MCP_MYSQL_HOST" label="MCP_MYSQL_HOST" placeholder="localhost" />
-                  <FT k="MCP_MYSQL_USER" label="MCP_MYSQL_USER" placeholder="root" />
-                  <FT k="MCP_MYSQL_PASSWORD" label="MCP_MYSQL_PASSWORD" type="password" />
-                  <FT k="MCP_MYSQL_DATABASE" label="MCP_MYSQL_DATABASE" placeholder="mydb" />
+                <div className="grid2">
+                  {FT({ k: "MCP_TIMEOUT", label: "MCP_TIMEOUT", placeholder: "60" })}
                 </div>
-                <div className="divider" />
-                <FB k="MCP_POSTGRES_ENABLED" label="Postgres MCP" />
-                <FT k="MCP_POSTGRES_URL" label="MCP_POSTGRES_URL" placeholder="postgresql://user:pass@localhost/db" />
               </div>
 
               <div className="card" style={{ marginTop: 0 }}>
-                <div className="label" style={{ marginBottom: 8 }}>
-                  桌面自动化（Windows）
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                  <div className="label" style={{ marginBottom: 0 }}>桌面自动化（Windows）</div>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--fg2)", cursor: "pointer", userSelect: "none" }} onClick={(e) => e.stopPropagation()}>
+                    <span>{envDraft["DESKTOP_ENABLED"] === "false" ? "已禁用" : "已启用"}</span>
+                    <div
+                      onClick={() => setEnvDraft((p) => ({ ...p, DESKTOP_ENABLED: p.DESKTOP_ENABLED === "false" ? "true" : "false" }))}
+                      style={{
+                        position: "relative", width: 40, height: 22, borderRadius: 11,
+                        background: envDraft["DESKTOP_ENABLED"] === "false" ? "var(--line, #d1d5db)" : "var(--ok, #22c55e)",
+                        transition: "background 0.2s", flexShrink: 0,
+                      }}
+                    >
+                      <div style={{
+                        position: "absolute", top: 2, width: 18, height: 18, borderRadius: 9,
+                        background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,.15)",
+                        left: envDraft["DESKTOP_ENABLED"] === "false" ? 2 : 20,
+                        transition: "left 0.2s",
+                      }} />
                 </div>
-                <FB k="DESKTOP_ENABLED" label="启用桌面工具" help="启用/禁用桌面自动化工具集" />
+                  </label>
+                </div>
                 <div className="divider" />
                 <div className="grid3">
-                  <FT k="DESKTOP_DEFAULT_MONITOR" label="默认显示器" placeholder="0" />
-                  <FT k="DESKTOP_MAX_WIDTH" label="最大宽" placeholder="1920" />
-                  <FT k="DESKTOP_MAX_HEIGHT" label="最大高" placeholder="1080" />
+                  {FT({ k: "DESKTOP_DEFAULT_MONITOR", label: "默认显示器", placeholder: "0" })}
+                  {FT({ k: "DESKTOP_MAX_WIDTH", label: "最大宽", placeholder: "1920" })}
+                  {FT({ k: "DESKTOP_MAX_HEIGHT", label: "最大高", placeholder: "1080" })}
                 </div>
                 <div className="grid3" style={{ marginTop: 10 }}>
-                  <FT k="DESKTOP_COMPRESSION_QUALITY" label="压缩质量" placeholder="85" />
-                  <FT k="DESKTOP_CACHE_TTL" label="截图缓存秒" placeholder="1.0" />
-                  <FB k="DESKTOP_FAILSAFE" label="failsafe" help="鼠标移到角落中止（PyAutoGUI 风格）" />
+                  {FT({ k: "DESKTOP_COMPRESSION_QUALITY", label: "压缩质量", placeholder: "85" })}
+                  {FT({ k: "DESKTOP_CACHE_TTL", label: "截图缓存秒", placeholder: "1.0" })}
+                  {FB({ k: "DESKTOP_FAILSAFE", label: "failsafe", help: "鼠标移到角落中止（PyAutoGUI 风格）" })}
                 </div>
                 <div className="divider" />
-                <FB k="DESKTOP_VISION_ENABLED" label="启用视觉" help="用于屏幕理解/定位" />
-                <div className="grid2" style={{ marginTop: 10 }}>
-                  <FT k="DESKTOP_VISION_MODEL" label="视觉模型" placeholder="qwen3-vl-plus" />
-                  <FT k="DESKTOP_VISION_OCR_MODEL" label="OCR 模型" placeholder="qwen-vl-ocr" />
-                </div>
+                {FB({ k: "DESKTOP_VISION_ENABLED", label: "启用视觉", help: "用于屏幕理解/定位" })}
                 <div className="grid3" style={{ marginTop: 10 }}>
-                  <FT k="DESKTOP_CLICK_DELAY" label="click_delay" placeholder="0.1" />
-                  <FT k="DESKTOP_TYPE_INTERVAL" label="type_interval" placeholder="0.03" />
-                  <FT k="DESKTOP_MOVE_DURATION" label="move_duration" placeholder="0.15" />
+                  {FT({ k: "DESKTOP_CLICK_DELAY", label: "click_delay", placeholder: "0.1" })}
+                  {FT({ k: "DESKTOP_TYPE_INTERVAL", label: "type_interval", placeholder: "0.03" })}
+                  {FT({ k: "DESKTOP_MOVE_DURATION", label: "move_duration", placeholder: "0.15" })}
                 </div>
               </div>
             </div>
 
             <div className="divider" />
             <div className="grid3">
-              <FC k="WHISPER_MODEL" label="WHISPER_MODEL" help="tiny/base/small/medium/large" options={[
+              {FC({ k: "WHISPER_MODEL", label: "WHISPER_MODEL", help: "tiny/base/small/medium/large", options: [
                 { value: "tiny", label: "tiny (~39MB)" },
                 { value: "base", label: "base (~74MB)" },
                 { value: "small", label: "small (~244MB)" },
                 { value: "medium", label: "medium (~769MB)" },
                 { value: "large", label: "large (~1.5GB)" },
-              ]} placeholder="base" />
-              <FS k="WHISPER_LANGUAGE" label="WHISPER_LANGUAGE" options={[
+              ], placeholder: "base" })}
+              {FS({ k: "WHISPER_LANGUAGE", label: "WHISPER_LANGUAGE", options: [
                 { value: "zh", label: "中文 (zh)" },
                 { value: "en", label: "English (en)" },
                 { value: "auto", label: "Auto (自动检测)" },
-              ]} />
-              <FT k="GITHUB_TOKEN" label="GITHUB_TOKEN" placeholder="" type="password" help="用于搜索/下载技能" />
-              <FT k="DATABASE_PATH" label="DATABASE_PATH" placeholder="data/agent.db" />
+              ] })}
+              {FT({ k: "GITHUB_TOKEN", label: "GITHUB_TOKEN", placeholder: "", type: "password", help: "用于搜索/下载技能" })}
+              {FT({ k: "DATABASE_PATH", label: "DATABASE_PATH", placeholder: "data/agent.db" })}
             </div>
           </div>
 
           <div className="card">
             <div className="cardTitle" style={{ fontSize: 14, marginBottom: 6 }}>
-              Agent 与系统（核心配置）
+              灵魂与意志（核心配置）
             </div>
             <div className="cardHint">
               这些是系统内置能力的开关与参数。<b>内置项默认启用</b>（你随时可以关闭）。建议先用默认值跑通，再按需调优。
@@ -6328,21 +3644,20 @@ export function App() {
             <details open>
               <summary style={{ cursor: "pointer", fontWeight: 800, padding: "8px 0" }}>基础</summary>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
-                <FT k="AGENT_NAME" label="Agent 名称" placeholder="Synapse" />
-                <FT k="MAX_ITERATIONS" label="最大迭代次数" placeholder="300" />
-                <FB k="AUTO_CONFIRM" label="自动确认（慎用）" help="打开后会减少交互确认，建议只在可信环境中使用" />
-                <FS k="THINKING_MODE" label="Thinking 模式" options={[
-                  { value: "auto", label: "auto (自动判断)" },
-                  { value: "always", label: "always (始终思考)" },
-                  { value: "never", label: "never (从不思考)" },
-                ]} />
-                <FT k="DATABASE_PATH" label="数据库路径" placeholder="data/agent.db" />
-                <FS k="LOG_LEVEL" label="日志级别" options={[
+                {FT({ k: "AGENT_NAME", label: "Agent 名称", placeholder: "Synapse" })}
+                {FT({ k: "MAX_ITERATIONS", label: "最大迭代次数", placeholder: "300" })}
+                {FS({ k: "THINKING_MODE", label: t("config.agentThinking"), options: [
+                  { value: "auto", label: t("config.agentThinkingAuto") },
+                  { value: "always", label: t("config.agentThinkingAlways") },
+                  { value: "never", label: t("config.agentThinkingNever") },
+                ] })}
+                {FT({ k: "DATABASE_PATH", label: "数据库路径", placeholder: "data/agent.db" })}
+                {FS({ k: "LOG_LEVEL", label: "日志级别", options: [
                   { value: "DEBUG", label: "DEBUG" },
                   { value: "INFO", label: "INFO" },
                   { value: "WARNING", label: "WARNING" },
                   { value: "ERROR", label: "ERROR" },
-                ]} />
+                ] })}
               </div>
             </details>
 
@@ -6350,32 +3665,14 @@ export function App() {
             <details>
               <summary style={{ cursor: "pointer", fontWeight: 800, padding: "8px 0" }}>日志高级</summary>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
-                <FT k="LOG_DIR" label="日志目录" placeholder="logs" />
-                <FT k="LOG_FILE_PREFIX" label="日志文件前缀" placeholder="synapse" />
-                <FT k="LOG_MAX_SIZE_MB" label="单文件最大 MB" placeholder="10" />
-                <FT k="LOG_BACKUP_COUNT" label="备份文件数" placeholder="30" />
-                <FT k="LOG_RETENTION_DAYS" label="保留天数" placeholder="30" />
-                <FT k="LOG_FORMAT" label="日志格式" placeholder="%(asctime)s - %(name)s - %(levelname)s - %(message)s" />
-                <FB k="LOG_TO_CONSOLE" label="输出到控制台" help="默认 true" />
-                <FB k="LOG_TO_FILE" label="输出到文件" help="默认 true" />
-              </div>
-            </details>
-
-            <div className="divider" />
-            <details>
-              <summary style={{ cursor: "pointer", fontWeight: 800, padding: "8px 0" }}>记忆与 Embedding</summary>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
-                <FT k="EMBEDDING_MODEL" label="Embedding 模型" placeholder="shibing624/text2vec-base-chinese" />
-                <FT k="EMBEDDING_DEVICE" label="Embedding 设备" placeholder="cpu / cuda" />
-                <FS k="MODEL_DOWNLOAD_SOURCE" label="模型下载源" options={[
-                  { value: "auto", label: "Auto (自动选择)" },
-                  { value: "hf-mirror", label: "hf-mirror (国内镜像)" },
-                  { value: "modelscope", label: "ModelScope (魔搭)" },
-                  { value: "huggingface", label: "HuggingFace (官方)" },
-                ]} />
-                <FT k="MEMORY_HISTORY_DAYS" label="历史保留天数" placeholder="30" />
-                <FT k="MEMORY_MAX_HISTORY_FILES" label="最大历史文件数" placeholder="1000" />
-                <FT k="MEMORY_MAX_HISTORY_SIZE_MB" label="最大历史大小（MB）" placeholder="500" />
+                {FT({ k: "LOG_DIR", label: "日志目录", placeholder: "logs" })}
+                {FT({ k: "LOG_FILE_PREFIX", label: "日志文件前缀", placeholder: "synapse" })}
+                {FT({ k: "LOG_MAX_SIZE_MB", label: "单文件最大 MB", placeholder: "10" })}
+                {FT({ k: "LOG_BACKUP_COUNT", label: "备份文件数", placeholder: "30" })}
+                {FT({ k: "LOG_RETENTION_DAYS", label: "保留天数", placeholder: "30" })}
+                {FT({ k: "LOG_FORMAT", label: "日志格式", placeholder: "%(asctime)s - %(name)s - %(levelname)s - %(message)s" })}
+                {FB({ k: "LOG_TO_CONSOLE", label: "输出到控制台", help: "默认 true" })}
+                {FB({ k: "LOG_TO_FILE", label: "输出到文件", help: "默认 true" })}
               </div>
             </details>
 
@@ -6383,28 +3680,18 @@ export function App() {
             <details>
               <summary style={{ cursor: "pointer", fontWeight: 800, padding: "8px 0" }}>会话</summary>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
-                <FT k="SESSION_TIMEOUT_MINUTES" label="会话超时（分钟）" placeholder="30" />
-                <FT k="SESSION_MAX_HISTORY" label="会话最大历史条数" placeholder="50" />
-                <FT k="SESSION_STORAGE_PATH" label="会话存储路径" placeholder="data/sessions" />
+                {FT({ k: "SESSION_TIMEOUT_MINUTES", label: "会话超时（分钟）", placeholder: "30" })}
+                {FT({ k: "SESSION_MAX_HISTORY", label: "会话最大历史条数", placeholder: "50" })}
+                {FT({ k: "SESSION_STORAGE_PATH", label: "会话存储路径", placeholder: "data/sessions" })}
               </div>
             </details>
 
             <div className="divider" />
             <details open>
-              <summary style={{ cursor: "pointer", fontWeight: 800, padding: "8px 0" }}>调度器（默认启用）</summary>
+              <summary style={{ cursor: "pointer", fontWeight: 800, padding: "8px 0" }}>调度器</summary>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
-                <label className="pill" style={{ cursor: "pointer", userSelect: "none", alignSelf: "flex-start" }}>
-                  <input
-                    style={{ width: 16, height: 16 }}
-                    type="checkbox"
-                    checked={envGet(envDraft, "SCHEDULER_ENABLED", "true").toLowerCase() === "true"}
-                    onChange={(e) => setEnvDraft((m) => envSet(m, "SCHEDULER_ENABLED", String(e.target.checked)))}
-                  />
-                  启用定时任务调度器（推荐）
-                </label>
-                <FT k="SCHEDULER_TIMEZONE" label="时区" placeholder="Asia/Shanghai" />
-                <FT k="SCHEDULER_MAX_CONCURRENT" label="最大并发任务数" placeholder="5" />
-                <FT k="SCHEDULER_TASK_TIMEOUT" label="任务超时（秒）" placeholder="600" />
+                {FT({ k: "SCHEDULER_TIMEZONE", label: "时区", placeholder: "Asia/Shanghai" })}
+                {FT({ k: "SCHEDULER_TASK_TIMEOUT", label: "任务超时（秒）", placeholder: "600" })}
               </div>
             </details>
 
@@ -6425,15 +3712,17 @@ export function App() {
               {t("config.applyRestart")}
             </button>
           </div>
-          
+
         </div>
       </>
     );
   }
 
-  // 构造端点摘要（供 ChatView 使用）
+  // 构造端点摘要（供 ChatView 使用，仅启用的端点）
   const chatEndpoints: EndpointSummaryType[] = useMemo(() =>
-    endpointSummary.map((e) => {
+    endpointSummary
+      .filter((e) => e.enabled !== false)
+      .map((e) => {
       const h = endpointHealth[e.name];
       return {
         name: e.name,
@@ -6459,45 +3748,8 @@ export function App() {
     [endpointSummary, endpointHealth],
   );
 
-  // 保存 env keys 的辅助函数（供 SkillManager 使用，路由逻辑与 saveEnvKeys 一致）
-  async function saveEnvKeysExternal(keys: string[]) {
-    const entries: Record<string, string> = {};
-    for (const k of keys) {
-      if (Object.prototype.hasOwnProperty.call(envDraft, k)) {
-        entries[k] = (envDraft[k] ?? "").trim();
-      }
-    }
-    if (!Object.keys(entries).length) return;
-
-    if (shouldUseHttpApi()) {
-      try {
-        await safeFetch(`${httpApiBase()}/api/config/env`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ entries }),
-        });
-        return;
-      } catch {
-        logger.warn("App", "saveEnvKeysExternal: HTTP failed, falling back to Tauri");
-      }
-    }
-    if (IS_TAURI && currentWorkspaceId) {
-      const tauriEntries = Object.entries(entries).map(([key, value]) => ({ key, value }));
-      await invoke("workspace_update_env", { workspaceId: currentWorkspaceId, entries: tauriEntries });
-    }
-  }
 
   // ── Onboarding Wizard 渲染 ──
-  async function obLoadModules() {
-    if (!IS_TAURI) return;
-    try {
-      const modules = await invoke<ModuleInfo[]>("detect_modules");
-      setObModules(modules);
-      
-    } catch (e) {
-      logger.warn("App", "detect_modules failed", { error: String(e) });
-    }
-  }
 
   async function obLoadEnvCheck() {
     if (!IS_TAURI) return;
@@ -6509,7 +3761,7 @@ export function App() {
     }
   }
 
-  
+
 
   const [obHasErrors, setObHasErrors] = useState(false);
 
@@ -6533,12 +3785,10 @@ export function App() {
     setObDetailLog([]);
     setObHasErrors(false);
 
-    // 安装配置日志：单独写入 {data_root}/logs/onboarding-日期.log，便于排查
     const dateLabel = new Date().toISOString().slice(0, 19).replace("T", "_").replace(/:/g, "-");
     let obLogPath: string | null = null;
     try {
       obLogPath = await invoke<string>("start_onboarding_log", { dateLabel });
-      // 写入配置快照（不记录密钥明文）
       if (obLogPath) {
         const configLines: string[] = [];
         configLines.push("");
@@ -6562,33 +3812,25 @@ export function App() {
         invoke("append_onboarding_log_lines", { logPath: obLogPath, lines: configLines }).catch(() => {});
       }
     } catch {
-      // 日志文件创建失败不影响主流程
     }
 
-    // 初始化任务列表
     const taskDefs: SetupTask[] = [
       { id: "workspace", label: "准备工作区", status: "pending" },
-      { id: "llm-config", label: "保存 LLM 配置", status: savedEndpoints.length > 0 ? "pending" : "skipped" },
-      { id: "env-save", label: "保存环境变量", status: "pending" },
     ];
-    
     taskDefs.push({ id: "backend-check", label: "检查后端环境", status: "pending" });
-    // CLI 注册
     const cliCommands: string[] = [];
     if (obCliSynapse) cliCommands.push("synapse");
     if (obCliOa) cliCommands.push("oa");
     if (cliCommands.length > 0) {
       taskDefs.push({ id: "cli", label: `注册 CLI 命令 (${cliCommands.join(", ")})`, status: "pending" });
     }
-    // 开机自启
     if (obAutostart) {
       taskDefs.push({ id: "autostart", label: t("onboarding.autostart.taskLabel"), status: "pending" });
     }
-    if (obPendingBots.length > 0) {
-      taskDefs.push({ id: "register-bots", label: t("onboarding.registerBots", { count: obPendingBots.length }), status: "pending" });
-    }
     taskDefs.push({ id: "service-start", label: "启动后端服务", status: "pending" });
     taskDefs.push({ id: "http-wait", label: "等待 HTTP 服务就绪", status: "pending" });
+    taskDefs.push({ id: "llm-config", label: "保存 LLM 配置", status: savedEndpoints.length > 0 ? "pending" : "skipped" });
+    taskDefs.push({ id: "env-save", label: "保存环境变量", status: "pending" });
     setObTasks(taskDefs);
 
     const log = (msg: string) => {
@@ -6601,7 +3843,6 @@ export function App() {
         invoke("append_onboarding_log", { logPath: obLogPath, line }).catch(() => {});
       }
     };
-    /** 将任务状态写入日志，便于排查 */
     const logTask = (label: string, status: string, detail?: string) => {
       const msg = detail ? `[任务] ${label}: ${status} - ${detail}` : `[任务] ${label}: ${status}`;
       const now = new Date();
@@ -6653,48 +3894,6 @@ export function App() {
         logTask("保存 LLM 配置", "done", `${savedEndpoints.length} 个端点`);
       }
 
-      // Derive .env enabled flags from pending bots (ensures channel deps get installed)
-      if (obPendingBots.length > 0) {
-        const enabledTypes = new Set(obPendingBots.map((b) => b.type));
-        for (const bType of enabledTypes) {
-          const ek = TYPE_TO_ENABLED_KEY[bType];
-          if (ek) {
-            setEnvDraft((m: EnvMap) => ({ ...m, [ek]: "true" }));
-            envDraft[ek] = "true";
-          }
-        }
-      }
-
-      // ── STEP: env-save ──
-      updateTask("env-save", { status: "running" });
-      logTask("保存环境变量", "running");
-      try {
-        const imKeys = getAutoSaveKeysForStep("im");
-        const envEntries: { key: string; value: string }[] = [];
-        for (const k of imKeys) {
-          if (Object.prototype.hasOwnProperty.call(envDraft, k) && envDraft[k]) {
-            envEntries.push({ key: k, value: envDraft[k] });
-          }
-        }
-        for (const ep of savedEndpoints) {
-          const keyName = (ep as any).api_key_env;
-          if (keyName && Object.prototype.hasOwnProperty.call(envDraft, keyName) && envDraft[keyName]) {
-            envEntries.push({ key: keyName, value: envDraft[keyName] });
-          }
-        }
-        if (envEntries.length > 0) {
-          await invoke("workspace_update_env", { workspaceId: activeWsId, entries: envEntries });
-          log(t("onboarding.progress.envSaved") || "✓ 环境变量已保存");
-        }
-        updateTask("env-save", { status: "done", detail: `${envEntries.length} 项` });
-        logTask("保存环境变量", "done", `${envEntries.length} 项`);
-      } catch (e) {
-        log(`⚠ 保存环境变量失败: ${String(e)}`);
-        updateTask("env-save", { status: "error", detail: String(e) });
-        logTask("保存环境变量", "error", String(e));
-        hasErr = true;
-      }
-
       // ── STEP: backend-check ──
       updateTask("backend-check", { status: "running" });
       logTask("检查后端环境", "running");
@@ -6708,14 +3907,14 @@ export function App() {
           venvChecked: string;
         }>("check_backend_availability", { venvDir: effectiveVenv });
         if (!backendInfo.bundled && !backendInfo.venvReady) {
-          log("未找到可用后端，尝试自动创建 venv 并安装 synapse...");
+          log("未找到可用后端，尝试自动创建 venv 并安装 Synapse...");
           logTask("检查后端环境", "running", "创建 venv...");
           updateTask("backend-check", { detail: "创建 venv..." });
           const detectedPy = await invoke<Array<{ command: string[]; version: string }>>("detect_python");
           if (detectedPy.length > 0) {
             await invoke<string>("create_venv", { pythonCommand: detectedPy[0].command, venvDir: effectiveVenv });
-            updateTask("backend-check", { detail: "安装 synapse..." });
-            logTask("检查后端环境", "running", "安装 synapse...");
+            updateTask("backend-check", { detail: "安装 Synapse..." });
+            logTask("检查后端环境", "running", "安装 Synapse...");
             await invoke<string>("pip_install", { venvDir: effectiveVenv, packageSpec: "synapse" });
             log("✓ 已自动安装后端环境");
           } else {
@@ -6774,60 +3973,26 @@ export function App() {
         }
       }
 
-      // ── STEP: register-bots (write to runtime_state.json via Tauri, before backend starts) ──
-      if (obPendingBots.length > 0) {
-        updateTask("register-bots", { status: "running" });
-        logTask("注册 IM Bot", "running");
-        try {
-          let runtimeState: Record<string, unknown> = {};
-          try {
-            const content = await invoke<string>("workspace_read_file", {
-              workspaceId: activeWsId,
-              relativePath: "data/runtime_state.json",
-            });
-            runtimeState = JSON.parse(content);
-          } catch { /* file doesn't exist yet, start fresh */ }
-
-          const existingBots: Record<string, unknown>[] = Array.isArray(runtimeState.im_bots)
-            ? (runtimeState.im_bots as Record<string, unknown>[])
-            : [];
-          const existingIds = new Set(existingBots.map((b) => b.id));
-
-          let added = 0;
-          for (const bot of obPendingBots) {
-            if (!existingIds.has(bot.id)) {
-              existingBots.push(bot);
-              existingIds.add(bot.id);
-              added++;
-              log(`✓ Bot ${bot.name || bot.id} 已写入配置`);
-            } else {
-              log(`⏭ Bot ${bot.id} 已存在，跳过`);
-            }
-          }
-          runtimeState.im_bots = existingBots;
-
-          await invoke("workspace_write_file", {
-            workspaceId: activeWsId,
-            relativePath: "data/runtime_state.json",
-            content: JSON.stringify(runtimeState, null, 2),
-          });
-
-          updateTask("register-bots", { status: "done", detail: `${added} Bot${added > 1 ? "s" : ""}` });
-          logTask("注册 IM Bot", "done", `${added} Bot(s) → runtime_state.json`);
-        } catch (e) {
-          log(`⚠ Bot 配置写入失败: ${String(e)}`);
-          updateTask("register-bots", { status: "error", detail: String(e).slice(0, 120) });
-          logTask("注册 IM Bot", "error", String(e));
-          hasErr = true;
-        }
-      }
-
       // ── STEP: service-start ──
+      // The early-start in ob-welcome may have already launched the backend.
+      // Probe first to avoid a redundant start (which is harmless but slow).
       updateTask("service-start", { status: "running" });
       logTask("启动后端服务", "running");
-      log(t("onboarding.progress.startingService"));
       const effectiveVenv = venvDir || (info ? joinPath(info.synapseRootDir, "venv") : "");
+      let httpReady = false;
       try {
+        const earlyProbe = await fetch("http://127.0.0.1:18900/api/health", { signal: AbortSignal.timeout(3000) }).then(r => r.ok).catch(() => false);
+        if (earlyProbe) {
+          log("✓ 后端已在运行（由 ob-welcome 提前启动）");
+          setServiceStatus({ running: true, pid: null, pidFile: "" });
+          setDataMode("remote");
+          httpReady = true;
+          updateTask("service-start", { status: "done", detail: "已在运行" });
+          logTask("启动后端服务", "done", "已在运行");
+          updateTask("http-wait", { status: "done", detail: "已就绪" });
+          logTask("等待 HTTP 服务就绪", "done", "已就绪");
+        } else {
+          log(t("onboarding.progress.startingService"));
         await invoke("synapse_service_start", { venvDir: effectiveVenv, workspaceId: activeWsId });
         log(t("onboarding.progress.serviceStarted"));
         updateTask("service-start", { status: "done" });
@@ -6863,6 +4028,7 @@ export function App() {
           log("⚠ HTTP 服务尚未就绪，可进入主页面后手动刷新");
           updateTask("http-wait", { status: "error", detail: "超时" });
           logTask("等待 HTTP 服务就绪", "error", "超时");
+          }
         }
       } catch (e) {
         const errStr = String(e);
@@ -6875,6 +4041,120 @@ export function App() {
           log('--- 详细错误信息 ---');
           log(errStr);
         }
+        hasErr = true;
+      }
+
+      // ── STEP: llm-config (via HTTP API, after backend is ready) ──
+      if (savedEndpoints.length > 0) {
+        updateTask("llm-config", { status: "running" });
+        logTask("保存 LLM 配置", "running");
+        if (httpReady) {
+          try {
+            const base = httpApiBase();
+            for (const ep of savedEndpoints) {
+              const apiKey = envDraft[(ep as any).api_key_env] || "";
+              await safeFetch(`${base}/api/config/save-endpoint`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  endpoint: ep,
+                  api_key: apiKey || null,
+                  endpoint_type: "endpoints",
+                }),
+              });
+            }
+            for (const ep of savedCompilerEndpoints) {
+              const apiKey = envDraft[(ep as any).api_key_env] || "";
+              await safeFetch(`${base}/api/config/save-endpoint`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  endpoint: ep,
+                  api_key: apiKey || null,
+                  endpoint_type: "compiler_endpoints",
+                }),
+              });
+            }
+            for (const ep of savedSttEndpoints) {
+              const apiKey = envDraft[(ep as any).api_key_env] || "";
+              await safeFetch(`${base}/api/config/save-endpoint`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  endpoint: ep,
+                  api_key: apiKey || null,
+                  endpoint_type: "stt_endpoints",
+                }),
+              });
+            }
+            log(t("onboarding.progress.llmConfigSaved"));
+            updateTask("llm-config", { status: "done", detail: `${savedEndpoints.length + savedCompilerEndpoints.length + savedSttEndpoints.length} 个端点` });
+            logTask("保存 LLM 配置", "done", `${savedEndpoints.length + savedCompilerEndpoints.length + savedSttEndpoints.length} 个端点`);
+          } catch (e) {
+            log(`⚠ LLM 配置保存失败: ${String(e)}`);
+            updateTask("llm-config", { status: "error", detail: String(e).slice(0, 120) });
+            logTask("保存 LLM 配置", "error", String(e));
+            hasErr = true;
+          }
+        } else {
+          log("⚠ HTTP 服务未就绪，使用 Tauri 直接写入 LLM 配置");
+          try {
+            const llmData = { endpoints: savedEndpoints, compiler_endpoints: savedCompilerEndpoints, stt_endpoints: savedSttEndpoints, settings: {} };
+            await invoke("workspace_write_file", {
+              workspaceId: activeWsId,
+              relativePath: "data/llm_endpoints.json",
+              content: JSON.stringify(llmData, null, 2),
+            });
+            log(t("onboarding.progress.llmConfigSaved"));
+            updateTask("llm-config", { status: "done", detail: `${savedEndpoints.length} 个端点 (Tauri)` });
+            logTask("保存 LLM 配置", "done", `${savedEndpoints.length} 个端点 (Tauri 回退)`);
+          } catch (e) {
+            log(`⚠ LLM 配置保存失败: ${String(e)}`);
+            updateTask("llm-config", { status: "error", detail: String(e).slice(0, 120) });
+            logTask("保存 LLM 配置", "error", String(e));
+            hasErr = true;
+          }
+        }
+      }
+
+      // ── STEP: env-save (IM and other non-LLM env vars) ──
+      updateTask("env-save", { status: "running" });
+      logTask("保存环境变量", "running");
+      try {
+        const imKeys = getAutoSaveKeysForStep("im");
+        const entries: Record<string, string> = {};
+        for (const k of imKeys) {
+          if (Object.prototype.hasOwnProperty.call(envDraft, k) && envDraft[k]) {
+            entries[k] = envDraft[k];
+          }
+        }
+        if (!httpReady) {
+          for (const ep of [...savedEndpoints, ...savedCompilerEndpoints, ...savedSttEndpoints]) {
+            const keyName = (ep as any).api_key_env;
+            if (keyName && Object.prototype.hasOwnProperty.call(envDraft, keyName) && envDraft[keyName]) {
+              entries[keyName] = envDraft[keyName];
+            }
+          }
+        }
+        if (Object.keys(entries).length > 0) {
+          if (httpReady) {
+            await safeFetch(`${httpApiBase()}/api/config/env`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ entries }),
+            });
+          } else if (IS_TAURI && activeWsId) {
+            const tauriEntries = Object.entries(entries).map(([key, value]) => ({ key, value }));
+            await invoke("workspace_update_env", { workspaceId: activeWsId, entries: tauriEntries });
+          }
+          log(t("onboarding.progress.envSaved") || "✓ 环境变量已保存");
+        }
+        updateTask("env-save", { status: "done", detail: `${Object.keys(entries).length} 项` });
+        logTask("保存环境变量", "done", `${Object.keys(entries).length} 项`);
+      } catch (e) {
+        log(`⚠ 保存环境变量失败: ${String(e)}`);
+        updateTask("env-save", { status: "error", detail: String(e) });
+        logTask("保存环境变量", "error", String(e));
         hasErr = true;
       }
 
@@ -6902,14 +4182,45 @@ export function App() {
     const obCurrentIdxRaw = obStepDots.indexOf(obStep);
     const obCurrentIdx = obCurrentIdxRaw >= 0 ? obCurrentIdxRaw : obStepDots.length - 1;
 
+    const obStepLabels: Record<string, string> = {
+      "ob-welcome": t("onboarding.step.welcome", "欢迎"),
+      "ob-iwhalecloud": t("onboarding.step.iwhalecloud", "研发云"),
+      "ob-claude-code": t("onboarding.step.claudeCode", "CLI"),
+      "ob-agreement": t("onboarding.step.agreement", "协议"),
+      "ob-llm": t("onboarding.step.llm", "模型"),
+      "ob-im": t("onboarding.step.im", "通讯"),
+      "ob-cli": t("onboarding.step.cli", "完成"),
+    };
+
     const stepIndicator = (
-      <div className="obStepIndicator">
+      <div className="flex flex-col items-center gap-1 py-4">
+        <div className="flex items-center gap-3">
+          {obCurrentIdx > 0 && (
+            <button
+              onClick={() => setObStep(obStepDots[obCurrentIdx - 1])}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-0.5 rounded"
+              style={{ cursor: "pointer", background: "transparent", border: "none" }}
+            >
+              ← {t("common.back", "返回")}
+            </button>
+          )}
         {obStepDots.map((s, i) => (
-          <div
-            key={s}
-            className={`obDot ${i === obCurrentIdx ? "obDotActive" : i < obCurrentIdx ? "obDotDone" : ""}`}
-          />
-        ))}
+            <div key={s} className="flex flex-col items-center gap-1" style={{ minWidth: 40 }}>
+              <div
+                className={`size-2 rounded-full transition-all duration-200 ${
+                  i === obCurrentIdx
+                    ? "bg-primary scale-[1.3]"
+                    : i < obCurrentIdx
+                      ? "bg-emerald-500"
+                      : "bg-muted-foreground/25"
+                }`}
+              />
+              <span className={`text-[10px] transition-opacity ${i === obCurrentIdx ? "text-foreground font-medium" : "text-muted-foreground/50"}`}>
+                {obStepLabels[s] || ""}
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
     );
 
@@ -6917,68 +4228,72 @@ export function App() {
       case "ob-welcome":
         return (
           <div className="obPage">
-            <div className="obCenter">
-              <img src={logoUrl} alt="Synapse" className="obLogo" />
-              <h1 className="obTitle">{t("onboarding.welcome.title")}</h1>
-              <p className="obDesc">{t("onboarding.welcome.desc")}</p>
+            <div className="flex flex-col items-center text-center max-w-[520px] gap-5">
+              <img src={logoUrl} alt="Synapse" className="w-20 h-20 rounded-2xl shadow-lg mb-1" />
+              <div className="space-y-2">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">{t("onboarding.welcome.title")}</h1>
+                <p className="text-sm text-muted-foreground leading-relaxed">{t("onboarding.welcome.desc")}</p>
+              </div>
+
               {obEnvCheck && (
                 <>
                   {obEnvCheck.conflicts.length > 0 && (
-                    <div className={
+                    <Card className={`w-full border text-left text-[13px] ${
                       obEnvCheck.conflicts.some(c => c.includes("失败") || c.includes("进程"))
-                        ? "obWarning"
-                        : "obInfo"
-                    }>
-                      <strong>
+                        ? "border-amber-300 bg-amber-50/60 dark:border-amber-500/40 dark:bg-amber-950/30"
+                        : "border-emerald-300 bg-emerald-50/60 dark:border-emerald-500/40 dark:bg-emerald-950/30"
+                    }`}>
+                      <CardContent className="py-3 px-4 space-y-2">
+                        <div className="flex items-center gap-2 font-semibold">
+                          {obEnvCheck.conflicts.some(c => c.includes("失败") || c.includes("进程"))
+                            ? <AlertTriangle className="size-4 text-amber-500 shrink-0" />
+                            : <CheckCircle2 className="size-4 text-emerald-500 shrink-0" />}
                         {obEnvCheck.conflicts.some(c => c.includes("失败") || c.includes("进程"))
                           ? t("onboarding.welcome.envWarning")
                           : t("onboarding.welcome.envCleaned")}
-                      </strong>
-                      <ul>
+                        </div>
+                        <ul className="ml-5 list-disc space-y-0.5">
                         {obEnvCheck.conflicts.map((c, i) => <li key={i}>{c}</li>)}
                       </ul>
-                      <p className="obEnvCheckPath" style={{ marginTop: 8, fontSize: 12, opacity: 0.85 }}>
+                        <p className="text-xs text-muted-foreground">
                         检查路径: {obEnvCheck.synapseRoot ?? "(未知)"}
                       </p>
-                      <button
-                        type="button"
-                        className="btnSecondary"
-                        style={{ marginTop: 8 }}
-                        onClick={() => obLoadEnvCheck()}
-                      >
+                        <Button variant="secondary" size="sm" onClick={() => obLoadEnvCheck()}>
                         重新检测环境
-                      </button>
-                    </div>
+                        </Button>
+                      </CardContent>
+                    </Card>
                   )}
                   {obEnvCheck.conflicts.length === 0 && (
-                    <p className="obEnvCheckPath" style={{ fontSize: 12, opacity: 0.75 }}>
+                    <p className="text-xs text-muted-foreground/75">
                       检查路径: {obEnvCheck.synapseRoot ?? "(未知)"}
                     </p>
                   )}
                 </>
               )}
+
               {obDetectedService && (
-                <div className="obInfo" style={{ marginBottom: 12 }}>
-                  <strong>{t("onboarding.welcome.serviceDetected")}</strong>
-                  <p style={{ margin: "6px 0" }}>
+                <Card className="w-full border border-emerald-300 bg-emerald-50/60 dark:border-emerald-500/40 dark:bg-emerald-950/30 text-left text-[13px]">
+                  <CardContent className="py-3 px-4 space-y-2">
+                    <div className="flex items-center gap-2 font-semibold">
+                      <CheckCircle2 className="size-4 text-emerald-500 shrink-0" />
+                      {t("onboarding.welcome.serviceDetected")}
+                    </div>
+                    <p className="text-muted-foreground">
                     {t("onboarding.welcome.serviceDetectedDesc", { version: obDetectedService.version })}
                   </p>
-                  <button
-                    className="btnPrimary"
-                    style={{ marginTop: 4 }}
-                    onClick={() => obConnectExistingService()}
-                  >
+                    <Button size="sm" onClick={() => obConnectExistingService()}>
                     {t("onboarding.welcome.connectExisting")}
-                  </button>
-                </div>
+                    </Button>
+                  </CardContent>
+                </Card>
               )}
 
-              {/* Custom data storage path (advanced) */}
-              <div style={{ width: "100%", maxWidth: 460, marginTop: 8 }}>
-                <button
-                  type="button"
-                  className="obLinkBtn"
-                  style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}
+              <div className="w-full max-w-[460px] mt-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 text-xs text-muted-foreground px-2 h-7"
                   onClick={async () => {
                     if (!obShowCustomRoot) {
                       try {
@@ -6993,26 +4308,29 @@ export function App() {
                     setObShowCustomRoot((v) => !v);
                   }}
                 >
-                  {obShowCustomRoot ? "▾" : "▸"} {t("onboarding.welcome.customRootToggle")}
-                </button>
+                  <ChevronRight className={`size-3.5 transition-transform duration-200 ${obShowCustomRoot ? "rotate-90" : ""}`} />
+                  {t("onboarding.welcome.customRootToggle")}
+                </Button>
+
                 {obShowCustomRoot && (
-                  <div style={{ background: "var(--card-bg, rgba(255,255,255,0.72))", border: "1px solid var(--line)", borderRadius: 8, padding: 12, marginTop: 4 }}>
-                    <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>{t("onboarding.welcome.customRootHint")}</p>
+                  <Card className="mt-2 shadow-sm">
+                    <CardContent className="py-4 px-4 space-y-3">
+                      <p className="text-xs text-muted-foreground leading-relaxed">{t("onboarding.welcome.customRootHint")}</p>
                     {obCurrentRoot && (
-                      <p style={{ fontSize: 11, opacity: 0.6, margin: "0 0 8px", wordBreak: "break-all" }}>
+                        <p className="text-[11px] text-muted-foreground/60 break-all">
                         {t("onboarding.welcome.customRootCurrent", { path: obCurrentRoot })}
                       </p>
                     )}
-                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                      <input
-                        style={{ flex: 1, fontSize: 13 }}
+                      <div className="flex gap-2 items-center">
+                        <Input
+                          className="flex-1 h-8 text-[13px]"
                         value={obCustomRootInput}
                         onChange={(e) => { setObCustomRootInput(e.target.value); setObCustomRootApplied(false); }}
                         placeholder={t("onboarding.welcome.customRootPlaceholder")}
                       />
-                      <button
-                        className="btnPrimary"
-                        style={{ fontSize: 12, padding: "4px 12px", whiteSpace: "nowrap" }}
+                        <Button
+                          size="sm"
+                          className="h-8 shrink-0"
                         disabled={!obCustomRootInput.trim() || obCustomRootApplied || obCustomRootBusy}
                         onClick={async () => {
                           if (obCustomRootBusy) return;
@@ -7023,34 +4341,32 @@ export function App() {
                             );
                             setObCurrentRoot(info.currentRoot);
                             setObCustomRootApplied(true);
-                            setNotice(t("onboarding.welcome.customRootApplied", { path: info.currentRoot }));
+                              notifySuccess(t("onboarding.welcome.customRootApplied", { path: info.currentRoot }));
                             obLoadEnvCheck();
                           } catch (e: any) {
-                            setError(String(e));
+                              notifyError(String(e));
                           } finally {
                             setObCustomRootBusy(false);
                           }
                         }}
                       >
-                        {obCustomRootBusy ? "..." : t("onboarding.welcome.customRootApply")}
-                      </button>
+                          {obCustomRootBusy ? <Loader2 className="size-3.5 animate-spin" /> : t("onboarding.welcome.customRootApply")}
+                        </Button>
                     </div>
-                    <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>
-                      <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4, cursor: "pointer", opacity: 0.8, whiteSpace: "nowrap" }}>
-                        <input
-                          type="checkbox"
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id="ob-migrate"
                           checked={obCustomRootMigrate}
-                          onChange={(e) => setObCustomRootMigrate(e.target.checked)}
-                          style={{ width: 16, height: 16, flexShrink: 0, accentColor: "var(--brand)" }}
+                          onCheckedChange={(v) => setObCustomRootMigrate(!!v)}
                         />
+                        <Label htmlFor="ob-migrate" className="text-xs cursor-pointer font-normal">
                         {t("onboarding.welcome.customRootMigrate")}
-                      </label>
+                        </Label>
                     </div>
                     {obCustomRootApplied && obCustomRootInput.trim() && (
-                      <button
-                        type="button"
-                        className="obLinkBtn"
-                        style={{ fontSize: 11, marginTop: 6, opacity: 0.6 }}
+                        <Button
+                          variant="link"
+                          className="h-auto p-0 text-[11px] text-muted-foreground"
                         onClick={async () => {
                           try {
                             const info = await invoke<{ defaultRoot: string; currentRoot: string; customRoot: string | null }>(
@@ -7059,24 +4375,26 @@ export function App() {
                             setObCurrentRoot(info.currentRoot);
                             setObCustomRootInput("");
                             setObCustomRootApplied(false);
-                            setNotice(t("onboarding.welcome.customRootDefault") + ": " + info.currentRoot);
+                              notifySuccess(t("onboarding.welcome.customRootDefault") + ": " + info.currentRoot);
                             obLoadEnvCheck();
                           } catch (e: any) {
-                            setError(String(e));
+                              notifyError(String(e));
                           }
                         }}
                       >
                         {t("onboarding.welcome.customRootDefault")}
-                      </button>
+                        </Button>
                     )}
-                  </div>
+                    </CardContent>
+                  </Card>
                 )}
               </div>
 
-              <button
-                className="btnPrimary obBtn"
+              <Button
+                size="lg"
+                className="mt-2 px-10 rounded-xl text-[15px]"
                 onClick={async () => {
-                  // 首次运行：提前创建默认工作区，确保后续 LLM/IM 保存有正确的 workspaceId
+                  let earlyStartWsId = currentWorkspaceId || "";
                   try {
                     const wsList = await invoke<WorkspaceSummary[]>("list_workspaces");
                     if (!wsList.length) {
@@ -7085,20 +4403,53 @@ export function App() {
                       await invoke("set_current_workspace", { id: wsId });
                       setCurrentWorkspaceId(wsId);
                       setWorkspaces([{ id: wsId, name: t("onboarding.defaultWorkspace"), path: "", isCurrent: true }]);
+                      earlyStartWsId = wsId;
                     } else {
                       setWorkspaces(wsList);
                       if (!currentWorkspaceId && wsList.length > 0) {
                         setCurrentWorkspaceId(wsList[0].id);
                       }
+                      earlyStartWsId = currentWorkspaceId || wsList[0]?.id || "";
                     }
                   } catch (e) {
                     logger.warn("App", "ob: create default workspace failed", { error: String(e) });
                   }
+
+                  // Kick off backend startup in background so HTTP API is
+                  // likely ready by the time the user reaches ob-llm.
+                  if (IS_TAURI && earlyStartWsId) {
+                    const wsId = earlyStartWsId;
+                    const effectiveVenv = venvDir || (info ? joinPath(info.synapseRootDir, "venv") : "");
+                    (async () => {
+                      try {
+                        const backendInfo = await invoke<{
+                          bundled: boolean; venvReady: boolean; exePath: string;
+                          bundledChecked: string; venvChecked: string;
+                        }>("check_backend_availability", { venvDir: effectiveVenv });
+                        if (!backendInfo.bundled && !backendInfo.venvReady) return;
+                        await invoke("synapse_service_start", { venvDir: effectiveVenv, workspaceId: wsId });
+                        for (let i = 0; i < 15; i++) {
+                          await new Promise(r => setTimeout(r, 2000));
+                          try {
+                            const res = await fetch("http://127.0.0.1:18900/api/health", { signal: AbortSignal.timeout(3000) });
+                            if (res.ok) {
+                              setServiceStatus({ running: true, pid: null, pidFile: "" });
+                              setDataMode("remote");
+                              break;
+                            }
+                          } catch { /* not ready yet */ }
+                        }
+                      } catch (e) {
+                        logger.warn("App", "ob: early backend start failed, will retry in ob-progress", { error: String(e) });
+                      }
+                    })();
+                  }
+
                   setObStep("ob-iwhalecloud");
                 }}
               >
                 {t("onboarding.welcome.start")}
-              </button>
+              </Button>
             </div>
             {stepIndicator}
           </div>
@@ -7106,245 +4457,159 @@ export function App() {
 
       case "ob-iwhalecloud":
         return (
-          <div className="obPage">
-            <div className="obContent">
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-                <img src="/iwhalecloud-favicon.ico" alt="iWhaleCloud" style={{ width: 36, height: 36, objectFit: "contain" }} />
-                <h2 className="obStepTitle" style={{ margin: 0 }}>{t("onboarding.iwhalecloud.title")}</h2>
-              </div>
-              <p className="obStepDesc">{t("onboarding.iwhalecloud.subtitle")}</p>
-              <div className="obFormArea" style={{ textAlign: "left" }}>
-                {/* 姓名 */}
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: "block", fontWeight: 600, marginBottom: 6, fontSize: 14 }}>
-                    {t("onboarding.iwhalecloud.fullName")} <span style={{ color: "#e53e3e" }}>*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={obIwcFullName}
-                    onChange={(e) => { setObIwcFullName(e.target.value); setObIwcValidated(false); setObIwcError(null); }}
-                    placeholder={t("onboarding.iwhalecloud.fullNamePlaceholder")}
-                    style={{
-                      width: "100%", padding: "10px 14px", fontSize: 14,
-                      borderRadius: 6, border: "1px solid var(--line)",
-                      outline: "none", boxSizing: "border-box",
-                      background: "var(--bg1)", color: "var(--text)",
-                    }}
-                  />
+          <TooltipProvider>
+            <div className="obPage">
+              <div className="obContent">
+                <div className="flex items-center gap-3 mb-2">
+                  <img src="/iwhalecloud-favicon.ico" alt="iWhaleCloud" className="size-9 object-contain" />
+                  <h2 className="obStepTitle m-0">{t("onboarding.iwhalecloud.title")}</h2>
                 </div>
-                {/* 工号 */}
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: "block", fontWeight: 600, marginBottom: 6, fontSize: 14 }}>
-                    {t("onboarding.iwhalecloud.employeeId")} <span style={{ color: "#e53e3e" }}>*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={obIwcEmployeeId}
-                    onChange={(e) => { setObIwcEmployeeId(e.target.value); setObIwcValidated(false); setObIwcError(null); }}
-                    placeholder={t("onboarding.iwhalecloud.employeeIdPlaceholder")}
-                    style={{
-                      width: "100%", padding: "10px 14px", fontSize: 14,
-                      borderRadius: 6, border: "1px solid var(--line)",
-                      outline: "none", boxSizing: "border-box",
-                      background: "var(--bg1)", color: "var(--text)",
-                    }}
-                  />
-                </div>
-                {/* 密码 */}
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: "block", fontWeight: 600, marginBottom: 6, fontSize: 14 }}>
-                    {t("onboarding.iwhalecloud.password")} <span style={{ color: "#e53e3e" }}>*</span>
-                  </label>
-                  <div style={{ position: "relative" }}>
-                    <input
-                      type={obIwcShowPassword ? "text" : "password"}
-                      value={obIwcPassword}
-                      onChange={(e) => { setObIwcPassword(e.target.value); setObIwcValidated(false); setObIwcError(null); }}
-                      placeholder={t("onboarding.iwhalecloud.passwordPlaceholder")}
-                      style={{
-                        width: "100%", padding: "10px 40px 10px 14px", fontSize: 14,
-                        borderRadius: 6, border: "1px solid var(--line)",
-                        outline: "none", boxSizing: "border-box",
-                        background: "var(--bg1)", color: "var(--text)",
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setObIwcShowPassword((v) => !v)}
-                      style={{
-                        position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
-                        background: "none", border: "none", cursor: "pointer", padding: 0,
-                        color: "var(--text-muted, #888)", fontSize: 16,
-                      }}
-                    >
-                      {obIwcShowPassword ? <IconEyeOff /> : <IconEye />}
-                    </button>
-                  </div>
-                </div>
-                {/* Token */}
-                <div style={{ marginBottom: 8 }}>
-                  <label
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      fontWeight: 600,
-                      marginBottom: 6,
-                      fontSize: 14,
-                    }}
-                  >
-                    <span>
-                      {t("onboarding.iwhalecloud.token")}{" "}
-                      <span style={{ color: "#e53e3e" }}>*</span>
-                    </span>
-                    <Tooltip title={t("onboarding.iwhalecloud.tokenHint")}>
-                      <span
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          cursor: "help",
-                          color: "var(--text-muted, #888)",
-                          lineHeight: 0,
-                        }}
-                        aria-label={t("onboarding.iwhalecloud.tokenHint")}
-                      >
-                        <IconAlertCircle size={18} />
-                      </span>
-                    </Tooltip>
-                  </label>
-                  <div style={{ position: "relative" }}>
-                    <input
-                      type={obIwcShowToken ? "text" : "password"}
-                      value={obIwcToken}
-                      onChange={(e) => { setObIwcToken(e.target.value); setObIwcValidated(false); setObIwcError(null); }}
-                      placeholder={t("onboarding.iwhalecloud.tokenPlaceholder")}
-                      style={{
-                        width: "100%", padding: "10px 40px 10px 14px", fontSize: 14,
-                        borderRadius: 6, border: "1px solid var(--line)",
-                        outline: "none", boxSizing: "border-box",
-                        background: "var(--bg1)", color: "var(--text)",
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setObIwcShowToken((v) => !v)}
-                      style={{
-                        position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
-                        background: "none", border: "none", cursor: "pointer", padding: 0,
-                        color: "var(--text-muted, #888)", fontSize: 16,
-                      }}
-                    >
-                      {obIwcShowToken ? <IconEyeOff /> : <IconEye />}
-                    </button>
-                  </div>
-                </div>
-                {/* Token 申请流程视频 */}
-                <div style={{ marginBottom: 16 }}>
-                  <button
-                    type="button"
-                    className="obLinkBtn"
-                    style={{ fontSize: 12, color: "var(--brand)", marginBottom: 4 }}
-                    onClick={() => setObIwcShowVideo((v) => !v)}
-                  >
-                    {obIwcShowVideo ? `▾ ${t("onboarding.iwhalecloud.tokenVideoHide")}` : `▸ ${t("onboarding.iwhalecloud.tokenVideoLabel")}`}
-                  </button>
-                  {obIwcShowVideo && (
-                    <div style={{ marginTop: 8, borderRadius: 8, overflow: "hidden", border: "1px solid var(--line)" }}>
-                      <video
-                        src="/devtoken.mp4"
-                        controls
-                        style={{ width: "100%", maxHeight: 260, display: "block", background: "#000" }}
+                <p className="obStepDesc">{t("onboarding.iwhalecloud.subtitle")}</p>
+                <Card className="text-left mt-2">
+                  <CardContent className="py-5 px-5 space-y-4">
+                    <div className="space-y-2">
+                      <Label>{t("onboarding.iwhalecloud.fullName")} <span className="text-destructive">*</span></Label>
+                      <Input
+                        value={obIwcFullName}
+                        onChange={(e) => { setObIwcFullName(e.target.value); setObIwcValidated(false); setObIwcError(null); }}
+                        placeholder={t("onboarding.iwhalecloud.fullNamePlaceholder")}
                       />
                     </div>
-                  )}
-                </div>
-                {/* 验证按钮 */}
-                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-                  <button
-                    className="btnPrimary"
-                    disabled={obIwcValidating}
-                    onClick={async () => {
-                      if (!obIwcFullName.trim() || !obIwcEmployeeId.trim() || !obIwcPassword.trim() || !obIwcToken.trim()) {
-                        setObIwcError(t("onboarding.iwhalecloud.fieldRequired"));
-                        return;
-                      }
-                      setObIwcValidating(true);
-                      setObIwcError(null);
-                      setObIwcValidated(false);
-                      try {
-                        if (IWHALECLOUD_ONBOARDING_VALIDATION_MOCK) {
-                          await new Promise((r) => setTimeout(r, 350));
-                          setObIwcValidated(true);
-                          setObIwcError(null);
-                        } else {
-                          const base = httpApiBase();
-                          const res = await fetch(`${base}/api/dev/iwhalecloud/login`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                              purpose: "guide",
-                              name: obIwcFullName.trim(),
-                              username: obIwcEmployeeId.trim(),
-                              password: obIwcPassword.trim(),
-                              token: obIwcToken.trim(),
-                            }),
-                          });
-                          const data = await res.json().catch(() => ({}));
-                          const errText = (() => {
-                            if (data?.errorcode === 0) return null;
-                            if (data?.message) return String(data.message);
-                            const d = data?.detail;
-                            if (Array.isArray(d)) {
-                              return d.map((x: any) => (typeof x === "string" ? x : x?.msg || JSON.stringify(x))).join("; ");
-                            }
-                            if (d && typeof d === "object") return JSON.stringify(d);
-                            if (d) return String(d);
-                            return null;
-                          })();
-                          if (data?.errorcode === 0) {
+                    <div className="space-y-2">
+                      <Label>{t("onboarding.iwhalecloud.employeeId")} <span className="text-destructive">*</span></Label>
+                      <Input
+                        value={obIwcEmployeeId}
+                        onChange={(e) => { setObIwcEmployeeId(e.target.value); setObIwcValidated(false); setObIwcError(null); }}
+                        placeholder={t("onboarding.iwhalecloud.employeeIdPlaceholder")}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>{t("onboarding.iwhalecloud.password")} <span className="text-destructive">*</span></Label>
+                      <div className="relative">
+                        <Input
+                          type={obIwcShowPassword ? "text" : "password"}
+                          className="pr-10"
+                          value={obIwcPassword}
+                          onChange={(e) => { setObIwcPassword(e.target.value); setObIwcValidated(false); setObIwcError(null); }}
+                          placeholder={t("onboarding.iwhalecloud.passwordPlaceholder")}
+                        />
+                        <Button type="button" variant="ghost" size="icon" className="absolute right-0 top-0 h-full px-3" onClick={() => setObIwcShowPassword((v) => !v)}>
+                          {obIwcShowPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Label className="mb-0">{t("onboarding.iwhalecloud.token")} <span className="text-destructive">*</span></Label>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button type="button" className="text-muted-foreground hover:text-foreground inline-flex" aria-label={t("onboarding.iwhalecloud.tokenHint")}>
+                              <AlertCircle className="size-4" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs"><p>{t("onboarding.iwhalecloud.tokenHint")}</p></TooltipContent>
+                        </Tooltip>
+                      </div>
+                      <div className="relative">
+                        <Input
+                          type={obIwcShowToken ? "text" : "password"}
+                          className="pr-10"
+                          value={obIwcToken}
+                          onChange={(e) => { setObIwcToken(e.target.value); setObIwcValidated(false); setObIwcError(null); }}
+                          placeholder={t("onboarding.iwhalecloud.tokenPlaceholder")}
+                        />
+                        <Button type="button" variant="ghost" size="icon" className="absolute right-0 top-0 h-full px-3" onClick={() => setObIwcShowToken((v) => !v)}>
+                          {obIwcShowToken ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                        </Button>
+                      </div>
+                    </div>
+                    <div>
+                      <Button type="button" variant="link" className="h-auto p-0 text-xs" onClick={() => setObIwcShowVideo((v) => !v)}>
+                        {obIwcShowVideo ? `▾ ${t("onboarding.iwhalecloud.tokenVideoHide")}` : `▸ ${t("onboarding.iwhalecloud.tokenVideoLabel")}`}
+                      </Button>
+                      {obIwcShowVideo && (
+                        <div className="mt-2 rounded-lg overflow-hidden border">
+                          <video src="/devtoken.mp4" controls className="w-full max-h-[260px] bg-black block" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button disabled={obIwcValidating} onClick={async () => {
+                        if (!obIwcFullName.trim() || !obIwcEmployeeId.trim() || !obIwcPassword.trim() || !obIwcToken.trim()) {
+                          setObIwcError(t("onboarding.iwhalecloud.fieldRequired"));
+                          return;
+                        }
+                        setObIwcValidating(true);
+                        setObIwcError(null);
+                        setObIwcValidated(false);
+                        try {
+                          if (IWHALECLOUD_ONBOARDING_VALIDATION_MOCK) {
+                            await new Promise((r) => setTimeout(r, 350));
                             setObIwcValidated(true);
                             setObIwcError(null);
                           } else {
-                            setObIwcError(errText || t("onboarding.iwhalecloud.validateFailed"));
+                            const base = httpApiBase();
+                            const res = await fetch(`${base}/api/dev/iwhalecloud/login`, {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                purpose: "guide",
+                                name: obIwcFullName.trim(),
+                                username: obIwcEmployeeId.trim(),
+                                password: obIwcPassword.trim(),
+                                token: obIwcToken.trim(),
+                              }),
+                            });
+                            const data = await res.json().catch(() => ({}));
+                            const errText = (() => {
+                              if (data?.errorcode === 0) return null;
+                              if (data?.message) return String(data.message);
+                              const d = data?.detail;
+                              if (Array.isArray(d)) {
+                                return d.map((x: unknown) => (typeof x === "string" ? x : (x as { msg?: string })?.msg || JSON.stringify(x))).join("; ");
+                              }
+                              if (d && typeof d === "object") return JSON.stringify(d);
+                              if (d) return String(d);
+                              return null;
+                            })();
+                            if (data?.errorcode === 0) {
+                              setObIwcValidated(true);
+                              setObIwcError(null);
+                            } else {
+                              setObIwcError(errText || t("onboarding.iwhalecloud.validateFailed"));
+                            }
                           }
+                        } catch {
+                          setObIwcError(t("onboarding.iwhalecloud.validateFailed"));
+                        } finally {
+                          setObIwcValidating(false);
                         }
-                      } catch (e: any) {
-                        setObIwcError(t("onboarding.iwhalecloud.validateFailed"));
-                      } finally {
-                        setObIwcValidating(false);
-                      }
-                    }}
-                  >
-                    {obIwcValidating ? t("onboarding.iwhalecloud.validating") : t("onboarding.iwhalecloud.validate")}
-                  </button>
-                  {obIwcValidated && (
-                    <span style={{ color: "#38a169", fontSize: 13, display: "flex", alignItems: "center", gap: 4 }}>
-                      <IconCheckCircle /> {t("onboarding.iwhalecloud.validateSuccess")}
-                    </span>
-                  )}
-                </div>
-                {obIwcError && (
-                  <p style={{ color: "#e53e3e", fontSize: 13, marginTop: 4 }}>{obIwcError}</p>
-                )}
+                      }}>
+                        {obIwcValidating ? <><Loader2 className="size-4 animate-spin inline mr-2" />{t("onboarding.iwhalecloud.validating")}</> : t("onboarding.iwhalecloud.validate")}
+                      </Button>
+                      {obIwcValidated && (
+                        <span className="text-sm text-emerald-600 flex items-center gap-1">
+                          <CheckCircle2 className="size-4" /> {t("onboarding.iwhalecloud.validateSuccess")}
+                        </span>
+                      )}
+                    </div>
+                    {obIwcError && <p className="text-sm text-destructive">{obIwcError}</p>}
+                  </CardContent>
+                </Card>
               </div>
-            </div>
-            <div className="obFooter">
-              {stepIndicator}
-              <div className="obFooterBtns">
-                <button onClick={() => setObStep("ob-welcome")}>{t("config.prev")}</button>
-                <button
-                  className="btnPrimary"
-                  disabled={!obIwcValidated}
-                  title={!obIwcValidated ? t("onboarding.iwhalecloud.validateRequired") : undefined}
-                  onClick={() => {
+              <div className="obFooter">
+                {stepIndicator}
+                <div className="obFooterBtns">
+                  <Button variant="outline" onClick={() => setObStep("ob-welcome")}>{t("config.prev")}</Button>
+                  <Button disabled={!obIwcValidated} title={!obIwcValidated ? t("onboarding.iwhalecloud.validateRequired") : undefined} onClick={() => {
                     if (obIwcValidated) setObStep(IS_TAURI ? "ob-claude-code" : "ob-agreement");
-                  }}
-                >
-                  {t("onboarding.iwhalecloud.proceed")}
-                </button>
+                  }}>
+                    {t("onboarding.iwhalecloud.proceed")}
+                  </Button>
+                </div>
               </div>
             </div>
-          </div>
+          </TooltipProvider>
         );
 
       case "ob-claude-code": {
@@ -7372,12 +4637,7 @@ export function App() {
         }
 
         async function runObClaudeInstall(kind: "local" | "winget" | "script") {
-          const cmd =
-            kind === "local"
-              ? "claude_code_install_local"
-              : kind === "winget"
-                ? "claude_code_install_winget"
-                : "claude_code_install";
+          const cmd = kind === "local" ? "claude_code_install_local" : kind === "winget" ? "claude_code_install_winget" : "claude_code_install";
           setObClaudeInstalling(kind);
           setObClaudeError(null);
           setObClaudeInstallLog("");
@@ -7429,274 +4689,118 @@ export function App() {
             <div className="obContent">
               <h2 className="obStepTitle">{t("onboarding.claudeCode.title")}</h2>
               <p className="obStepDesc">{t("onboarding.claudeCode.subtitle")}</p>
-              <div className="obFormArea" style={{ textAlign: "left" }}>
-                <div style={{
-                  borderRadius: 12,
-                  border: "1px solid var(--line)",
-                  background: "var(--bg1)",
-                  padding: "18px 20px",
-                  marginBottom: 20,
-                  boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
-                }}
-                >
-                  <div style={{
-                    display: "flex",
-                    alignItems: "flex-start",
-                    justifyContent: "space-between",
-                    gap: 12,
-                    flexWrap: "wrap",
-                    marginBottom: statusLoading || obClaudeInstalled === true || obClaudeInstalled === false ? 12 : 0,
-                  }}
-                  >
-                    <div style={{ flex: "1 1 200px", minWidth: 0 }}>
-                      <p style={{ margin: 0, fontSize: 12, fontWeight: 600, letterSpacing: "0.02em", color: "var(--text-muted, #888)", textTransform: "uppercase" }}>
-                        {t("onboarding.claudeCode.statusTitle")}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className="btnSecondary"
-                      disabled={installBusy || obClaudeChecking}
-                      style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0 }}
-                      onClick={() => { void obClaudeRecheck(); }}
-                    >
-                      <IconRefresh size={16} />
-                      {t("onboarding.claudeCode.recheck")}
-                    </button>
+              <Card className="text-left mb-4">
+                <CardContent className="py-4 px-5 space-y-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground m-0">{t("onboarding.claudeCode.statusTitle")}</p>
+                    <Button type="button" variant="secondary" size="sm" disabled={installBusy || obClaudeChecking} className="gap-1.5" onClick={() => { void obClaudeRecheck(); }}>
+                      <RefreshCw className="size-4" /> {t("onboarding.claudeCode.recheck")}
+                    </Button>
                   </div>
-
                   {statusLoading && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: "var(--text-muted, #888)" }}>
-                      <span style={{
-                        width: 8, height: 8, borderRadius: "50%",
-                        background: "var(--accent, #3182ce)",
-                        animation: "pulse 1s ease-in-out infinite",
-                      }}
-                      />
-                      {t("onboarding.claudeCode.checking")}
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="size-4 animate-spin" /> {t("onboarding.claudeCode.checking")}
                     </div>
                   )}
-
                   {!statusLoading && obClaudeInstalled === true && (
-                    <div style={{
-                      display: "flex",
-                      alignItems: "flex-start",
-                      gap: 12,
-                      padding: "12px 14px",
-                      borderRadius: 10,
-                      background: "rgba(56, 161, 105, 0.1)",
-                      border: "1px solid rgba(56, 161, 105, 0.35)",
-                    }}
-                    >
-                      <IconCheckCircle size={22} style={{ color: "#276749", flexShrink: 0, marginTop: 2 }} />
-                      <div style={{ minWidth: 0 }}>
-                        <strong style={{ color: "#276749", fontSize: 15 }}>{t("onboarding.claudeCode.installed")}</strong>
-                        {obClaudeVersion ? (
-                          <p style={{
-                            margin: "6px 0 0",
-                            fontFamily: "ui-monospace, SFMono-Regular, monospace",
-                            fontSize: 13,
-                            color: "var(--text)",
-                            wordBreak: "break-all",
-                          }}
-                          >
-                            {t("onboarding.claudeCode.versionLabel")}: {obClaudeVersion}
-                          </p>
-                        ) : null}
+                    <div className="flex gap-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3">
+                      <CheckCircle2 className="size-5 text-emerald-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-semibold text-emerald-800 dark:text-emerald-200 m-0">{t("onboarding.claudeCode.installed")}</p>
+                        {obClaudeVersion ? <p className="text-sm font-mono mt-1 mb-0">{t("onboarding.claudeCode.versionLabel")}: {obClaudeVersion}</p> : null}
                       </div>
                     </div>
                   )}
-
                   {!statusLoading && obClaudeInstalled === false && (
-                    <div style={{
-                      display: "flex",
-                      alignItems: "flex-start",
-                      gap: 12,
-                      padding: "12px 14px",
-                      borderRadius: 10,
-                      background: "rgba(214, 158, 46, 0.1)",
-                      border: "1px solid rgba(214, 158, 46, 0.45)",
-                    }}
-                    >
-                      <IconXCircle size={22} style={{ color: "#b7791f", flexShrink: 0, marginTop: 2 }} />
-                      <div style={{ minWidth: 0 }}>
-                        <strong style={{ color: "#975a16", fontSize: 15 }}>{t("onboarding.claudeCode.missing")}</strong>
-                        <p style={{ margin: "8px 0 0", fontSize: 13, lineHeight: 1.55, color: "var(--text-muted, #666)" }}>
-                          {t("onboarding.claudeCode.notDetectedHint")}
-                        </p>
+                    <div className="flex gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
+                      <AlertTriangle className="size-5 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-semibold text-amber-900 dark:text-amber-200 m-0">{t("onboarding.claudeCode.missing")}</p>
+                        <p className="text-sm text-muted-foreground mt-1 mb-0">{t("onboarding.claudeCode.notDetectedHint")}</p>
                       </div>
                     </div>
                   )}
-                </div>
+                </CardContent>
+              </Card>
 
-                {IS_TAURI && (
-                  <div style={{
-                    marginBottom: 20,
-                    padding: "18px 20px",
-                    borderRadius: 12,
-                    border: "1px solid var(--line)",
-                    background: "var(--bg1)",
-                    boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
-                  }}
-                  >
-                    <p style={{ margin: "0 0 10px", fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
-                      {t("onboarding.claudeCode.userConfigTitle")}
-                    </p>
-                    <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--text-muted, #888)", lineHeight: 1.55 }}>
-                      {t("onboarding.claudeCode.userConfigDesc")}
-                    </p>
-                    <label style={{ display: "block", fontWeight: 600, marginBottom: 6, fontSize: 14 }}>
-                      {t("onboarding.claudeCode.companyToken")} <span style={{ color: "#e53e3e" }}>*</span>
-                    </label>
-                    <p style={{ fontSize: 12, color: "#e07b00", margin: "0 0 8px", lineHeight: 1.5 }}>
-                      {t("onboarding.claudeCode.companyTokenHint")}
-                    </p>
-                    <div style={{ position: "relative", marginBottom: 12 }}>
-                      <input
-                        type="password"
-                        value={obClaudeCompanyToken}
-                        onChange={(e) => {
-                          setObClaudeCompanyToken(e.target.value);
-                          setObClaudeUserConfigOk(null);
-                          setObClaudeError(null);
-                        }}
-                        placeholder={t("onboarding.claudeCode.companyTokenPlaceholder")}
-                        style={{
-                          width: "100%", padding: "10px 14px", fontSize: 14,
-                          borderRadius: 6, border: "1px solid var(--line)",
-                          outline: "none", boxSizing: "border-box",
-                          background: "var(--bg0)", color: "var(--text)",
-                        }}
-                      />
-                    </div>
-                    <div style={{ marginBottom: 14 }}>
-                      <button
-                        type="button"
-                        className="obLinkBtn"
-                        style={{ fontSize: 12, color: "var(--brand)", marginBottom: 4 }}
-                        onClick={() => setObClaudeShowLlmVideo((v) => !v)}
-                      >
+              {IS_TAURI && (
+                <Card className="text-left mb-4">
+                  <CardContent className="py-4 px-5 space-y-3">
+                    <p className="text-sm font-semibold m-0">{t("onboarding.claudeCode.userConfigTitle")}</p>
+                    <p className="text-xs text-muted-foreground m-0">{t("onboarding.claudeCode.userConfigDesc")}</p>
+                    <Label>{t("onboarding.claudeCode.companyToken")} <span className="text-destructive">*</span></Label>
+                    <p className="text-xs text-amber-700 dark:text-amber-400 m-0">{t("onboarding.claudeCode.companyTokenHint")}</p>
+                    <Input
+                      type="password"
+                      value={obClaudeCompanyToken}
+                      onChange={(e) => { setObClaudeCompanyToken(e.target.value); setObClaudeUserConfigOk(null); setObClaudeError(null); }}
+                      placeholder={t("onboarding.claudeCode.companyTokenPlaceholder")}
+                    />
+                    <div>
+                      <Button type="button" variant="link" className="h-auto p-0 text-xs" onClick={() => setObClaudeShowLlmVideo((v) => !v)}>
                         {obClaudeShowLlmVideo ? `▾ ${t("onboarding.claudeCode.llmTokenVideoHide")}` : `▸ ${t("onboarding.claudeCode.llmTokenVideoLabel")}`}
-                      </button>
+                      </Button>
                       {obClaudeShowLlmVideo && (
-                        <div style={{ marginTop: 8, borderRadius: 8, overflow: "hidden", border: "1px solid var(--line)" }}>
+                        <div className="mt-2 rounded-lg overflow-hidden border">
                           {obClaudeLlmVideoSrc ? (
-                            <video
-                              src={obClaudeLlmVideoSrc}
-                              controls
-                              style={{ width: "100%", maxHeight: 260, display: "block", background: "#000" }}
-                            />
+                            <video src={obClaudeLlmVideoSrc} controls className="w-full max-h-[260px] bg-black block" />
                           ) : (
-                            <p style={{ margin: 0, padding: 16, fontSize: 13, color: "var(--text-muted, #888)" }}>
-                              {t("onboarding.claudeCode.videoNotFound")}
-                            </p>
+                            <p className="text-sm text-muted-foreground p-4 m-0">{t("onboarding.claudeCode.videoNotFound")}</p>
                           )}
                         </div>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      className="btnPrimary"
-                      disabled={obClaudeUserConfigBusy || installBusy || obClaudeChecking}
-                      onClick={() => { void runObClaudeUserConfig(); }}
-                    >
+                    <Button disabled={obClaudeUserConfigBusy || installBusy || obClaudeChecking} onClick={() => { void runObClaudeUserConfig(); }}>
                       {obClaudeUserConfigBusy ? t("onboarding.claudeCode.applyingUserConfig") : t("onboarding.claudeCode.applyUserConfig")}
-                    </button>
-                    {obClaudeUserConfigOk ? (
-                      <p style={{ margin: "12px 0 0", fontSize: 13, color: "#276749", lineHeight: 1.5 }}>{obClaudeUserConfigOk}</p>
-                    ) : null}
-                  </div>
-                )}
+                    </Button>
+                    {obClaudeUserConfigOk ? <p className="text-sm text-emerald-600 m-0">{obClaudeUserConfigOk}</p> : null}
+                  </CardContent>
+                </Card>
+              )}
 
-                {!statusLoading && obClaudeInstalled === false && (
-                  <div style={{ marginBottom: 18 }}>
-                    <p style={{ fontSize: 13, fontWeight: 600, margin: "0 0 12px", color: "var(--text)" }}>
-                      {t("onboarding.claudeCode.installActionsTitle")}
-                    </p>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                      {isWindows && (
-                        <>
-                          <button
-                            type="button"
-                            className="btnPrimary"
-                            disabled={installBusy}
-                            style={{ minWidth: 0 }}
-                            onClick={() => { void runObClaudeInstall("local"); }}
-                          >
-                            {obClaudeInstalling === "local"
-                              ? t("onboarding.claudeCode.installingLocal")
-                              : t("onboarding.claudeCode.installLocalBundled", { version: CLAUDE_CODE_BUNDLED_VERSION })}
-                          </button>
-                          <button
-                            type="button"
-                            className="btnSecondary"
-                            disabled={installBusy}
-                            onClick={() => { void runObClaudeInstall("winget"); }}
-                          >
-                            {obClaudeInstalling === "winget"
-                              ? t("onboarding.claudeCode.installingWingetShort")
-                              : t("onboarding.claudeCode.installWingetShort")}
-                          </button>
-                        </>
-                      )}
-                      {!isWindows && (
-                        <button
-                          type="button"
-                          className="btnPrimary"
-                          disabled={installBusy}
-                          onClick={() => { void runObClaudeInstall("script"); }}
-                        >
-                          {obClaudeInstalling === "script"
-                            ? t("onboarding.claudeCode.installing")
-                            : t("onboarding.claudeCode.installOneClick")}
-                        </button>
-                      )}
-                    </div>
+              {!statusLoading && obClaudeInstalled === false && (
+                <div className="mb-4">
+                  <p className="text-sm font-semibold mb-2">{t("onboarding.claudeCode.installActionsTitle")}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {isWindows && (
+                      <>
+                        <Button disabled={installBusy} onClick={() => { void runObClaudeInstall("local"); }}>
+                          {obClaudeInstalling === "local" ? t("onboarding.claudeCode.installingLocal") : t("onboarding.claudeCode.installLocalBundled", { version: CLAUDE_CODE_BUNDLED_VERSION })}
+                        </Button>
+                        <Button variant="secondary" disabled={installBusy} onClick={() => { void runObClaudeInstall("winget"); }}>
+                          {obClaudeInstalling === "winget" ? t("onboarding.claudeCode.installingWingetShort") : t("onboarding.claudeCode.installWingetShort")}
+                        </Button>
+                      </>
+                    )}
+                    {!isWindows && (
+                      <Button disabled={installBusy} onClick={() => { void runObClaudeInstall("script"); }}>
+                        {obClaudeInstalling === "script" ? t("onboarding.claudeCode.installing") : t("onboarding.claudeCode.installOneClick")}
+                      </Button>
+                    )}
                   </div>
-                )}
+                </div>
+              )}
 
-                {(installBusy || (obClaudeInstallLog != null && obClaudeInstallLog !== "")) && (
-                  <div style={{ marginBottom: 14 }}>
-                    <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: "var(--text-muted, #888)" }}>{t("onboarding.claudeCode.liveLogLabel")}</p>
-                    <pre style={{
-                      fontSize: 12,
-                      lineHeight: 1.45,
-                      padding: 14,
-                      borderRadius: 10,
-                      maxHeight: 260,
-                      overflow: "auto",
-                      background: "var(--bg0, #141414)",
-                      border: "1px solid var(--line)",
-                      whiteSpace: "pre-wrap",
-                      margin: 0,
-                    }}
-                    >
-                      {obClaudeInstallLog || (installBusy ? t("onboarding.claudeCode.logWaiting") : "")}
-                    </pre>
-                  </div>
-                )}
-                {obClaudeError && (
-                  <p style={{ color: "#e53e3e", fontSize: 13, marginBottom: 12 }}>{obClaudeError}</p>
-                )}
-                <p style={{ fontSize: 12, color: "var(--text-muted, #888)", lineHeight: 1.55, margin: 0 }}>
-                  {t("onboarding.claudeCode.installSuccessHint")}
-                </p>
-              </div>
+              {(installBusy || (obClaudeInstallLog != null && obClaudeInstallLog !== "")) && (
+                <div className="mb-3">
+                  <p className="text-xs font-semibold text-muted-foreground mb-1">{t("onboarding.claudeCode.liveLogLabel")}</p>
+                  <pre className="text-xs max-h-60 overflow-auto rounded-md border bg-muted p-3 whitespace-pre-wrap m-0">
+                    {obClaudeInstallLog || (installBusy ? t("onboarding.claudeCode.logWaiting") : "")}
+                  </pre>
+                </div>
+              )}
+              {obClaudeError && <p className="text-sm text-destructive mb-2">{obClaudeError}</p>}
+              <p className="text-xs text-muted-foreground m-0">{t("onboarding.claudeCode.installSuccessHint")}</p>
             </div>
             <div className="obFooter">
               {stepIndicator}
               <div className="obFooterBtns">
-                <button onClick={() => setObStep("ob-iwhalecloud")}>{t("config.prev")}</button>
-                <button
-                  className="btnPrimary"
-                  disabled={obClaudeChecking || installBusy || !canProceedClaude}
-                  title={!canProceedClaude ? t("onboarding.claudeCode.needInstall") : undefined}
-                  onClick={() => {
-                    if (canProceedClaude) setObStep("ob-agreement");
-                  }}
-                >
+                <Button variant="outline" onClick={() => setObStep("ob-iwhalecloud")}>{t("config.prev")}</Button>
+                <Button disabled={obClaudeChecking || installBusy || !canProceedClaude} title={!canProceedClaude ? t("onboarding.claudeCode.needInstall") : undefined} onClick={() => {
+                  if (canProceedClaude) setObStep("ob-agreement");
+                }}>
                   {t("onboarding.claudeCode.proceed")}
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -7709,32 +4813,18 @@ export function App() {
             <div className="obContent">
               <h2 className="obStepTitle">{t("onboarding.agreement.title")}</h2>
               <p className="obStepDesc">{t("onboarding.agreement.subtitle")}</p>
-              <div className="obFormArea" style={{ textAlign: "left" }}>
-                <div style={{
-                  whiteSpace: "pre-wrap", fontSize: 13, lineHeight: 1.7,
-                  maxHeight: 340, overflowY: "auto",
-                  padding: "16px 20px", borderRadius: 8,
-                  background: "var(--bg1)",
-                  border: "1px solid var(--line)",
-                  color: "var(--text)",
-                  marginBottom: 20,
-                }}>
+              <Card className="text-left">
+                <CardContent className="py-5 px-5 space-y-4">
+                  <div className="whitespace-pre-wrap text-[13px] leading-[1.7] max-h-[240px] overflow-y-auto rounded-lg border bg-muted/40 p-4 text-foreground">
                   {t("onboarding.agreement.content")}
                 </div>
-                <label style={{ display: "block", fontWeight: 600, marginBottom: 8, fontSize: 14 }}>
-                  {t("onboarding.agreement.confirmLabel")}
-                </label>
-                <input
-                  type="text"
+                  <div className="space-y-2">
+                    <Label className="text-sm font-semibold">{t("onboarding.agreement.confirmLabel")}</Label>
+                    <Input
                   value={obAgreementInput}
                   onChange={(e) => { setObAgreementInput(e.target.value); setObAgreementError(false); }}
                   placeholder={t("onboarding.agreement.confirmPlaceholder")}
-                  style={{
-                    width: "100%", padding: "10px 14px", fontSize: 15,
-                    borderRadius: 6, border: obAgreementError ? "2px solid #e53e3e" : "1px solid var(--line)",
-                    outline: "none", boxSizing: "border-box",
-                    background: "var(--bg1)", color: "var(--text)",
-                  }}
+                      aria-invalid={obAgreementError || undefined}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       if (obAgreementInput.trim() === t("onboarding.agreement.confirmText")) {
@@ -7747,18 +4837,17 @@ export function App() {
                   }}
                 />
                 {obAgreementError && (
-                  <p style={{ color: "#e53e3e", fontSize: 13, marginTop: 6 }}>
-                    {t("onboarding.agreement.errorMismatch")}
-                  </p>
+                      <p className="text-[13px] text-destructive">{t("onboarding.agreement.errorMismatch")}</p>
                 )}
               </div>
+                </CardContent>
+              </Card>
             </div>
             <div className="obFooter">
               {stepIndicator}
               <div className="obFooterBtns">
-                <button onClick={() => setObStep(IS_TAURI ? "ob-claude-code" : "ob-iwhalecloud")}>{t("config.prev")}</button>
-                <button
-                  className="btnPrimary"
+                <Button variant="outline" onClick={() => setObStep(IS_TAURI ? "ob-claude-code" : "ob-iwhalecloud")}>{t("config.prev")}</Button>
+                <Button
                   onClick={() => {
                     if (obAgreementInput.trim() === t("onboarding.agreement.confirmText")) {
                       setObAgreementError(false);
@@ -7769,7 +4858,7 @@ export function App() {
                   }}
                 >
                   {t("onboarding.agreement.proceed")}
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -7787,15 +4876,11 @@ export function App() {
             <div className="obFooter">
               {stepIndicator}
               <div className="obFooterBtns">
-                <button onClick={() => setObStep("ob-agreement")}>{t("config.prev")}</button>
+                <Button variant="outline" onClick={() => setObStep("ob-agreement")}>{t("config.prev")}</Button>
                 {savedEndpoints.length > 0 ? (
-                  <button className="btnPrimary" onClick={() => setObStep("ob-im")}>
-                    {t("config.next")}
-                  </button>
+                  <Button onClick={() => setObStep("ob-im")}>{t("config.next")}</Button>
                 ) : (
-                  <button className="obSkipBtn" onClick={() => setObStep("ob-im")}>
-                    {t("onboarding.llm.skip")}
-                  </button>
+                  <Button variant="secondary" onClick={() => setObStep("ob-im")}>{t("onboarding.llm.skip")}</Button>
                 )}
               </div>
             </div>
@@ -7808,19 +4893,14 @@ export function App() {
             <div className="obContent">
               <h2 className="obStepTitle">{t("onboarding.im.title")}</h2>
               <p className="obStepDesc">{t("onboarding.im.desc")}</p>
-              <div className="obFormArea">{renderIM({ onboarding: true })}</div>
+              <div className="obFormArea">{renderIM(true)}</div>
               <p className="obSkipHint">{t("onboarding.skipHint")}</p>
             </div>
             <div className="obFooter">
               {stepIndicator}
               <div className="obFooterBtns">
-                <button onClick={() => setObStep("ob-llm")}>{t("config.prev")}</button>
-                <button className="btnPrimary" onClick={() => setObStep("ob-cli")}>
-                  {t("config.next")}
-                </button>
-                <button className="obSkipBtn" onClick={() => setObStep("ob-cli")} title={t("onboarding.im.skip")}>
-                  {t("onboarding.im.skipShort") || t("onboarding.im.skip")}
-                </button>
+                <Button variant="outline" onClick={() => setObStep("ob-llm")}>{t("config.prev")}</Button>
+                <Button onClick={() => setObStep("ob-cli")}>{t("config.next")}</Button>
               </div>
             </div>
           </div>
@@ -7835,95 +4915,71 @@ export function App() {
                 {t("onboarding.system.desc")}
               </p>
 
-              <div className="obModuleList">
-                {/* synapse 命令 */}
-                <label className={`obModuleItem`} style={obCliSynapse ? { borderColor: "var(--brand)", background: "var(--panel2)" } : {}}>
-                  <input
-                    type="checkbox"
-                    checked={obCliSynapse}
-                    onChange={() => setObCliSynapse(!obCliSynapse)}
-                  />
+              <div className="flex flex-col gap-2">
+                <label className="obModuleItem" data-checked={obCliSynapse || undefined}>
+                  <Checkbox checked={obCliSynapse} onCheckedChange={() => setObCliSynapse(!obCliSynapse)} />
                   <div className="obModuleInfo">
                     <strong style={{ fontFamily: "monospace", fontSize: 15 }}>synapse</strong>
-                    <span className="obModuleDesc">完整命令名称</span>
+                    <span className="obModuleDesc">{t("onboarding.system.cmdFull")}</span>
                   </div>
                 </label>
 
-                {/* oa 命令 */}
-                <label className={`obModuleItem`} style={obCliOa ? { borderColor: "var(--brand)", background: "var(--panel2)" } : {}}>
-                  <input
-                    type="checkbox"
-                    checked={obCliOa}
-                    onChange={() => setObCliOa(!obCliOa)}
-                  />
+                <label className="obModuleItem" data-checked={obCliOa || undefined}>
+                  <Checkbox checked={obCliOa} onCheckedChange={() => setObCliOa(!obCliOa)} />
                   <div className="obModuleInfo">
                     <strong style={{ fontFamily: "monospace", fontSize: 15 }}>oa</strong>
-                    <span className="obModuleDesc">简短别名，推荐日常使用</span>
+                    <span className="obModuleDesc">{t("onboarding.system.cmdShort")}</span>
                   </div>
-                  <span className="obModuleBadge obModuleBadgeRec">推荐</span>
+                  <Badge variant="secondary" className="obModuleBadge obModuleBadgeRec">{t("onboarding.system.recommended")}</Badge>
                 </label>
 
-                {/* PATH 选项 */}
-                <label className={`obModuleItem`} style={obCliAddToPath ? { borderColor: "var(--brand)", background: "var(--panel2)" } : {}}>
-                  <input
-                    type="checkbox"
-                    checked={obCliAddToPath}
-                    onChange={() => setObCliAddToPath(!obCliAddToPath)}
-                  />
+                <label className="obModuleItem" data-checked={obCliAddToPath || undefined}>
+                  <Checkbox checked={obCliAddToPath} onCheckedChange={() => setObCliAddToPath(!obCliAddToPath)} />
                   <div className="obModuleInfo">
-                    <strong>添加到系统 PATH</strong>
-                    <span className="obModuleDesc">新打开的终端中可直接输入命令名运行，无需完整路径</span>
+                    <strong>{t("onboarding.system.addToPath")}</strong>
+                    <span className="obModuleDesc">{t("onboarding.system.addToPathDesc")}</span>
                   </div>
                 </label>
 
-                {/* 开机自启 */}
                 <div style={{ borderTop: "1px solid var(--line)", margin: "8px 0" }} />
-                <label className={`obModuleItem`} style={obAutostart ? { borderColor: "var(--brand)", background: "var(--panel2)" } : {}}>
-                  <input
-                    type="checkbox"
-                    checked={obAutostart}
-                    onChange={() => setObAutostart(!obAutostart)}
-                  />
+
+                <label className="obModuleItem" data-checked={obAutostart || undefined}>
+                  <Checkbox checked={obAutostart} onCheckedChange={() => setObAutostart(!obAutostart)} />
                   <div className="obModuleInfo">
                     <strong>{t("onboarding.autostart.label")}</strong>
                     <span className="obModuleDesc">{t("onboarding.autostart.desc")}</span>
                   </div>
-                  <span className="obModuleBadge obModuleBadgeRec">{t("onboarding.autostart.recommended")}</span>
+                  <Badge variant="secondary" className="obModuleBadge obModuleBadgeRec">{t("onboarding.autostart.recommended")}</Badge>
                 </label>
               </div>
 
-              {/* 命令预览 */}
               {(obCliSynapse || obCliOa) && (
-                <div className="obFormArea" style={{ marginTop: 16, padding: "16px 20px" }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--muted)", marginBottom: 10 }}>
-                    安装后可使用的命令示例
-                  </div>
-                  <div style={{
-                    background: "#0f172a", borderRadius: 8, padding: "14px 18px",
-                    fontFamily: "'Cascadia Code', 'Fira Code', 'SF Mono', Consolas, monospace",
-                    fontSize: 13, lineHeight: 1.9, color: "#e5e7eb", overflowX: "auto",
-                  }}>
+                <Card className="mt-4">
+                  <CardContent className="py-4 px-5 space-y-2.5">
+                    <p className="text-[13px] font-semibold text-muted-foreground">{t("onboarding.system.cmdExamples")}</p>
+                    <div className="bg-slate-900 rounded-lg px-4 py-3.5 font-mono text-[13px] leading-[1.9] text-slate-200 overflow-x-auto">
                     {obCliOa && <>
-                      <div><span style={{ color: "#94a3b8" }}>$</span> <span style={{ color: "#7dd3fc" }}>oa</span> serve <span style={{ color: "#94a3b8", marginLeft: 24 }}># 启动后端服务</span></div>
-                      <div><span style={{ color: "#94a3b8" }}>$</span> <span style={{ color: "#7dd3fc" }}>oa</span> status <span style={{ color: "#94a3b8", marginLeft: 16 }}># 查看运行状态</span></div>
-                      <div><span style={{ color: "#94a3b8" }}>$</span> <span style={{ color: "#7dd3fc" }}>oa</span> run <span style={{ color: "#94a3b8", marginLeft: 36 }}># 单次对话</span></div>
-                    </>}
-                    {obCliOa && obCliSynapse && <div style={{ height: 4 }} />}
+                        <div><span className="text-slate-400">$</span> <span className="text-blue-300">oa</span> serve <span className="text-slate-400 ml-6">{t("onboarding.system.commentServe")}</span></div>
+                        <div><span className="text-slate-400">$</span> <span className="text-blue-300">oa</span> status <span className="text-slate-400 ml-4">{t("onboarding.system.commentStatus")}</span></div>
+                        <div><span className="text-slate-400">$</span> <span className="text-blue-300">oa</span> run <span className="text-slate-400 ml-9">{t("onboarding.system.commentRun")}</span></div>
+                      </>}
+                      {obCliOa && obCliSynapse && <div className="h-1" />}
                     {obCliSynapse && <>
-                      <div><span style={{ color: "#94a3b8" }}>$</span> <span style={{ color: "#a5b4fc" }}>synapse</span> init <span style={{ color: "#94a3b8", marginLeft: 8 }}># 初始化工作区</span></div>
-                      <div><span style={{ color: "#94a3b8" }}>$</span> <span style={{ color: "#a5b4fc" }}>synapse</span> serve <span style={{ color: "#94a3b8" }}># 启动后端服务</span></div>
+                        <div><span className="text-slate-400">$</span> <span className="text-indigo-300">synapse</span> init <span className="text-slate-400 ml-2">{t("onboarding.system.commentInit")}</span></div>
+                        <div><span className="text-slate-400">$</span> <span className="text-indigo-300">synapse</span> serve <span className="text-slate-400">{t("onboarding.system.commentServe")}</span></div>
                     </>}
                   </div>
-                </div>
+                  </CardContent>
+                </Card>
               )}
             </div>
             <div className="obFooter">
               {stepIndicator}
               <div className="obFooterBtns">
-                <button onClick={() => setObStep("ob-im")}>{t("config.prev")}</button>
-                <button className="btnPrimary" onClick={() => { setObStep("ob-progress"); obRunSetup(); }}>
-                  {t("onboarding.modules.startInstall")}
-                </button>
+                <Button variant="outline" onClick={() => setObStep("ob-im")}>{t("config.prev")}</Button>
+                <Button onClick={() => { setObStep("ob-progress"); obRunSetup(); }}>
+                  {t("onboarding.system.startInstall")}
+                </Button>
               </div>
             </div>
           </div>
@@ -7947,7 +5003,7 @@ export function App() {
             <div className="obContent" style={{ display: "flex", flexDirection: "column", gap: 0, flex: 1, minHeight: 0 }}>
               <h2 className="obStepTitle">{t("onboarding.progress.title")}</h2>
               <p style={{ fontSize: 12, color: "var(--muted)", margin: "0 0 12px", lineHeight: 1.5 }}>
-                模块与运行环境体积较大，安装过程中请耐心等待，请勿关闭本窗口。
+                {t("onboarding.progress.patience")}
               </p>
 
               {/* ── 任务进度列表 ── */}
@@ -7982,7 +5038,7 @@ export function App() {
                       )}
                     </div>
                     {task.status === "running" && (
-                      <span style={{ fontSize: 12, color: "#3b82f6", flexShrink: 0, fontWeight: 500 }}>进行中</span>
+                      <span style={{ fontSize: 12, color: "#3b82f6", flexShrink: 0, fontWeight: 500 }}>{t("onboarding.progress.inProgress")}</span>
                     )}
                   </div>
                 ))}
@@ -7999,7 +5055,7 @@ export function App() {
                 ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}
               >
                 {obDetailLog.length === 0 && (
-                  <div style={{ color: "#64748b" }}>等待任务开始...</div>
+                  <div style={{ color: "#64748b" }}>{t("onboarding.progress.waitingStart")}</div>
                 )}
                 {obDetailLog.map((line, i) => (
                   <div key={i} style={{
@@ -8027,18 +5083,24 @@ export function App() {
       case "ob-done":
         return (
           <div className="obPage">
-            <div className="obCenter">
-              <div className="obDoneIcon">✓</div>
-              <h1 className="obTitle">{t("onboarding.done.title")}</h1>
-              <p className="obDesc">{t("onboarding.done.desc")}</p>
+            <div className="flex flex-col items-center text-center max-w-[520px] gap-5">
+              <div className="flex items-center justify-center size-16 rounded-full bg-emerald-500 text-white text-[32px] shadow-lg shadow-emerald-500/30">✓</div>
+              <h1 className="text-[28px] font-bold tracking-tight text-foreground">{t("onboarding.done.title")}</h1>
+              <p className="text-sm text-muted-foreground leading-relaxed">{t("onboarding.done.desc")}</p>
               {obHasErrors && (
-                <div className="obWarning">
-                  <strong>{t("onboarding.done.someErrors")}</strong>
-                  <p>{t("onboarding.done.errorsHint")}</p>
+                <Card className="w-full border border-amber-300 bg-amber-50/60 dark:border-amber-500/40 dark:bg-amber-950/30 text-left text-[13px]">
+                  <CardContent className="py-3 px-4 space-y-1">
+                    <div className="flex items-center gap-2 font-semibold">
+                      <AlertTriangle className="size-4 text-amber-500 shrink-0" />
+                      {t("onboarding.done.someErrors")}
                 </div>
+                    <p className="text-muted-foreground">{t("onboarding.done.errorsHint")}</p>
+                  </CardContent>
+                </Card>
               )}
-              <button
-                className="btnPrimary obBtn"
+              <Button
+                size="lg"
+                className="mt-2 px-10 rounded-xl text-[15px]"
                 onClick={async () => {
                   // 设置短暂宽限期：onboarding 结束后 HTTP 服务可能还在启动中
                   // 避免心跳检测立刻报"不可达"导致闪烁
@@ -8062,7 +5124,7 @@ export function App() {
                 }}
               >
                 {t("onboarding.done.enter")}
-              </button>
+              </Button>
             </div>
             {stepIndicator}
           </div>
@@ -8074,14 +5136,14 @@ export function App() {
   }
 
   function renderStepContent() {
-    if (!info) return <div className="card">加载中...</div>;
+    if (!info) return <div className="card">{t("common.loading")}</div>;
     if (view === "status") return renderStatus();
     if (view === "chat") return null;  // ChatView 始终挂载，不在此渲染
 
     const _disableToggle = (viewKey: string, label: string) => (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", marginBottom: 12 }}>
         <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--muted)", cursor: "pointer" }}>
-          <span>{disabledViews.includes(viewKey) ? `${label} 已禁用` : `${label} 已启用`}</span>
+          <span>{disabledViews.includes(viewKey) ? t("common.disabled", { label }) : t("common.enabled", { label })}</span>
           <div
             onClick={() => toggleViewDisabled(viewKey)}
             style={{
@@ -8102,12 +5164,9 @@ export function App() {
     );
 
     if (view === "skills") {
-      return (
-        <div>
-          {_disableToggle("skills", "技能管理")}
-          {disabledViews.includes("skills") ? (
+      return disabledViews.includes("skills") ? (
             <div className="card" style={{ opacity: 0.5, textAlign: "center", padding: 40 }}>
-              <p style={{ color: "#94a3b8", fontSize: 15 }}>此模块已禁用，点击上方开关启用</p>
+          <p style={{ color: "#94a3b8", fontSize: 15 }}>此模块已禁用，请在「工具与技能」配置中启用</p>
             </div>
           ) : (
             <SkillManager
@@ -8115,105 +5174,68 @@ export function App() {
               currentWorkspaceId={currentWorkspaceId}
               envDraft={envDraft}
               onEnvChange={setEnvDraft}
-              onSaveEnvKeys={saveEnvKeysExternal}
+              onSaveEnvKeys={async (keys) => {
+                await saveEnvKeys(keys);
+              }}
               apiBaseUrl={apiBaseUrl}
               serviceRunning={!!serviceStatus?.running}
               dataMode={dataMode}
-              onNotice={setNotice}
             />
-          )}
-        </div>
       );
     }
     if (view === "im") {
-      return (
-        <div>
-          {_disableToggle("im", "IM 通道")}
-          {disabledViews.includes("im") ? (
+      return disabledViews.includes("im") ? (
             <div className="card" style={{ opacity: 0.5, textAlign: "center", padding: 40 }}>
-              <p style={{ color: "#94a3b8", fontSize: 15 }}>此模块已禁用，点击上方开关启用</p>
+          <p style={{ color: "#94a3b8", fontSize: 15 }}>此模块已禁用，请在「配置 → IM 通道」中启用</p>
             </div>
           ) : (
-            <IMView serviceRunning={serviceStatus?.running ?? false} multiAgentEnabled={multiAgentEnabled} apiBaseUrl={apiBaseUrl} />
-          )}
-        </div>
+        <IMView serviceRunning={serviceStatus?.running ?? false} apiBaseUrl={apiBaseUrl} />
       );
     }
     if (view === "token_stats") {
       return (
-        <div>
-          {_disableToggle("token_stats", "Token 统计")}
-          {disabledViews.includes("token_stats") ? (
-            <div className="card" style={{ opacity: 0.5, textAlign: "center", padding: 40 }}>
-              <p style={{ color: "#94a3b8", fontSize: 15 }}>此模块已禁用，点击上方开关启用</p>
-            </div>
-          ) : (
-            <TokenStatsView serviceRunning={serviceStatus?.running ?? false} apiBaseUrl={apiBaseUrl} />
-          )}
-        </div>
+        <TokenStatsView
+          serviceRunning={serviceStatus?.running ?? false}
+          apiBaseUrl={apiBaseUrl}
+          disabled={disabledViews.includes("token_stats")}
+          onToggleDisabled={() => toggleViewDisabled("token_stats")}
+        />
       );
     }
     if (view === "mcp") {
-      return (
-        <div>
-          {_disableToggle("mcp", "MCP 管理")}
-          {disabledViews.includes("mcp") ? (
+      return disabledViews.includes("mcp") ? (
             <div className="card" style={{ opacity: 0.5, textAlign: "center", padding: 40 }}>
-              <p style={{ color: "#94a3b8", fontSize: 15 }}>此模块已禁用，点击上方开关启用</p>
+          <p style={{ color: "#94a3b8", fontSize: 15 }}>此模块已禁用，请在「工具与技能」配置中启用</p>
             </div>
           ) : (
-            <MCPView serviceRunning={serviceStatus?.running ?? false} apiBaseUrl={apiBaseUrl} />
-          )}
-        </div>
+            <MCPView
+              serviceRunning={serviceStatus?.running ?? false}
+              apiBaseUrl={apiBaseUrl}
+              envDraft={envDraft}
+              onEnvChange={setEnvDraft}
+              onSaveEnvKeys={async (keys) => { await saveEnvKeys(keys); }}
+            />
       );
     }
+    if (view === "plugins") {
+      return <PluginManagerView visible={true} httpApiBase={httpApiBase} />;
+    }
     if (view === "scheduler") {
-      return (
-        <div>
-          {_disableToggle("scheduler", t("scheduler.title"))}
-          {disabledViews.includes("scheduler") ? (
+      return disabledViews.includes("scheduler") ? (
             <div className="card" style={{ opacity: 0.5, textAlign: "center", padding: 40 }}>
-              <p style={{ color: "#94a3b8", fontSize: 15 }}>此模块已禁用，点击上方开关启用</p>
+          <p style={{ color: "#94a3b8", fontSize: 15 }}>此模块已禁用，请在「灵魂与意志」配置中启用</p>
             </div>
           ) : (
             <SchedulerView serviceRunning={serviceStatus?.running ?? false} apiBaseUrl={apiBaseUrl} />
-          )}
-        </div>
       );
     }
     if (view === "memory") {
-      return (
-        <div>
-          {_disableToggle("memory", t("sidebar.memory"))}
-          {disabledViews.includes("memory") ? (
+      return disabledViews.includes("memory") ? (
             <div className="card" style={{ opacity: 0.5, textAlign: "center", padding: 40 }}>
-              <p style={{ color: "#94a3b8", fontSize: 15 }}>此模块已禁用，点击上方开关启用</p>
+          <p style={{ color: "#94a3b8", fontSize: 15 }}>此模块已禁用，请在「灵魂与意志」配置中启用</p>
             </div>
           ) : (
             <MemoryView serviceRunning={serviceStatus?.running ?? false} apiBaseUrl={apiBaseUrl} />
-          )}
-        </div>
-      );
-    }
-    if (view === "rd_center") {
-      return (
-        <div className="contentRdFullHeight">
-          <RdCenterView />
-        </div>
-      );
-    }
-    if (view === "team_manage") {
-      return (
-        <div className="contentRdFullHeight">
-          <TeamManagementView />
-        </div>
-      );
-    }
-    if (view === "rd_process") {
-      return (
-        <div className="contentRdFullHeight">
-          <RdProcessManagementView />
-        </div>
       );
     }
     if (view === "identity") {
@@ -8238,35 +5260,12 @@ export function App() {
         />
       );
     }
-    if (view === "plugins") {
-      return <PluginManagerView visible httpApiBase={httpApiBase} />;
-    }
     if (view === "pixel_office") {
       return (
         <PixelOfficeView
           apiBaseUrl={apiBaseUrl}
           visible={view === "pixel_office"}
         />
-      );
-    }
-    if (view === "security") {
-      return (
-        <SecurityView
-          apiBaseUrl={apiBaseUrl}
-          serviceRunning={serviceStatus?.running ?? false}
-        />
-      );
-    }
-    if (view === "docs") {
-      const docsBase = httpApiBase();
-      return (
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
-          <iframe
-            src={`${docsBase}/user-docs/`}
-            style={{ flex: 1, border: "none", width: "100%", height: "100%", borderRadius: 8, background: "var(--bg, #fff)" }}
-            title={t("sidebar.docs")}
-          />
-        </div>
       );
     }
     if (view === "agent_manager") {
@@ -8294,135 +5293,23 @@ export function App() {
         />
       );
     }
-    if (view === "modules") {
+    if (view === "security") {
       return (
-        <div>
-          {_disableToggle("modules", "模块管理")}
-          {disabledViews.includes("modules") ? (
-            <div className="card" style={{ opacity: 0.5, textAlign: "center", padding: 40 }}>
-              <p style={{ color: "#94a3b8", fontSize: 15 }}>此模块已禁用，点击上方开关启用</p>
-            </div>
-          ) : (
-        <div className="card">
-          <h2 className="cardTitle">{t("modules.title")}</h2>
-          <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 16 }}>{t("modules.desc")}</p>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 16, padding: "10px 14px", background: "var(--warn-bg, #fffbeb)", borderRadius: 8, border: "1px solid var(--warn-border, #fde68a)", fontSize: 13, color: "var(--warn, #92400e)", lineHeight: 1.6 }}>
-            <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>⚠️</span>
-            <span>{t("modules.legacyNotice")}</span>
-          </div>
-          {moduleUninstallPending && currentWorkspaceId && (
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, padding: "10px 12px", background: "#fef2f2", borderRadius: 8, border: "1px solid #fecaca" }}>
-              <span style={{ flex: 1, fontSize: 13 }}>{t("modules.uninstallFailInUse")}</span>
-              <button
-                type="button"
-                className="btnPrimary btnSmall"
-                disabled={!!busy}
-                onClick={async () => {
-                  const { id, name } = moduleUninstallPending;
-                  setBusy(t("status.stopping"));
-                  setError(null);
-                  if (!IS_TAURI) { setError("模块管理仅限桌面端"); return; }
-                  try {
-                    const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("synapse_service_stop", { workspaceId: currentWorkspaceId });
-                    setServiceStatus(ss);
-                    await new Promise((r) => setTimeout(r, 1500));
-                    await invoke("uninstall_module", { moduleId: id });
-                    setNotice(t("modules.uninstalled", { name }));
-                    setModuleUninstallPending(null);
-                    obLoadModules();
-                  } catch (e) {
-                    setError(String(e));
-                  } finally {
-                    setBusy(null);
-                  }
-                }}
-              >
-                {t("modules.stopAndUninstall")}
-              </button>
-              <button type="button" className="btnSmall" onClick={() => { setModuleUninstallPending(null); setError(null); }}>{t("common.cancel")}</button>
-            </div>
-          )}
-          <div className="obModuleList">
-            {obModules.map((m) => (
-              <div key={m.id} className={`obModuleItem ${m.installed || m.bundled ? "obModuleInstalled" : ""}`}>
-                <div className="obModuleInfo" style={{ flex: 1 }}>
-                  <strong>{m.name}</strong>
-                  <span className="obModuleDesc">{m.description}</span>
-                  <span className="obModuleSize">~{m.sizeMb} MB</span>
-                </div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  {(m.installed || m.bundled) ? (
-                    <>
-                      <span className="obModuleBadge">{t("modules.installed")}</span>
-                      <button
-                        className="btnSmall"
-                        style={{ color: "#ef4444" }}
-                        onClick={async () => {
-                          if (!IS_TAURI) return;
-                          const doUninstall = async () => {
-                            await invoke("uninstall_module", { moduleId: m.id });
-                            setNotice(t("modules.uninstalled", { name: m.name }));
-                            obLoadModules();
-                            if (serviceStatus?.running) {
-                              setModuleRestartPrompt(m.name);
-                            }
-                          };
-                          setBusy(t("modules.uninstalling", { name: m.name }));
-                          try {
-                            await doUninstall();
-                          } catch (e) {
-                            const msg = String(e);
-                            const isAccessDenied = /拒绝访问|Access denied|os error 5/i.test(msg);
-                            if (isAccessDenied && serviceStatus?.running && currentWorkspaceId) {
-                              setError(t("modules.uninstallFailInUse"));
-                              setModuleUninstallPending({ id: m.id, name: m.name });
-                              return;
-                            }
-                            setError(msg);
-                          } finally {
-                            setBusy(null);
-                          }
-                        }}
-                        disabled={m.bundled || !!busy}
-                        title={m.bundled ? t("modules.bundledCannotUninstall") : t("modules.uninstall")}
-                      >
-                        {t("modules.uninstall")}
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      className="btnPrimary btnSmall"
-                      onClick={async () => {
-                        if (!IS_TAURI) return;
-                        try {
-                          setBusy(t("modules.installing", { name: m.name }));
-                          await invoke("install_module", { moduleId: m.id, mirror: null });
-                          setNotice(t("modules.installSuccess", { name: m.name }));
-                          obLoadModules();
-                          if (serviceStatus?.running) {
-                            setModuleRestartPrompt(m.name);
-                          }
-                        } catch (e) {
-                          setError(String(e));
-                        } finally {
-                          setBusy(null);
-                        }
-                      }}
-                      disabled={!!busy}
-                    >
-                      {t("modules.install")}
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-            {obModules.length === 0 && <p style={{ color: "#94a3b8" }}>{t("modules.loading")}</p>}
-          </div>
-          <button className="btnSmall" style={{ marginTop: 16 }} onClick={obLoadModules} disabled={!!busy}>
-            {t("modules.refresh")}
-          </button>
-        </div>
-          )}
+        <SecurityView
+          apiBaseUrl={apiBaseUrl}
+          serviceRunning={serviceStatus?.running ?? false}
+        />
+      );
+    }
+    if (view === "docs") {
+      const docsBase = httpApiBase();
+      return (
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+          <iframe
+            src={`${docsBase}/user-docs/`}
+            style={{ flex: 1, border: "none", width: "100%", height: "100%", borderRadius: 8, background: "var(--bg, #fff)" }}
+            title={t("sidebar.docs")}
+          />
         </div>
       );
     }
@@ -8462,7 +5349,7 @@ export function App() {
         {renderOnboarding()}
 
         <ConfirmDialog dialog={confirmDialog} onClose={() => setConfirmDialog(null)} />
-        <ToastContainer busy={busy} notice={notice} error={error} onDismissNotice={() => setNotice(null)} onDismissError={() => setError(null)} onCopySuccess={() => setNotice(t("version.copied"))} errorClickToCopyTitle={t("status.clickToCopy", "点击复制")} />
+        <Toaster position="top-right" richColors closeButton />
       </div>
       </EnvFieldContext.Provider>
     );
@@ -8523,7 +5410,7 @@ export function App() {
         setTauriRemoteLoginUrl(null);
         setDataMode("remote");
         setServiceStatus({ running: true, pid: null, pidFile: "" });
-        setNotice(t("connect.success"));
+        notifySuccess(t("connect.success"));
         void refreshStatus("remote", tauriRemoteLoginUrl, true).then(() => {
           autoCheckEndpoints(tauriRemoteLoginUrl);
         });
@@ -8536,15 +5423,12 @@ export function App() {
   }
 
   return (
-    <ConfigProvider theme={{ algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm }}>
     <EnvFieldContext.Provider value={envFieldCtx}>
     <div className={`appShell ${sidebarCollapsed ? "appShellCollapsed" : ""}${isMobile ? " appShellMobile" : ""}`} style={previewMode ? { paddingTop: IS_CAPACITOR ? "calc(32px + env(safe-area-inset-top))" : 32 } : undefined}>
       {previewMode && (
         <div style={{
-          position: "fixed",
-          top: IS_TAURI && IS_WINDOWS ? "var(--win-titlebar-height)" : 0,
-          left: 0, right: 0, zIndex: 9999,
-          background: "linear-gradient(135deg, #0ea5e9, #6366f1)",
+          position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999,
+          background: "linear-gradient(135deg, #2563eb, #6366f1)",
           color: "#fff", textAlign: "center",
           padding: "6px 16px",
           paddingTop: IS_CAPACITOR ? "max(6px, env(safe-area-inset-top))" : "6px",
@@ -8574,22 +5458,25 @@ export function App() {
         onViewChange={(v) => {
           setView(v);
           setMobileSidebarOpen(false);
-          if (v === "org_editor") {
-            window.location.hash = "#/org-editor";
-          } else if (window.location.hash === "#/org-editor") {
-            window.location.hash = "";
+          const newHash = _viewToHash(v);
+          if (newHash) {
+            window.location.hash = newHash;
+          } else if (window.location.hash) {
+            history.replaceState(null, "", window.location.pathname + window.location.search);
           }
         }}
         mobileOpen={mobileSidebarOpen}
         configExpanded={configExpanded}
         onToggleConfig={() => {
-          if (sidebarCollapsed) { setView("wizard"); setConfigExpanded(true); }
-          else if (view !== "wizard") { setView("wizard"); setConfigExpanded(true); }
+          if (sidebarCollapsed) { setSidebarCollapsed(false); setConfigExpanded(true); }
           else { setConfigExpanded((v) => !v); }
         }}
         steps={steps}
         stepId={stepId}
-        onStepChange={setStepId}
+        onStepChange={(s: StepId) => {
+          setStepId(s);
+          if (view === "wizard") window.location.hash = _viewToHash("wizard", s);
+        }}
         disabledViews={disabledViews}
         multiAgentEnabled={multiAgentEnabled}
         onToggleMultiAgent={toggleMultiAgent}
@@ -8597,9 +5484,9 @@ export function App() {
         desktopVersion={desktopVersion}
         backendVersion={backendVersion}
         serviceRunning={serviceStatus?.running ?? false}
+        onBugReport={() => setBugReportOpen(true)}
         onRefreshStatus={async () => { await refreshStatus(undefined, undefined, true); }}
         isWeb={IS_WEB}
-        rdCenterVisible={IS_TAURI && IS_WINDOWS}
       />
 
       <main className="main">
@@ -8616,15 +5503,15 @@ export function App() {
           onCreateWorkspace={async (id, name) => {
             try {
               if (IS_WEB) {
-                setError("工作区管理暂不支持 Web 模式，请在桌面端操作");
+                notifyError("工作区管理暂不支持 Web 模式，请在桌面端操作");
                 return;
               }
               await invoke("create_workspace", { id, name, setCurrent: true });
               await refreshAll();
               setCurrentWorkspaceId(id);
-              envLoadedForWs.current = null;
-              setNotice(`${name} (${id})`);
-            } catch (err: any) { setError(String(err)); }
+              resetEnvLoaded();
+              notifySuccess(`${name} (${id})`);
+            } catch (err: any) { notifyError(String(err)); }
           }}
           serviceRunning={serviceStatus?.running ?? false}
           endpointCount={endpointSummary.length}
@@ -8634,8 +5521,8 @@ export function App() {
             setTauriRemoteMode(false);
             setDataMode("local");
             setServiceStatus({ running: false, pid: null, pidFile: "" });
-            envLoadedForWs.current = null;
-            setNotice(t("topbar.disconnected"));
+            resetEnvLoaded();
+            notifySuccess(t("topbar.disconnected"));
           }}
           onConnect={() => {
             setConnectAddress(apiBaseUrl.replace(/^https?:\/\//, ""));
@@ -8643,11 +5530,11 @@ export function App() {
           }}
           onStart={async () => {
             const effectiveWsId = currentWorkspaceId || workspaces[0]?.id || null;
-            if (!effectiveWsId) { setError(t("common.error")); return; }
+            if (!effectiveWsId) { notifyError(t("common.error")); return; }
             await startLocalServiceWithConflictCheck(effectiveWsId);
           }}
           onRefreshAll={async () => { await refreshAll(); try { await refreshStatus(undefined, undefined, true); } catch {} }}
-          toggleTheme={toggleTheme}
+          onSetTheme={(theme) => setThemePref(theme)}
           themePrefState={themePrefState}
           isWeb={IS_WEB || IS_CAPACITOR}
           onLogout={(IS_WEB || IS_CAPACITOR) ? async () => {
@@ -8701,25 +5588,24 @@ export function App() {
               onStartService={async () => {
                 const effectiveWsId = currentWorkspaceId || workspaces[0]?.id || null;
                 if (!effectiveWsId) {
-                  setError("未找到工作区（请先创建/选择一个工作区）");
+                  notifyError("未找到工作区（请先创建/选择一个工作区）");
                   return;
                 }
                 await startLocalServiceWithConflictCheck(effectiveWsId);
               }}
             />
           </div>
-          <div
-            className={`content${view === "rd_center" || view === "team_manage" || view === "rd_process" ? " content--rdFlexFill" : ""}`}
-            style={{ display: view !== "chat" ? undefined : "none", flex: 1, minHeight: 0 }}
-          >
+          <div className="content" style={{ display: view !== "chat" ? undefined : "none", flex: 1, minHeight: 0 }}>
+            <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", opacity: 0.5 }}><div className="spinner" style={{ width: 24, height: 24 }} /></div>}>
             {renderStepContent()}
+            </Suspense>
           </div>
         </div>
 
         {/* ── Connect Dialog ── */}
         {connectDialogOpen && (
-          <div className="modalOverlay" onClick={() => setConnectDialogOpen(false)}>
-            <div className="modalContent" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+          <ModalOverlay onClose={() => setConnectDialogOpen(false)}>
+            <div className="modalContent" style={{ maxWidth: 420 }}>
               <div className="dialogHeader">
                 <span className="cardTitle">{t("connect.title")}</span>
                 <button className="dialogCloseBtn" onClick={() => setConnectDialogOpen(false)}>&times;</button>
@@ -8741,7 +5627,7 @@ export function App() {
                   const addr = connectAddress.trim();
                   if (!addr) return;
                   const url = addr.startsWith("http") ? addr : `http://${addr}`;
-                  setBusy(t("connect.testing"));
+                  const _b = notifyLoading(t("connect.testing"));
                   let connected = false;
                   try {
                     const res = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(5000) });
@@ -8763,32 +5649,32 @@ export function App() {
                       setServiceStatus({ running: true, pid: null, pidFile: "" });
                       setConnectDialogOpen(false);
                       connected = true;
-                      setNotice(t("connect.success"));
+                      notifySuccess(t("connect.success"));
                       if (data.version) checkVersionMismatch(data.version);
                       await refreshStatus("remote", url, true);
                       autoCheckEndpoints(url);
                     } else {
-                      setError(t("connect.fail"));
+                      notifyError(t("connect.fail"));
                     }
                   } catch {
                     if (IS_TAURI && !connected) setTauriRemoteMode(false);
-                    setError(t("connect.fail"));
-                  } finally { setBusy(null); }
+                    notifyError(t("connect.fail"));
+                  } finally { dismissLoading(_b); }
                 }}>{t("connect.confirm")}</button>
               </div>
             </div>
-          </div>
+          </ModalOverlay>
         )}
 
         {/* ── Restart overlay ── */}
         {restartOverlay && (
           <div className="modalOverlay" style={{ zIndex: 10000, background: "rgba(0,0,0,0.5)" }}>
-            <div className="modalContent" style={{ maxWidth: 360, padding: "32px 28px", textAlign: "center", borderRadius: 16 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modalContent" style={{ maxWidth: 360, padding: "32px 28px", textAlign: "center", borderRadius: 16 }}>
               {(restartOverlay.phase === "saving" || restartOverlay.phase === "restarting" || restartOverlay.phase === "waiting") && (
                 <>
-                  <div style={{ marginBottom: 16 }}>
+                  <div style={{ marginBottom: 16, display: "flex", justifyContent: "center", paddingLeft: 0, paddingRight: 0 }}>
                     <svg width="40" height="40" viewBox="0 0 40 40" style={{ animation: "spin 1s linear infinite" }}>
-                      <circle cx="20" cy="20" r="16" fill="none" stroke="#0ea5e9" strokeWidth="3" strokeDasharray="80" strokeDashoffset="20" strokeLinecap="round" />
+                      <circle cx="20" cy="20" r="16" fill="none" stroke="#2563eb" strokeWidth="3" strokeDasharray="80" strokeDashoffset="20" strokeLinecap="round" />
                     </svg>
                   </div>
                   <div style={{ fontSize: 16, fontWeight: 600, color: "#0e7490" }}>
@@ -8803,19 +5689,19 @@ export function App() {
               )}
               {restartOverlay.phase === "done" && (
                 <>
-                  <div style={{ fontSize: 36, marginBottom: 8 }}><IconCheckCircle size={40} /></div>
+                  <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}><IconCheckCircle size={40} /></div>
                   <div style={{ fontSize: 16, fontWeight: 600, color: "#059669" }}>{t("config.restartSuccess")}</div>
                 </>
               )}
               {restartOverlay.phase === "fail" && (
                 <>
-                  <div style={{ fontSize: 36, marginBottom: 8 }}><IconXCircle size={40} /></div>
+                  <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}><IconXCircle size={40} /></div>
                   <div style={{ fontSize: 16, fontWeight: 600, color: "#dc2626" }}>{t("config.restartFail")}</div>
                 </>
               )}
               {restartOverlay.phase === "notRunning" && (
                 <>
-                  <div style={{ fontSize: 36, marginBottom: 8 }}><IconInfo size={40} /></div>
+                  <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}><IconInfo size={40} /></div>
                   <div style={{ fontSize: 14, fontWeight: 500, color: "#64748b" }}>{t("config.restartNotRunning")}</div>
                 </>
               )}
@@ -8824,29 +5710,11 @@ export function App() {
         )}
         <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
 
-        {/* ── Module restart prompt ── */}
-        {moduleRestartPrompt && (
-          <div className="modalOverlay" onClick={() => setModuleRestartPrompt(null)}>
-            <div className="modalContent" style={{ maxWidth: 400, padding: "28px 24px", borderRadius: 16 }} onClick={(e) => e.stopPropagation()}>
-              <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>{t("modules.restartTitle")}</div>
-              <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 20, lineHeight: 1.6 }}>
-                {t("modules.restartDesc", { name: moduleRestartPrompt })}
-              </div>
-              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                <button className="btnSmall" onClick={() => setModuleRestartPrompt(null)}>{t("modules.restartLater")}</button>
-                <button className="btnPrimary btnSmall" onClick={async () => {
-                  setModuleRestartPrompt(null);
-                  await applyAndRestart([]);
-                }}>{t("modules.restartNow")}</button>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* ── Service conflict dialog ── */}
         {conflictDialog && (
-          <div className="modalOverlay" onClick={() => { setConflictDialog(null); setPendingStartWsId(null); }}>
-            <div className="modalContent" style={{ maxWidth: 440, padding: 24 }} onClick={(e) => e.stopPropagation()}>
+          <ModalOverlay onClose={() => { setConflictDialog(null); setPendingStartWsId(null); }}>
+            <div className="modalContent" style={{ maxWidth: 440, padding: 24 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
                 <span style={{ fontSize: 20 }}>⚠️</span>
                 <span style={{ fontWeight: 600, fontSize: 15 }}>{t("conflict.title")}</span>
@@ -8863,7 +5731,7 @@ export function App() {
                   onClick={() => connectToExistingLocalService()}>{t("conflict.connectExisting")}</button>
               </div>
             </div>
-          </div>
+          </ModalOverlay>
         )}
 
         {/* ── Version mismatch banner ── */}
@@ -8878,7 +5746,7 @@ export function App() {
               {t("version.mismatchDetail", { backend: versionMismatch.backend, desktop: versionMismatch.desktop })}
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <button className="btnSmall" style={{ fontSize: 11 }} onClick={async () => { const ok = await copyToClipboard(t("version.pipCommand")); if (ok) setNotice(t("version.copied")); }}>{t("version.updatePip")}</button>
+              <button className="btnSmall" style={{ fontSize: 11 }} onClick={async () => { const ok = await copyToClipboard(t("version.pipCommand")); if (ok) notifySuccess(t("version.copied")); }}>{t("version.updatePip")}</button>
               <code style={{ fontSize: 11, background: "var(--nav-hover)", padding: "2px 8px", borderRadius: 4, color: "var(--text)" }}>{t("version.pipCommand")}</code>
             </div>
           </div>
@@ -8952,33 +5820,38 @@ export function App() {
         )}
 
         <ConfirmDialog dialog={confirmDialog} onClose={() => setConfirmDialog(null)} />
-        <ToastContainer busy={busy} notice={notice} error={error} onDismissNotice={() => setNotice(null)} onDismissError={() => setError(null)} onCopySuccess={() => setNotice(t("version.copied"))} errorClickToCopyTitle={t("status.clickToCopy", "点击复制")} />
+        <Toaster position="top-right" richColors closeButton />
 
         {view === "wizard" ? (() => {
           const saveConfig = getFooterSaveConfig();
           return saveConfig ? (
             <div className="footer" style={{ gridRow: 4, justifyContent: "flex-end" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <button className="btnPrimary"
+                <Button variant="secondary"
                   onClick={() => renderIntegrationsSave(saveConfig.keys, saveConfig.savedMsg)}
                   disabled={!currentWorkspaceId || !!busy}>
                   {t("config.saveEnv")}
-                </button>
-                <button className="btnApplyRestart"
+                </Button>
+                <Button
                   onClick={() => applyAndRestart(saveConfig.keys)}
                   disabled={!currentWorkspaceId || !!busy || !!restartOverlay}
                   title={t("config.applyRestartHint")}>
                   {t("config.applyRestart")}
-                </button>
+                </Button>
               </div>
             </div>
           ) : null;
         })() : null}
       </main>
 
+      {/* Feedback Modal (Bug Report + Feature Request) */}
+      <FeedbackModal
+        open={bugReportOpen}
+        onClose={() => setBugReportOpen(false)}
+        apiBase={httpApiBase()}
+      />
     </div>
     </EnvFieldContext.Provider>
-    </ConfigProvider>
   );
 }
 
