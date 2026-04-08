@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "../platform";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, Terminal, Trash2 } from "lucide-react";
 
 export function CliManager() {
+  const { t } = useTranslation();
   const [cliStatus, setCliStatus] = useState<{
     registeredCommands: string[];
     inPath: boolean;

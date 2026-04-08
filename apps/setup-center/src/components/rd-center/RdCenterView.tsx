@@ -5,11 +5,11 @@ import { Alert, Button, Space, Tabs, Tooltip, Typography, message } from "antd";
 import type { KeyboardEvent, MouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { invoke, listen, IS_TAURI, IS_WINDOWS } from "../platform";
+import { invoke, listen, IS_TAURI, IS_WINDOWS } from "../../platform";
 import {
   rdProjectPathForWorkOrder,
   rdSessionNameForWorkOrderId,
-} from "../rdWorkOrderPaths";
+} from "./rdWorkOrderPaths";
 
 export type RdWorkOrder = {
   id: string;

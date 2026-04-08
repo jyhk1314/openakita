@@ -84,7 +84,7 @@ import { FieldText, FieldBool, FieldSelect, FieldCombo, TelegramPairingCodeHint 
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { ToastContainer } from "./components/ToastContainer";
 import { Sidebar } from "./components/Sidebar";
-import { RdCenterView } from "./components/RdCenterView";
+import { RdCenterView } from "./components/rd-center/RdCenterView";
 import { Topbar } from "./components/Topbar";
 import { useNotifications } from "./hooks/useNotifications";
 import { useVersionCheck, compareSemver } from "./hooks/useVersionCheck";
