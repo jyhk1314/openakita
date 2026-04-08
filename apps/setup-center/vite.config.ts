@@ -62,17 +62,22 @@ export default defineConfig({
     watch: {
       ignored: ["**/src-tauri/target/**"],
     },
-    // Dev 时（npm run dev / npm run dev:web）都代理到后端，避免 CORS，端口与后端 API_PORT(18900) 一致
-    proxy: {
-      "/api": {
-        target: "http://127.0.0.1:18900",
-        changeOrigin: true,
-      },
-      "/ws": {
-        target: "ws://127.0.0.1:18900",
-        ws: true,
-      },
-    },
+    // 与迁移前一致：仅在 web 构建目标（npm run dev:web）下代理 /api、/ws，避免 CORS。
+    // tauri dev / npm run dev 默认不走代理；前端本地模式多用 apiBaseUrl 直连 18900。
+    ...(isWebBuild
+      ? {
+          proxy: {
+            "/api": {
+              target: "http://127.0.0.1:18900",
+              changeOrigin: true,
+            },
+            "/ws": {
+              target: "ws://127.0.0.1:18900",
+              ws: true,
+            },
+          },
+        }
+      : {}),
   },
   clearScreen: false,
 });

@@ -64,6 +64,23 @@ fn get_platform_info() -> PlatformInfo {
     }
 }
 
+#[tauri::command]
+fn toggle_pet_window(app_handle: tauri::AppHandle, show: bool) -> Result<(), String> {
+    if let Some(window) = app_handle.get_webview_window("pet_window") {
+        if show {
+            window.show().map_err(|e| e.to_string())?;
+        } else {
+            window.hide().map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn start_dragging(window: tauri::Window) -> Result<(), String> {
+    window.start_dragging().map_err(|e| e.to_string())
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct WorkspaceSummary {
@@ -184,6 +201,23 @@ fn run_dir() -> PathBuf {
 /// 安装配置日志目录：~/.synapse/logs/
 fn setup_logs_dir() -> PathBuf {
     synapse_root_dir().join("logs")
+}
+
+/// Append a diagnostic line to `~/.synapse/logs/autostart.log`.
+fn log_to_file(msg: &str) {
+    let log_dir = setup_logs_dir();
+    let _ = fs::create_dir_all(&log_dir);
+    let path = log_dir.join("autostart.log");
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let line = format!("[{}] {}\n", secs, msg);
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .and_then(|mut f| std::io::Write::write_all(&mut f, line.as_bytes()));
 }
 
 /// 开始写入安装配置日志，创建带日期的日志文件。返回完整路径供前端展示。
@@ -326,8 +360,9 @@ fn modules_dir() -> PathBuf {
 
 /// 获取内嵌 PyInstaller 打包后端的目录
 fn bundled_backend_dir() -> PathBuf {
-    let exe_dir = std::env::current_exe()
-        .ok()
+    let exe_path = std::env::current_exe().ok();
+    let exe_dir = exe_path
+        .as_ref()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
         .unwrap_or_else(|| PathBuf::from("."));
 
@@ -365,18 +400,40 @@ fn bundled_backend_dir() -> PathBuf {
     {
         let mut candidates: Vec<PathBuf> = vec![];
 
+        // Tauri 2.x deb 的二进制名称默认来自 Cargo.toml package.name（非 productName），
+        // lib 目录与二进制名称一致: /usr/lib/<binary-name>/resources/...
+        // 从 current_exe() 动态推导，避免硬编码过时名称。
+        let exe_name = exe_path
+            .as_ref()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()));
+
+        let static_names: &[&str] = &[
+            "synapse-setup-center", // Cargo.toml package name (Tauri 2.x default)
+            "synapse-desktop",      // legacy / mainBinaryName override
+            "open-akita-desktop",
+        ];
+
         // deb 常见布局: /usr/lib/<app-name>/resources/synapse-server/
-        // productName = "Synapse Desktop" → Tauri deb 使用 kebab-case
-        for app_name in &["synapse-desktop", "synapse-desktop"] {
+        if let Some(ref name) = exe_name {
             candidates.push(PathBuf::from(format!(
-                "/usr/lib/{}/resources/synapse-server",
-                app_name
+                "/usr/lib/{}/resources/synapse-server", name
+            )));
+        }
+        for app_name in static_names {
+            candidates.push(PathBuf::from(format!(
+                "/usr/lib/{}/resources/synapse-server", app_name
             )));
         }
 
         // 若 exe 在 /usr/bin/，尝试同级 /usr/lib/<app>/
         if let Some(usr_dir) = exe_dir.parent() {
-            for app_name in &["synapse-desktop", "synapse-desktop"] {
+            if let Some(ref name) = exe_name {
+                candidates.push(
+                    usr_dir.join("lib").join(name)
+                        .join("resources").join("synapse-server"),
+                );
+            }
+            for app_name in static_names {
                 candidates.push(
                     usr_dir
                         .join("lib")
@@ -390,7 +447,13 @@ fn bundled_backend_dir() -> PathBuf {
         // AppImage: 解压后 exe 在 <mount>/usr/bin/，resources 可能在 <mount>/usr/lib/<app>/
         // 也可能在 <mount>/resources/ (Tauri AppImage 平坦布局)
         if let Some(mount_root) = exe_dir.parent().and_then(|p| p.parent()) {
-            for app_name in &["synapse-desktop", "synapse-desktop"] {
+            if let Some(ref name) = exe_name {
+                candidates.push(
+                    mount_root.join("lib").join(name)
+                        .join("resources").join("synapse-server"),
+                );
+            }
+            for app_name in static_names {
                 candidates.push(
                     mount_root
                         .join("lib")
@@ -410,8 +473,9 @@ fn bundled_backend_dir() -> PathBuf {
         }
 
         eprintln!(
-            "[bundled_backend_dir] not found. exe_dir={}, checked {} Linux fallback paths",
+            "[bundled_backend_dir] not found. exe_dir={}, exe_name={:?}, checked {} Linux fallback paths",
             exe_dir.display(),
+            exe_name,
             candidates.len()
         );
     }
@@ -872,38 +936,88 @@ fn set_custom_root_dir(path: Option<String>, migrate: bool) -> Result<RootDirInf
         let _ = fs::remove_file(&test_file);
     }
 
-    if migrate {
-        if let Some(ref new_root) = clean_path {
-            let old_root = synapse_root_dir();
-            let new_root_path = PathBuf::from(new_root);
-            if old_root != new_root_path && old_root.exists() {
-                for entry_name in &["workspaces", "venv", "runtime", "run", "logs", "modules", "bin"] {
-                    let src = old_root.join(entry_name);
-                    let dst = new_root_path.join(entry_name);
-                    if src.exists() && src.is_dir() && !dst.exists() {
-                        if let Err(e) = copy_dir_recursive(&src, &dst) {
-                            eprintln!("migrate dir {}: {}", entry_name, e);
+    let migrate_old_root: Option<PathBuf> = if migrate {
+        let old_root = synapse_root_dir();
+        let new_root_path = match &clean_path {
+            Some(p) => PathBuf::from(p),
+            None => default_root_dir(),
+        };
+
+        if old_root != new_root_path && old_root.exists() {
+            if !new_root_path.exists() {
+                fs::create_dir_all(&new_root_path)
+                    .map_err(|e| format!("无法创建目标目录: {e}"))?;
+            }
+
+            let critical_dirs = ["workspaces"];
+            let optional_dirs = ["venv", "runtime", "run", "logs", "modules", "bin"];
+            let mut errors: Vec<String> = Vec::new();
+
+            for entry_name in critical_dirs.iter().chain(optional_dirs.iter()) {
+                let src = old_root.join(entry_name);
+                let dst = new_root_path.join(entry_name);
+                if src.exists() && src.is_dir() && !dst.exists() {
+                    if let Err(e) = copy_dir_recursive(&src, &dst) {
+                        let msg = format!("{}: {}", entry_name, e);
+                        eprintln!("migrate dir {}", msg);
+                        if critical_dirs.contains(entry_name) {
+                            let _ = fs::remove_dir_all(&dst);
+                            return Err(format!(
+                                "关键目录 {} 复制失败，已中止迁移，配置未更改。错误: {}",
+                                entry_name, e
+                            ));
                         }
-                    }
-                }
-                for file_name in &["state.json", "cli.json"] {
-                    let src = old_root.join(file_name);
-                    let dst = new_root_path.join(file_name);
-                    if src.exists() && src.is_file() && !dst.exists() {
-                        if let Err(e) = fs::copy(&src, &dst) {
-                            eprintln!("migrate file {}: {}", file_name, e);
-                        }
+                        errors.push(msg);
                     }
                 }
             }
+            for file_name in &["state.json", "cli.json"] {
+                let src = old_root.join(file_name);
+                let dst = new_root_path.join(file_name);
+                if src.exists() && src.is_file() && !dst.exists() {
+                    if let Err(e) = fs::copy(&src, &dst) {
+                        errors.push(format!("{}: {}", file_name, e));
+                        eprintln!("migrate file {}: {}", file_name, e);
+                    }
+                }
+            }
+            if !errors.is_empty() {
+                eprintln!("migration completed with {} non-critical errors", errors.len());
+            }
+
             if !new_root_path.exists() || !new_root_path.is_dir() {
                 return Err("迁移完成后目标目录不可访问，未更改配置。请检查磁盘连接后重试。".into());
             }
+            Some(old_root)
+        } else {
+            None
         }
-    }
+    } else {
+        None
+    };
 
     let config = RootConfig { custom_root: clean_path };
     write_root_config(&config)?;
+
+    // Config updated successfully — clean up migrated entries from old root
+    if let Some(ref old_root) = migrate_old_root {
+        let dir_names = ["workspaces", "venv", "runtime", "run", "logs", "modules", "bin"];
+        let file_names = ["state.json", "cli.json"];
+        for name in &dir_names {
+            let p = old_root.join(name);
+            if p.exists() && p.is_dir() {
+                if let Err(e) = fs::remove_dir_all(&p) {
+                    eprintln!("cleanup old {}: {e}", p.display());
+                }
+            }
+        }
+        for name in &file_names {
+            let p = old_root.join(name);
+            if p.exists() && p.is_file() {
+                let _ = fs::remove_file(&p);
+            }
+        }
+    }
 
     Ok(RootDirInfo {
         default_root: default_root_dir().to_string_lossy().to_string(),
@@ -935,6 +1049,155 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+// ── Workspace migration preflight ──
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct MigrateEntry {
+    name: String,
+    size_mb: f64,
+    exists_at_target: bool,
+    is_dir: bool,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct MigratePreflightInfo {
+    source_path: String,
+    source_size_mb: f64,
+    target_path: String,
+    target_free_mb: f64,
+    entries: Vec<MigrateEntry>,
+    can_migrate: bool,
+    reason: String,
+}
+
+fn available_space_mb(path: &Path) -> f64 {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use std::ffi::OsStr;
+        let fallback = path.ancestors().last().map(|r| r.to_string_lossy().to_string())
+            .unwrap_or_else(|| "C:\\".to_string());
+        let wide: Vec<u16> = OsStr::new(path.to_str().unwrap_or(&fallback))
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let mut free_bytes: u64 = 0;
+        unsafe {
+            #[link(name = "kernel32")]
+            extern "system" {
+                fn GetDiskFreeSpaceExW(
+                    lpDirectoryName: *const u16,
+                    lpFreeBytesAvailableToCaller: *mut u64,
+                    lpTotalNumberOfBytes: *mut u64,
+                    lpTotalNumberOfFreeBytes: *mut u64,
+                ) -> i32;
+            }
+            GetDiskFreeSpaceExW(wide.as_ptr(), &mut free_bytes, std::ptr::null_mut(), std::ptr::null_mut());
+        }
+        free_bytes as f64 / 1024.0 / 1024.0
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        use std::mem::MaybeUninit;
+        let c_path = std::ffi::CString::new(path.to_str().unwrap_or("/")).unwrap_or_default();
+        let mut stat = MaybeUninit::<libc::statvfs>::uninit();
+        let ok = unsafe { libc::statvfs(c_path.as_ptr(), stat.as_mut_ptr()) };
+        if ok == 0 {
+            let stat = unsafe { stat.assume_init() };
+            (stat.f_bavail as f64) * (stat.f_frsize as f64) / 1024.0 / 1024.0
+        } else {
+            0.0
+        }
+    }
+}
+
+#[tauri::command]
+fn preflight_migrate_root(target_path: String) -> Result<MigratePreflightInfo, String> {
+    let target = PathBuf::from(target_path.trim());
+    if !target.is_absolute() {
+        return Err("请使用绝对路径".into());
+    }
+
+    let source = synapse_root_dir();
+    if source == target {
+        return Ok(MigratePreflightInfo {
+            source_path: source.to_string_lossy().to_string(),
+            source_size_mb: 0.0,
+            target_path: target.to_string_lossy().to_string(),
+            target_free_mb: 0.0,
+            entries: vec![],
+            can_migrate: false,
+            reason: "目标路径与当前路径相同".into(),
+        });
+    }
+
+    let dir_names: &[&str] = &["workspaces", "venv", "runtime", "run", "logs", "modules", "bin"];
+    let file_names: &[&str] = &["state.json", "cli.json"];
+
+    let mut entries = Vec::new();
+    let mut total_size: u64 = 0;
+
+    for name in dir_names {
+        let src = source.join(name);
+        if src.exists() && src.is_dir() {
+            let size = dir_size_bytes(&src);
+            total_size += size;
+            entries.push(MigrateEntry {
+                name: name.to_string(),
+                size_mb: size as f64 / 1024.0 / 1024.0,
+                exists_at_target: target.join(name).exists(),
+                is_dir: true,
+            });
+        }
+    }
+    for name in file_names {
+        let src = source.join(name);
+        if src.exists() && src.is_file() {
+            let size = src.metadata().map(|m| m.len()).unwrap_or(0);
+            total_size += size;
+            entries.push(MigrateEntry {
+                name: name.to_string(),
+                size_mb: size as f64 / 1024.0 / 1024.0,
+                exists_at_target: target.join(name).exists(),
+                is_dir: false,
+            });
+        }
+    }
+
+    let free_space_path = if target.exists() {
+        target.clone()
+    } else {
+        target.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| target.clone())
+    };
+    let target_free_mb = available_space_mb(&free_space_path);
+    let source_size_mb = total_size as f64 / 1024.0 / 1024.0;
+
+    let has_conflicts = entries.iter().any(|e| e.exists_at_target);
+    let enough_space = target_free_mb > source_size_mb * 1.1 + 100.0;
+
+    let (can_migrate, reason) = if entries.is_empty() {
+        (false, "当前数据目录为空，无需迁移".into())
+    } else if !enough_space {
+        (false, format!("目标磁盘空间不足（需要 {:.0} MB，可用 {:.0} MB）", source_size_mb * 1.1, target_free_mb))
+    } else if has_conflicts {
+        (true, "目标路径已存在部分数据，已有数据将被跳过".into())
+    } else {
+        (true, "可以迁移".into())
+    };
+
+    Ok(MigratePreflightInfo {
+        source_path: source.to_string_lossy().to_string(),
+        source_size_mb,
+        target_path: target.to_string_lossy().to_string(),
+        target_free_mb,
+        entries,
+        can_migrate,
+        reason,
+    })
 }
 
 #[tauri::command]
@@ -1169,6 +1432,63 @@ fn cleanup_old_environment(clean_venv: bool, clean_runtime: bool) -> Result<Stri
         }
         Ok(msg)
     }
+}
+
+/// Reset the entire Synapse installation to factory state.
+/// Stops all processes, then removes workspaces, runtime, venv, logs, etc.
+/// Preserves only `root_config.json` (custom root dir setting).
+#[tauri::command]
+fn factory_reset() -> Result<String, String> {
+    // 1. Stop all running backend processes
+    let stopped = synapse_stop_all_processes();
+
+    // 2. Determine root and build list of paths to remove
+    let root = synapse_root_dir();
+    let dirs_to_remove = ["workspaces", "venv", "runtime", "run", "logs", "modules", "bin", "data"];
+    let files_to_remove = ["state.json", "cli.json"];
+
+    let mut removed = Vec::new();
+    let mut errors = Vec::new();
+
+    for name in &dirs_to_remove {
+        let p = root.join(name);
+        if p.exists() {
+            match force_remove_dir(&p) {
+                Ok(()) => removed.push(name.to_string()),
+                Err(e) => errors.push(format!("{name}: {e}")),
+            }
+        }
+    }
+
+    for name in &files_to_remove {
+        let p = root.join(name);
+        if p.exists() {
+            match fs::remove_file(&p) {
+                Ok(()) => removed.push(name.to_string()),
+                Err(e) => errors.push(format!("{name}: {e}")),
+            }
+        }
+    }
+
+    if !errors.is_empty() {
+        return Err(format!(
+            "部分重置失败: {}{}",
+            errors.join("; "),
+            if !removed.is_empty() { format!(" (已清理: {})", removed.join(", ")) } else { String::new() }
+        ));
+    }
+
+    let mut msg = if removed.is_empty() {
+        "无需清理（已是初始状态）".to_string()
+    } else {
+        format!("已清理: {}", removed.join(", "))
+    };
+
+    if !stopped.is_empty() {
+        msg.push_str(&format!(" (已停止 {} 个进程)", stopped.len()));
+    }
+
+    Ok(msg)
 }
 
 fn state_file_path() -> PathBuf {
@@ -2304,7 +2624,10 @@ fn startup_version_check(app_version: &str, port: u16) -> VersionCheckResult {
         .build()
     {
         Ok(c) => c,
-        Err(_) => return VersionCheckResult::NotRunning,
+        Err(e) => {
+            log_to_file(&format!("[version_check] client build failed: {e}"));
+            return VersionCheckResult::NotRunning;
+        }
     };
 
     let resp = match client
@@ -2312,7 +2635,14 @@ fn startup_version_check(app_version: &str, port: u16) -> VersionCheckResult {
         .send()
     {
         Ok(r) if r.status().is_success() => r,
-        _ => return VersionCheckResult::NotRunning,
+        Ok(r) => {
+            log_to_file(&format!("[version_check] health check non-success: {}", r.status()));
+            return VersionCheckResult::NotRunning;
+        }
+        Err(e) => {
+            log_to_file(&format!("[version_check] health check failed: {e}"));
+            return VersionCheckResult::NotRunning;
+        }
     };
 
     let json: serde_json::Value = match resp.json() {
@@ -2428,7 +2758,92 @@ fn startup_reconcile() {
     }
 }
 
+/// Append a crash entry to `~/.synapse/logs/crash.log`.
+///
+/// When `show_dialog` is true, a native `MessageBoxW` (Windows) is displayed
+/// so the user gets feedback instead of a silent flash-exit.
+///
+/// Returns the path to the crash log (best-effort; may not exist if writing
+/// failed, e.g. due to permissions).
+fn write_crash_log(message: &str, show_dialog: bool) -> PathBuf {
+    let log_dir = setup_logs_dir();
+    let _ = fs::create_dir_all(&log_dir);
+    let crash_path = log_dir.join("crash.log");
+
+    let timestamp = {
+        let dur = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        dur.as_secs()
+    };
+    let exe = std::env::current_exe()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "<unknown>".to_string());
+    let cwd = std::env::current_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "<unknown>".to_string());
+    let home = home_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "<None>".to_string());
+    let entry = format!(
+        "[{timestamp}] exe={exe} cwd={cwd} home={home}\n{message}\n---\n"
+    );
+
+    let _ = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&crash_path)
+        .and_then(|mut f| f.write_all(entry.as_bytes()));
+
+    if show_dialog {
+        #[cfg(windows)]
+        {
+            use std::ffi::OsStr;
+            use std::os::windows::ffi::OsStrExt;
+            use std::iter::once;
+
+            extern "system" {
+                fn MessageBoxW(
+                    hwnd: *mut std::ffi::c_void,
+                    text: *const u16,
+                    caption: *const u16,
+                    typ: u32,
+                ) -> i32;
+            }
+
+            fn to_wide(s: &str) -> Vec<u16> {
+                OsStr::new(s).encode_wide().chain(once(0)).collect()
+            }
+
+            let body = format!(
+                "Synapse Desktop 启动失败 (startup failed)\n\n\
+                 {message}\n\n\
+                 崩溃日志已写入 (crash log): {}\n\
+                 请将此日志发送给开发者以帮助诊断问题。",
+                crash_path.display()
+            );
+            let caption = "Synapse – Crash";
+            let wb = to_wide(&body);
+            let wc = to_wide(caption);
+            unsafe {
+                MessageBoxW(std::ptr::null_mut(), wb.as_ptr(), wc.as_ptr(), 0x10);
+            }
+        }
+    }
+
+    crash_path
+}
+
 fn main() {
+    // Global panic hook: capture panics to crash.log + show dialog.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let msg = format!("PANIC: {info}");
+        eprintln!("{msg}");
+        write_crash_log(&msg, true);
+        default_hook(info);
+    }));
+
     // Ensure localhost is always excluded from proxy resolution.
     //
     // macOS: Clash/V2Ray set system proxy via Network Preferences. hyper-util
@@ -2464,7 +2879,7 @@ fn main() {
         }
     }
 
-    tauri::Builder::default()
+    let app = match tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // 第二个实例启动时，聚焦已有窗口并退出自身
             if let Some(w) = app.get_webview_window("main") {
@@ -2479,11 +2894,15 @@ fn main() {
         ))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
-        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .manage(rd_terminal::PtyManager::new())
         .setup(|app| {
+            let result: Result<(), Box<dyn std::error::Error>> = (|| {
             // ── NSIS 安装后以当前用户执行清理（解决“以管理员运行安装程序”时清错目录的问题） ──
             let args: Vec<String> = std::env::args().collect();
             if let Some(pos) = args.iter().position(|a| a == "--clean-env") {
@@ -2566,9 +2985,8 @@ fn main() {
                 }
             }
 
-            // ── 自动拉起后端（仅 release 模式生效） ──
+            // ── 自动拉起后端 ──
             // 如果有已配置的工作区且后端未在运行，则自动启动后端。
-            // dev 模式（cargo tauri dev）跳过，避免与手动启动的开发后端冲突。
             // 前端通过 is_backend_auto_starting 查询此状态，
             // 在启动期间显示提示并禁用启动/重启按钮。
             //
@@ -2577,24 +2995,44 @@ fn main() {
             //   - RunningOk   → 后端在运行且版本可接受
             //   - Upgraded    → 旧版后端已被终止，需要启动新版
             let app_version = app.package_info().version.to_string();
-                let state = read_state_file();
-                if let Some(ref ws_id) = state.current_workspace_id {
-                    let port = read_workspace_api_port(ws_id).unwrap_or(18900);
-                let need_start = !matches!(
-                    startup_version_check(&app_version, port),
-                    VersionCheckResult::RunningOk
-                );
+            let state = read_state_file();
+            if let Some(ref ws_id) = state.current_workspace_id {
+                let port = read_workspace_api_port(ws_id).unwrap_or(18900);
+                let check_result = startup_version_check(&app_version, port);
+                let need_start = !matches!(check_result, VersionCheckResult::RunningOk);
+                log_to_file(&format!(
+                    "[auto-start] app_version={}, ws_id={}, port={}, need_start={}",
+                    app_version, ws_id, port, need_start
+                ));
                 if need_start {
                     AUTO_START_IN_PROGRESS.store(true, Ordering::SeqCst);
-                        let venv_dir = synapse_root_dir().join("venv").to_string_lossy().to_string();
-                        let ws_clone = ws_id.clone();
-                        std::thread::spawn(move || {
-                            let _ = synapse_service_start(venv_dir, ws_clone);
+                    let venv_dir = synapse_root_dir().join("venv").to_string_lossy().to_string();
+                    let ws_clone = ws_id.clone();
+                    std::thread::spawn(move || {
+                        match synapse_service_start(venv_dir.clone(), ws_clone.clone()) {
+                            Ok(status) => {
+                                log_to_file(&format!(
+                                    "[auto-start] success: running={}, pid={:?}",
+                                    status.running, status.pid
+                                ));
+                            }
+                            Err(e) => {
+                                log_to_file(&format!("[auto-start] FAILED: {}", e));
+                            }
+                        }
                         AUTO_START_IN_PROGRESS.store(false, Ordering::SeqCst);
-                        });
+                    });
                 }
+            } else {
+                log_to_file("[auto-start] skipped: no current_workspace_id in state");
             }
             Ok(())
+            })();
+
+            if let Err(ref e) = result {
+                write_crash_log(&format!("Setup failed: {e}"), false);
+            }
+            result
         })
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
@@ -2606,8 +3044,10 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             get_platform_info,
+            toggle_pet_window,
             get_root_dir_info,
             set_custom_root_dir,
+            preflight_migrate_root,
             list_workspaces,
             create_workspace,
             set_current_workspace,
@@ -2649,9 +3089,22 @@ fn main() {
             synapse_uninstall_skill,
             synapse_list_marketplace,
             synapse_get_skill_config,
+            synapse_wecom_onboard_start,
+            synapse_wecom_onboard_poll,
+            synapse_feishu_onboard_start,
+            synapse_feishu_onboard_poll,
+            synapse_feishu_validate,
+            synapse_qqbot_onboard_start,
+            synapse_qqbot_onboard_poll,
+            synapse_qqbot_onboard_create,
+            synapse_qqbot_onboard_poll_and_create,
+            synapse_qqbot_validate,
+            synapse_wechat_onboard_start,
+            synapse_wechat_onboard_poll,
             fetch_pypi_versions,
             http_get_json,
             http_proxy_request,
+            backend_fetch,
             read_file_base64,
             download_file,
             show_item_in_folder,
@@ -2665,6 +3118,7 @@ fn main() {
             check_environment,
             check_backend_availability,
             cleanup_old_environment,
+            factory_reset,
             start_onboarding_log,
             append_onboarding_log,
             append_onboarding_log_lines,
@@ -2673,6 +3127,7 @@ fn main() {
             register_cli,
             unregister_cli,
             get_cli_status,
+	    start_dragging,
             claude_code_check,
             claude_code_install,
             claude_code_install_local,
@@ -2698,34 +3153,50 @@ fn main() {
             rd_terminal::commands::agent_pane0_query_mode
         ])
         .build(tauri::generate_context!())
-        .expect("error while building tauri application")
-        .run(|_app_handle, event| {
-            if let tauri::RunEvent::Exit = event {
-                // Safety-net: clean up backend processes on ANY exit path
-                // (SIGTERM, system shutdown, unexpected termination, etc.)
-                // Idempotent — harmless if tray-quit already stopped everything.
-                //
-                // 直接 kill 进程而非走 HTTP /api/shutdown：
-                //   1. 退出时要尽快完成清理，避免 Finder/macOS 等待超时后强杀本进程
-                //      导致后端沦为孤儿进程。
-                //   2. Python 后端已注册 SIGTERM handler，收到信号即可优雅关闭。
-                //   3. HTTP API 可能因代理、端口状态等原因不可达，增加不确定性。
-                let entries = list_service_pids();
-                for ent in &entries {
-                    if ent.started_by == "external" {
-                        continue;
-                    }
-                    if is_pid_running(ent.pid) {
-                        let _ = kill_pid(ent.pid);
-                    }
-                    let _ = fs::remove_file(std::path::PathBuf::from(&ent.pid_file));
-                    remove_heartbeat_file(&ent.workspace_id);
+    {
+        Ok(a) => a,
+        Err(e) => {
+            let msg = format!("Tauri build failed: {e}");
+            eprintln!("{msg}");
+            write_crash_log(&msg, true);
+            std::process::exit(1);
+        }
+    };
+
+    app.run(|_app_handle, event| {
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen { has_visible_windows, .. } = &event {
+            if !has_visible_windows {
+                if let Some(win) = _app_handle.get_webview_window("main") {
+                    let _ = win.show();
+                    let _ = win.set_focus();
                 }
-                kill_synapse_orphans();
-                #[cfg(target_os = "windows")]
-                rd_terminal::force_kill_psmux_on_exit();
             }
-        });
+        }
+        if let tauri::RunEvent::Exit = event {
+            // Safety-net: clean up backend processes on ANY exit path
+            // (SIGTERM, system shutdown, unexpected termination, etc.)
+            // Idempotent — harmless if tray-quit already stopped everything.
+            //
+            // 直接 kill 进程而非走 HTTP /api/shutdown：
+            //   1. 退出时要尽快完成清理，避免 Finder/macOS 等待超时后强杀本进程
+            //      导致后端沦为孤儿进程。
+            //   2. Python 后端已注册 SIGTERM handler，收到信号即可优雅关闭。
+            //   3. HTTP API 可能因代理、端口状态等原因不可达，增加不确定性。
+            let entries = list_service_pids();
+            for ent in &entries {
+                if ent.started_by == "external" {
+                    continue;
+                }
+                if is_pid_running(ent.pid) {
+                    let _ = kill_pid(ent.pid);
+                }
+                let _ = fs::remove_file(std::path::PathBuf::from(&ent.pid_file));
+                remove_heartbeat_file(&ent.workspace_id);
+            }
+            kill_synapse_orphans();
+        }
+    });
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -3046,6 +3517,7 @@ async fn spawn_blocking_result<R: Send + 'static>(
 ///
 /// - Quoted values (`"..."` or `'...'`): return content between quotes literally.
 /// - Unquoted values: strip inline comment (`#` preceded by whitespace).
+#[allow(dead_code)]
 fn clean_env_value(raw: &str) -> String {
     let v = raw.trim();
     if v.len() >= 2 {
@@ -3065,6 +3537,7 @@ fn clean_env_value(raw: &str) -> String {
     v.to_string()
 }
 
+#[allow(dead_code)]
 fn read_env_kv(path: &Path) -> Vec<(String, String)> {
     let Ok(content) = fs::read_to_string(path) else {
         return vec![];
@@ -3087,7 +3560,12 @@ fn read_env_kv(path: &Path) -> Vec<(String, String)> {
 
 #[tauri::command]
 fn synapse_service_start(venv_dir: String, workspace_id: String) -> Result<ServiceStatus, String> {
-    fs::create_dir_all(run_dir()).map_err(|e| format!("create run dir failed: {e}"))?;
+    log_to_file(&format!("[service_start] called: ws={}, venv={}", workspace_id, venv_dir));
+    fs::create_dir_all(run_dir()).map_err(|e| {
+        let msg = format!("create run dir failed: {e}");
+        log_to_file(&format!("[service_start] FAIL: {}", msg));
+        msg
+    })?;
     let pid_file = service_pid_file(&workspace_id);
     let pf = pid_file.to_string_lossy().to_string();
 
@@ -3157,6 +3635,7 @@ fn synapse_service_start(venv_dir: String, workspace_id: String) -> Result<Servi
 
     // 优先使用内嵌 PyInstaller 后端，降级到 venv python
     let (backend_exe, backend_args) = get_backend_executable(&venv_dir);
+    log_to_file(&format!("[service_start] exe={}, exists={}", backend_exe.display(), backend_exe.exists()));
     if !backend_exe.exists() {
         let bundled_dir = bundled_backend_dir();
         let bundled_name = if cfg!(windows) { "synapse-server.exe" } else { "synapse-server" };
@@ -3197,15 +3676,9 @@ fn synapse_service_start(venv_dir: String, workspace_id: String) -> Result<Servi
     // Disable colored / styled output to avoid ANSI escape codes in log files.
     cmd.env("NO_COLOR", "1");
 
-    // inherit current env, then overlay workspace .env
-    // 注意：忽略会污染 Python 运行时的键，避免用户导入旧 .env 后把
-    // _internal/venv 的模块搜索路径破坏（典型表现：No module named encodings）。
-    for (k, v) in read_env_kv(&ws_dir.join(".env")) {
-        if is_harmful_python_env_key(&k) {
-            continue;
-        }
-        cmd.env(k, v);
-    }
+    // .env 由 Python 端的 load_dotenv(override=True) 自行加载，
+    // 不再由 Rust 注入，避免编码/BOM 问题导致 Key 丢失或损坏值抢占。
+    // Rust 只注入 Python 自己无法确定的路径类环境变量。
     cmd.env("LLM_ENDPOINTS_CONFIG", ws_dir.join("data").join("llm_endpoints.json"));
     cmd.env("SYNAPSE_ROOT", synapse_root_dir().to_string_lossy().to_string());
 
@@ -3239,8 +3712,13 @@ fn synapse_service_start(venv_dir: String, workspace_id: String) -> Result<Servi
         cmd.creation_flags(0x00000008u32 | 0x00000200u32 | 0x0800_0000u32); // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
     }
 
-    let child = cmd.spawn().map_err(|e| format!("spawn synapse serve failed: {e}"))?;
+    let child = cmd.spawn().map_err(|e| {
+        let msg = format!("spawn synapse serve failed: {e}");
+        log_to_file(&format!("[service_start] {}", msg));
+        msg
+    })?;
     let pid = child.id();
+    log_to_file(&format!("[service_start] spawned pid={}", pid));
     let started_at = now_epoch_secs();
 
     // ── 3. 写 JSON PID 文件 ──
@@ -3431,13 +3909,23 @@ fn set_auto_update(enabled: bool) -> Result<(), String> {
 
 /// 前端心跳检测到后端状态变化时调用，更新托盘 tooltip
 /// status: "alive" | "degraded" | "dead"
+/// im_summary: 可选的 IM 通道状态摘要（如 "TG:✓ FS:✓ WX:✗"）
 #[tauri::command]
-fn set_tray_backend_status(app: tauri::AppHandle, status: String) -> Result<(), String> {
-    let tooltip = match status.as_str() {
+fn set_tray_backend_status(app: tauri::AppHandle, status: String, im_summary: Option<String>) -> Result<(), String> {
+    let base = match status.as_str() {
         "alive" => "Synapse - Running",
         "degraded" => "Synapse - Backend Unresponsive",
         "dead" => "Synapse - Backend Stopped",
         _ => "Synapse",
+    };
+    let tooltip = if let Some(ref im) = im_summary {
+        if !im.is_empty() {
+            format!("{}\nIM: {}", base, im)
+        } else {
+            base.to_string()
+        }
+    } else {
+        base.to_string()
     };
     // 更新所有 tray icon 的 tooltip
     if let Some(tray) = app.tray_by_id("main_tray") {
@@ -3499,7 +3987,7 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .tooltip("Synapse")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(move |app, event| match event.id.as_ref() {
+        .on_menu_event(move |app: &tauri::AppHandle, event| match event.id.as_ref() {
             "quit" => {
                 // ── 退出前根据所有权标记决定是否停止后端 ──
 
@@ -3597,7 +4085,7 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             }
             _ => {}
         })
-        .on_tray_icon_event(move |tray, event| match event {
+        .on_tray_icon_event(move |tray: &tauri::tray::TrayIcon, event| match event {
             TrayIconEvent::Click {
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
@@ -3782,6 +4270,7 @@ fn export_workspace_backup(
     });
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(300))
+        .no_proxy()
         .build()
         .map_err(|e| format!("http client error: {e}"))?;
     let resp = client.post(&url).json(&body).send();
@@ -3913,6 +4402,7 @@ fn import_workspace_backup(
     let body = serde_json::json!({ "zip_path": zip_path });
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(300))
+        .no_proxy()
         .build()
         .map_err(|e| format!("http client error: {e}"))?;
     let resp = client.post(&url).json(&body).send();
@@ -5119,6 +5609,199 @@ async fn synapse_get_skill_config(
     .await
 }
 
+/// Start WeCom QR code onboarding (generate QR).
+/// Returns JSON with qr_url + qr_id.
+#[tauri::command]
+async fn synapse_wecom_onboard_start(
+    venv_dir: String,
+) -> Result<String, String> {
+    spawn_blocking_result(move || {
+        let args = vec!["wecom-onboard-start"];
+        run_python_module_json(&venv_dir, "synapse.setup_center.bridge", &args, &[])
+    })
+    .await
+}
+
+/// Poll WeCom QR code scan result.
+/// Returns JSON with bot_id + secret on success.
+#[tauri::command]
+async fn synapse_wecom_onboard_poll(
+    venv_dir: String,
+    scode: String,
+) -> Result<String, String> {
+    spawn_blocking_result(move || {
+        let args = vec![
+            "wecom-onboard-poll",
+            "--scode",
+            &scode,
+        ];
+        run_python_module_json(&venv_dir, "synapse.setup_center.bridge", &args, &[])
+    })
+    .await
+}
+
+/// Start Feishu Device Flow onboarding (QR scan).
+/// Returns JSON with device_code + verification_uri.
+#[tauri::command]
+async fn synapse_feishu_onboard_start(
+    venv_dir: String,
+    domain: Option<String>,
+) -> Result<String, String> {
+    spawn_blocking_result(move || {
+        let d = domain.unwrap_or_else(|| "feishu".to_string());
+        let args = vec!["feishu-onboard-start", "--domain", &d];
+        run_python_module_json(&venv_dir, "synapse.setup_center.bridge", &args, &[])
+    })
+    .await
+}
+
+/// Poll Feishu Device Flow authorization status.
+/// Returns JSON with status / app_id / app_secret on success.
+#[tauri::command]
+async fn synapse_feishu_onboard_poll(
+    venv_dir: String,
+    domain: Option<String>,
+    device_code: String,
+) -> Result<String, String> {
+    spawn_blocking_result(move || {
+        let d = domain.unwrap_or_else(|| "feishu".to_string());
+        let args = vec![
+            "feishu-onboard-poll",
+            "--domain",
+            &d,
+            "--device-code",
+            &device_code,
+        ];
+        run_python_module_json(&venv_dir, "synapse.setup_center.bridge", &args, &[])
+    })
+    .await
+}
+
+/// Validate Feishu App ID / App Secret credentials.
+/// Returns JSON with {valid: bool, error?: string}.
+#[tauri::command]
+async fn synapse_feishu_validate(
+    venv_dir: String,
+    app_id: String,
+    app_secret: String,
+    domain: Option<String>,
+) -> Result<String, String> {
+    spawn_blocking_result(move || {
+        let d = domain.unwrap_or_else(|| "feishu".to_string());
+        let args = vec![
+            "feishu-validate",
+            "--app-id",
+            &app_id,
+            "--app-secret",
+            &app_secret,
+            "--domain",
+            &d,
+        ];
+        run_python_module_json(&venv_dir, "synapse.setup_center.bridge", &args, &[])
+    })
+    .await
+}
+
+/// Start QQ Bot OpenClaw onboarding (QR scan).
+/// Returns JSON with session_id + qr_url.
+#[tauri::command]
+async fn synapse_qqbot_onboard_start(venv_dir: String) -> Result<String, String> {
+    spawn_blocking_result(move || {
+        let args = vec!["qqbot-onboard-start"];
+        run_python_module_json(&venv_dir, "synapse.setup_center.bridge", &args, &[])
+    })
+    .await
+}
+
+/// Poll QQ Bot OpenClaw login status.
+/// Returns JSON with status / developer_id.
+#[tauri::command]
+async fn synapse_qqbot_onboard_poll(
+    venv_dir: String,
+    session_id: String,
+) -> Result<String, String> {
+    spawn_blocking_result(move || {
+        let args = vec!["qqbot-onboard-poll", "--session-id", &session_id];
+        run_python_module_json(&venv_dir, "synapse.setup_center.bridge", &args, &[])
+    })
+    .await
+}
+
+/// Create a QQ bot via OpenClaw.
+/// Returns JSON with app_id / app_secret / bot_name.
+#[tauri::command]
+async fn synapse_qqbot_onboard_create(venv_dir: String) -> Result<String, String> {
+    spawn_blocking_result(move || {
+        let args = vec!["qqbot-onboard-create"];
+        run_python_module_json(&venv_dir, "synapse.setup_center.bridge", &args, &[])
+    })
+    .await
+}
+
+/// Atomic poll + create in one process so cookies carry over.
+/// Returns JSON with status / app_id / app_secret.
+#[tauri::command]
+async fn synapse_qqbot_onboard_poll_and_create(
+    venv_dir: String,
+    session_id: String,
+) -> Result<String, String> {
+    spawn_blocking_result(move || {
+        let args = vec![
+            "qqbot-onboard-poll-and-create",
+            "--session-id",
+            &session_id,
+        ];
+        run_python_module_json(&venv_dir, "synapse.setup_center.bridge", &args, &[])
+    })
+    .await
+}
+
+/// Validate QQ Bot App ID / App Secret credentials.
+/// Returns JSON with {valid: bool, error?: string}.
+#[tauri::command]
+async fn synapse_qqbot_validate(
+    venv_dir: String,
+    app_id: String,
+    app_secret: String,
+) -> Result<String, String> {
+    spawn_blocking_result(move || {
+        let args = vec![
+            "qqbot-validate",
+            "--app-id",
+            &app_id,
+            "--app-secret",
+            &app_secret,
+        ];
+        run_python_module_json(&venv_dir, "synapse.setup_center.bridge", &args, &[])
+    })
+    .await
+}
+
+/// Start WeChat iLink Bot QR code login.
+/// Returns JSON with qrcode + qrcode_url.
+#[tauri::command]
+async fn synapse_wechat_onboard_start(venv_dir: String) -> Result<String, String> {
+    spawn_blocking_result(move || {
+        let args = vec!["wechat-onboard-start"];
+        run_python_module_json(&venv_dir, "synapse.setup_center.bridge", &args, &[])
+    })
+    .await
+}
+
+/// Poll WeChat QR code login status (long-poll).
+/// Returns JSON with status (wait/scaned/confirmed/expired) + token.
+#[tauri::command]
+async fn synapse_wechat_onboard_poll(
+    venv_dir: String,
+    qrcode: String,
+) -> Result<String, String> {
+    spawn_blocking_result(move || {
+        let args = vec!["wechat-onboard-poll", "--qrcode", &qrcode];
+        run_python_module_json(&venv_dir, "synapse.setup_center.bridge", &args, &[])
+    })
+    .await
+}
+
 /// Fetch available versions of a package from PyPI JSON API.
 /// Returns JSON array of version strings, newest first.
 #[tauri::command]
@@ -5289,6 +5972,113 @@ async fn http_proxy_request(
     .await
 }
 
+// ── Local backend fetch (proxy-safe) ─────────────────────────────────
+//
+// On macOS, Clash / V2Ray set a *system-level* proxy via Network Preferences.
+// WKWebView's native fetch() and @tauri-apps/plugin-http's reqwest client
+// both honour that proxy, causing requests to 127.0.0.1 to be routed through
+// the external proxy server — which cannot reach the user's localhost.
+//
+// `.no_proxy()` on the reqwest Client builder **completely disables** all proxy
+// detection (env vars, system-configuration, everything) so the request always
+// goes directly to the local backend.
+//
+// The response body is streamed back to JS via a Tauri Channel, preserving
+// SSE / chunked-transfer behaviour for the chat view.
+
+#[derive(Clone, Serialize)]
+#[serde(tag = "event", content = "data", rename_all = "camelCase")]
+enum BackendFetchEvent {
+    Chunk { text: String },
+    Done,
+    Error { message: String },
+}
+
+#[tauri::command]
+async fn backend_fetch(
+    on_event: tauri::ipc::Channel<BackendFetchEvent>,
+    url: String,
+    method: Option<String>,
+    headers: Option<std::collections::HashMap<String, String>>,
+    body: Option<String>,
+    timeout_secs: Option<u64>,
+) -> Result<serde_json::Value, String> {
+    if !url.starts_with("http://127.0.0.1") && !url.starts_with("http://localhost") {
+        return Err("backend_fetch only allows localhost URLs".into());
+    }
+
+    let mut builder = reqwest::Client::builder()
+        .no_proxy()
+        .connect_timeout(std::time::Duration::from_secs(10));
+    if let Some(t) = timeout_secs {
+        builder = builder.timeout(std::time::Duration::from_secs(t));
+    }
+    let client = builder
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    let m = method.as_deref().unwrap_or("GET").to_uppercase();
+    let mut req = match m.as_str() {
+        "POST" => client.post(&url),
+        "PUT" => client.put(&url),
+        "DELETE" => client.delete(&url),
+        "PATCH" => client.patch(&url),
+        _ => client.get(&url),
+    };
+    if let Some(h) = headers {
+        for (k, v) in h {
+            req = req.header(&k, &v);
+        }
+    }
+    if let Some(b) = body {
+        req = req.body(b);
+    }
+
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("HTTP {} failed ({}): {}", m, url, e))?;
+
+    let status = resp.status().as_u16();
+    let resp_headers: std::collections::HashMap<String, String> = resp
+        .headers()
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+        .collect();
+
+    tauri::async_runtime::spawn(async move {
+        let mut response = resp;
+        loop {
+            match response.chunk().await {
+                Ok(Some(chunk)) => {
+                    let text = String::from_utf8_lossy(&chunk).to_string();
+                    if on_event
+                        .send(BackendFetchEvent::Chunk { text })
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Ok(None) => {
+                    let _ = on_event.send(BackendFetchEvent::Done);
+                    break;
+                }
+                Err(e) => {
+                    let _ = on_event.send(BackendFetchEvent::Error {
+                        message: e.to_string(),
+                    });
+                    break;
+                }
+            }
+        }
+    });
+
+    Ok(serde_json::json!({
+        "status": status,
+        "headers": resp_headers,
+    }))
+}
+
 /// Read a file from disk and return its contents as a base64 data-URL.
 /// Used by the frontend to handle Tauri file-drop events (which provide paths, not File objects).
 #[tauri::command]
@@ -5350,9 +6140,9 @@ async fn download_file(url: String, filename: String) -> Result<String, String> 
         counter += 1;
     }
 
-    // Download (timeout 30s to avoid hanging if backend is unreachable, e.g. on macOS)
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
+        .no_proxy()
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
     let resp = client
@@ -5549,9 +6339,105 @@ fn export_diagnostic_bundle(
         Ok(())
     }
 
-    add_dir_to_zip(&mut zip_writer, &logs_dir, "logs", options)?;
-    add_dir_to_zip(&mut zip_writer, &llm_debug_dir, "llm_debug", options)?;
+    fn add_dir_to_zip_capped(
+        zip_writer: &mut zip::ZipWriter<fs::File>,
+        dir: &Path,
+        prefix: &str,
+        options: zip::write::SimpleFileOptions,
+        max_bytes: u64,
+    ) -> Result<(), String> {
+        if !dir.exists() {
+            return Ok(());
+        }
+        let mut files = collect_files(dir);
+        files.sort_by(|a, b| {
+            let ma = fs::metadata(a).and_then(|m| m.modified()).ok();
+            let mb = fs::metadata(b).and_then(|m| m.modified()).ok();
+            mb.cmp(&ma)
+        });
+        let mut total: u64 = 0;
+        for file_path in files {
+            let sz = fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0);
+            if total + sz > max_bytes {
+                continue;
+            }
+            if let Ok(rel) = file_path.strip_prefix(dir) {
+                let name = format!("{}/{}", prefix, rel.to_string_lossy().replace('\\', "/"));
+                zip_writer
+                    .start_file(&name, options)
+                    .map_err(|e| format!("zip start error: {e}"))?;
+                let data = fs::read(&file_path).unwrap_or_default();
+                zip_writer
+                    .write_all(&data)
+                    .map_err(|e| format!("zip write error: {e}"))?;
+                total += sz;
+            }
+        }
+        Ok(())
+    }
 
+    fn add_file_to_zip(
+        zip_writer: &mut zip::ZipWriter<fs::File>,
+        path: &Path,
+        zip_name: &str,
+        options: zip::write::SimpleFileOptions,
+    ) -> Result<(), String> {
+        if !path.exists() || !path.is_file() {
+            return Ok(());
+        }
+        zip_writer
+            .start_file(zip_name, options)
+            .map_err(|e| format!("zip start error: {e}"))?;
+        let data = fs::read(path).unwrap_or_default();
+        zip_writer
+            .write_all(&data)
+            .map_err(|e| format!("zip write error: {e}"))?;
+        Ok(())
+    }
+
+    // -- Logs (workspace) --
+    add_dir_to_zip(&mut zip_writer, &logs_dir, "logs", options)?;
+
+    // -- LLM debug data --
+    add_dir_to_zip_capped(&mut zip_writer, &llm_debug_dir, "llm_debug", options, 10 * 1024 * 1024)?;
+
+    // -- Debug data directories (capped per-dir) --
+    let data_dir = ws_dir.join("data");
+    add_dir_to_zip_capped(&mut zip_writer, &data_dir.join("delegation_logs"), "delegation_logs", options, 2 * 1024 * 1024)?;
+    add_dir_to_zip_capped(&mut zip_writer, &data_dir.join("react_traces"), "react_traces", options, 5 * 1024 * 1024)?;
+    add_dir_to_zip_capped(&mut zip_writer, &data_dir.join("traces"), "traces", options, 2 * 1024 * 1024)?;
+    add_dir_to_zip_capped(&mut zip_writer, &data_dir.join("orgs"), "orgs", options, 2 * 1024 * 1024)?;
+    add_dir_to_zip_capped(&mut zip_writer, &data_dir.join("tool_overflow"), "tool_overflow", options, 2 * 1024 * 1024)?;
+    add_dir_to_zip_capped(&mut zip_writer, &data_dir.join("failure_analysis"), "failure_analysis", options, 1 * 1024 * 1024)?;
+    add_dir_to_zip_capped(&mut zip_writer, &data_dir.join("retrospects"), "retrospects", options, 1 * 1024 * 1024)?;
+
+    // -- Small state files --
+    add_file_to_zip(&mut zip_writer, &data_dir.join("runtime_state.json"), "state/runtime_state.json", options)?;
+    add_file_to_zip(&mut zip_writer, &data_dir.join("sub_agent_states.json"), "state/sub_agent_states.json", options)?;
+    add_file_to_zip(&mut zip_writer, &data_dir.join("backend.heartbeat"), "state/backend.heartbeat", options)?;
+    add_file_to_zip(&mut zip_writer, &data_dir.join("sessions").join("sessions.json"), "state/sessions.json", options)?;
+    add_file_to_zip(&mut zip_writer, &data_dir.join("sessions").join("channel_registry.json"), "state/channel_registry.json", options)?;
+    add_file_to_zip(&mut zip_writer, &data_dir.join("scheduler").join("tasks.json"), "state/scheduler_tasks.json", options)?;
+    add_file_to_zip(&mut zip_writer, &data_dir.join("scheduler").join("executions.json"), "state/scheduler_executions.json", options)?;
+
+    // -- Global logs (frontend.log, crash.log, onboarding) --
+    let global_logs = setup_logs_dir();
+    add_file_to_zip(&mut zip_writer, &global_logs.join("frontend.log"), "global_logs/frontend.log", options)?;
+    add_file_to_zip(&mut zip_writer, &global_logs.join("crash.log"), "global_logs/crash.log", options)?;
+    for entry in fs::read_dir(&global_logs).into_iter().flatten().flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if name_str.starts_with("onboarding-") && name_str.ends_with(".log") {
+            add_file_to_zip(
+                &mut zip_writer,
+                &entry.path(),
+                &format!("global_logs/{}", name_str),
+                options,
+            )?;
+        }
+    }
+
+    // -- System info --
     if let Some(info) = system_info_json {
         zip_writer
             .start_file("system-info.json", options)
@@ -5573,11 +6459,8 @@ fn export_diagnostic_bundle(
 fn open_external_url(url: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        // Use PowerShell Start-Process to correctly handle URLs with special
-        // characters (%, &, +, etc.) that cmd /C start would truncate or mangle.
-        let mut c = std::process::Command::new("powershell");
-        c.args(["-NoProfile", "-NonInteractive", "-Command",
-                &format!("Start-Process '{}'", url.replace('\'', "''"))]);
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/C", "start", "", &url]);
         apply_no_window(&mut c);
         c.spawn().map_err(|e| format!("Failed to open URL: {e}"))?;
     }
@@ -5920,68 +6803,6 @@ fn write_path_value(key: &winreg::RegKey, value: &str) -> Result<(), String> {
     .map_err(|e| format!("写入 PATH 注册表失败: {e}"))
 }
 
-/// 展开 PATH 等字符串中的 `%VAR%`（与「环境变量」对话框一致）
-#[cfg(target_os = "windows")]
-fn expand_windows_env_str(input: &str) -> String {
-    use std::ffi::OsString;
-    use std::os::windows::ffi::{OsStrExt, OsStringExt};
-    let wide: Vec<u16> = std::ffi::OsStr::new(input)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
-    let mut buf = vec![0u16; 32768];
-    let n = unsafe {
-        extern "system" {
-            fn ExpandEnvironmentStringsW(lpSrc: *const u16, lpDst: *mut u16, nSize: u32) -> u32;
-        }
-        ExpandEnvironmentStringsW(wide.as_ptr(), buf.as_mut_ptr(), buf.len() as u32)
-    };
-    if n == 0 || (n as usize) > buf.len() {
-        return input.to_string();
-    }
-    let len = (n as usize).saturating_sub(1);
-    OsString::from_wide(&buf[..len])
-        .to_string_lossy()
-        .into_owned()
-}
-
-/// 合并本机「系统 + 用户」PATH（从注册表读取并展开），用于子进程检测，避免当前进程仍持有旧的 PATH。
-#[cfg(target_os = "windows")]
-fn windows_registry_path_merged() -> Result<String, String> {
-    use winreg::enums::*;
-    use winreg::RegKey;
-
-    let machine = RegKey::predef(HKEY_LOCAL_MACHINE)
-        .open_subkey_with_flags(
-            r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
-            KEY_READ,
-        )
-        .ok()
-        .map(|k| read_path_value(&k).unwrap_or_default())
-        .unwrap_or_default();
-
-    let user = RegKey::predef(HKEY_CURRENT_USER)
-        .open_subkey_with_flags("Environment", KEY_READ)
-        .ok()
-        .map(|k| read_path_value(&k).unwrap_or_default())
-        .unwrap_or_default();
-
-    let machine_e = expand_windows_env_str(machine.trim());
-    let user_e = expand_windows_env_str(user.trim());
-
-    let mut parts: Vec<String> = Vec::new();
-    if !machine_e.is_empty() {
-        parts.push(machine_e.trim_end_matches(';').to_string());
-    }
-    if !user_e.is_empty() {
-        parts.push(user_e.trim_end_matches(';').to_string());
-    }
-    if parts.is_empty() {
-        return Err("registry PATH empty".into());
-    }
-    Ok(parts.join(";"))
-}
-
 // ── PATH 操作：macOS / Linux ──
 
 #[cfg(not(target_os = "windows"))]
@@ -6280,6 +7101,69 @@ fn get_cli_status() -> Result<CliStatus, String> {
 }
 
 // ── Claude Code CLI（onboarding 检测与一键安装） ──
+
+
+/// 展开 PATH 等字符串中的 `%VAR%`（与「环境变量」对话框一致）
+#[cfg(target_os = "windows")]
+fn expand_windows_env_str(input: &str) -> String {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    let wide: Vec<u16> = std::ffi::OsStr::new(input)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut buf = vec![0u16; 32768];
+    let n = unsafe {
+        extern "system" {
+            fn ExpandEnvironmentStringsW(lpSrc: *const u16, lpDst: *mut u16, nSize: u32) -> u32;
+        }
+        ExpandEnvironmentStringsW(wide.as_ptr(), buf.as_mut_ptr(), buf.len() as u32)
+    };
+    if n == 0 || (n as usize) > buf.len() {
+        return input.to_string();
+    }
+    let len = (n as usize).saturating_sub(1);
+    OsString::from_wide(&buf[..len])
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// 合并本机「系统 + 用户」PATH（从注册表读取并展开），用于子进程检测，避免当前进程仍持有旧的 PATH。
+#[cfg(target_os = "windows")]
+fn windows_registry_path_merged() -> Result<String, String> {
+    use winreg::enums::*;
+    use winreg::RegKey;
+
+    let machine = RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey_with_flags(
+            r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+            KEY_READ,
+        )
+        .ok()
+        .map(|k| read_path_value(&k).unwrap_or_default())
+        .unwrap_or_default();
+
+    let user = RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey_with_flags("Environment", KEY_READ)
+        .ok()
+        .map(|k| read_path_value(&k).unwrap_or_default())
+        .unwrap_or_default();
+
+    let machine_e = expand_windows_env_str(machine.trim());
+    let user_e = expand_windows_env_str(user.trim());
+
+    let mut parts: Vec<String> = Vec::new();
+    if !machine_e.is_empty() {
+        parts.push(machine_e.trim_end_matches(';').to_string());
+    }
+    if !user_e.is_empty() {
+        parts.push(user_e.trim_end_matches(';').to_string());
+    }
+    if parts.is_empty() {
+        return Err("registry PATH empty".into());
+    }
+    Ok(parts.join(";"))
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]

@@ -325,42 +325,72 @@ Function PageLeaveReinstall
  ${EndIf}
 
  reinst_uninstall:
- HideWindow
- ClearErrors
+  HideWindow
 
- ${If} $WixMode = 1
- ReadRegStr $R1 HKLM "$R6" "UninstallString"
- ExecWait '$R1' $0
- ${Else}
- ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""
- ReadRegStr $R1 SHCTX "${UNINSTKEY}" "UninstallString"
- ${IfThen} $UpdateMode = 1 ${|} StrCpy $R1 "$R1 /UPDATE" ${|} ; append /UPDATE
- ${IfThen} $PassiveMode = 1 ${|} StrCpy $R1 "$R1 /P" ${|} ; append /P
- StrCpy $R1 "$R1 _?=$4" ; append uninstall directory
- ExecWait '$R1' $0
- ${EndIf}
+  ; Kill all Synapse processes BEFORE running old uninstaller,
+  ; because the old uninstaller may lack robust process-killing logic.
+  ; Save $R6 first — _Synapse_KillServicePidsIn clobbers $R1/$R2/$R6,
+  ; and $R6 holds the WiX registry key path when WixMode=1.
+  ; (Push/Pop is safe here: all nsExec Push/Pop pairs inside the macro are balanced.)
+  Push $R6
+  !ifmacrodef NSIS_HOOK_PREINSTALL_KILLPROCS
+    !insertmacro NSIS_HOOK_PREINSTALL_KILLPROCS
+  !endif
+  Pop $R6
 
- BringToFront
+  ClearErrors
 
- ${IfThen} ${Errors} ${|} StrCpy $0 2 ${|} ; ExecWait failed, set fake exit code
+  ${If} $WixMode = 1
+    ReadRegStr $R1 HKLM "$R6" "UninstallString"
+    ExecWait '$R1' $0
+  ${Else}
+    ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""
+    ReadRegStr $R1 SHCTX "${UNINSTKEY}" "UninstallString"
 
- ${If} $0 <> 0
- ${OrIf} ${FileExists} "$INSTDIR\${MAINBINARYNAME}.exe"
- ; User cancelled wix uninstaller? return to select un/reinstall page
- ${If} $WixMode = 1
- ${AndIf} $0 = 1602
- Abort
- ${EndIf}
+    ; Guard: if UninstallString is empty, skip ExecWait
+    ${If} $R1 == ""
+      StrCpy $0 0
+      Goto reinst_uninstall_check
+    ${EndIf}
 
- ; User cancelled NSIS uninstaller? return to select un/reinstall page
- ${If} $0 = 1
- Abort
- ${EndIf}
+    ; Always run old uninstaller in passive+update mode:
+    ; - /P: skip confirmation UI and auto-close (user already confirmed on our reinstall page)
+    ; - /UPDATE: preserve shortcuts, start menu entries and app data
+    ; Without /P, the old uninstaller shows its own confirmation window which may appear
+    ; behind other windows, causing the user to miss it and the uninstaller to "fail".
+    StrCpy $R1 "$R1 /P /UPDATE"
+    ; _?= makes ExecWait truly synchronous (without it, uninstaller copies to
+    ; temp and exits immediately). Fall back to $INSTDIR when $4 is empty.
+    ${If} $4 != ""
+      StrCpy $R1 "$R1 _?=$4"
+    ${Else}
+      StrCpy $R1 "$R1 _?=$INSTDIR"
+    ${EndIf}
+    ExecWait '$R1' $0
+  ${EndIf}
 
- ; Other erros? show generic error message and return to select un/reinstall page
- MessageBox MB_ICONEXCLAMATION "$(unableToUninstall)"
- Abort
- ${EndIf}
+  reinst_uninstall_check:
+  BringToFront
+
+  ${IfThen} ${Errors} ${|} StrCpy $0 2 ${|} ; ExecWait failed, set fake exit code
+
+  ${If} $0 <> 0
+  ${OrIf} ${FileExists} "$INSTDIR\${MAINBINARYNAME}.exe"
+    ; User cancelled wix uninstaller? return to select un/reinstall page
+    ${If} $WixMode = 1
+    ${AndIf} $0 = 1602
+    Abort
+    ${EndIf}
+
+    ; User cancelled NSIS uninstaller? return to select un/reinstall page
+    ${If} $0 = 1
+    Abort
+    ${EndIf}
+
+    ; Old uninstaller failed — this is common with legacy versions.
+    ; Silently continue: NSIS_HOOK_PREINSTALL will kill processes and
+    ; clean up old files before overwriting, so the failure is harmless.
+  ${EndIf}
  reinst_done:
 FunctionEnd
 
@@ -408,53 +438,6 @@ Page custom PageCliSetup PageLeaveCliSetup
 Function RunMainBinary
  ; 安装后首次启动，传入 --first-run 触发 Onboarding Wizard
  nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" "--first-run"
-FunctionEnd
-
-; ── AI 使用风险确认页面实现 ──
-Function PageRiskAck
- ; passive/silent 模式跳过
- ${If} $PassiveMode = 1
-  Abort
- ${EndIf}
- ; update 模式跳过（已确认过）
- ${If} $UpdateMode = 1
-  Abort
- ${EndIf}
-
- !insertmacro MUI_HEADER_TEXT "使用风险须知" "请仔细阅读并确认"
-
- nsDialogs::Create 1018
- Pop $0
- ${IfThen} $0 == "error" ${|} Abort ${|}
- ${IfThen} $(^RTL) = 1 ${|} nsDialogs::SetRTL $(^RTL) ${|}
-
- ; 风险说明（紧凑排版，适配 ~130u 内部高度）
- ${NSD_CreateLabel} 0 0 100% 8u "Synapse 是基于大语言模型驱动的 AI Agent，使用前请了解："
- Pop $0
-
- ${NSD_CreateLabel} 8u 12u -8u 80u \
-   "1. 行为不可完全预测 — AI 输出具有概率性，可能执行非预期的文件操作、$\n\
-发送非预期消息或调用非预期工具。$\n\
-2. 使用过程必须监督 — 请勿在无人监督时开启自动确认模式。$\n\
-3. 可能的风险 — 数据丢失或损坏、发送不当消息、执行危险命令、产生非$\n\
-预期 API 费用等。$\n\
-4. 免责声明 — 本软件按「现状」提供，不附带任何担保。维护者和贡献者$\n\
-不对因使用产生的任何损害承担责任。$\n\
-5. 数据安全 — 对话内容可能发送至第三方 LLM 服务商，请勿输入敏感信息。"
- Pop $0
-
- ; 分隔线
- ${NSD_CreateHLine} 0 96u 100% 1u
- Pop $0
-
- ; 继续提示
- ${NSD_CreateLabel} 0 102u 100% 10u "点击“下一步”即表示你已阅读并理解上述内容。"
- Pop $0
- SetCtlColors $0 "" "transparent"
- nsDialogs::Show
-FunctionEnd
-
-Function PageLeaveRiskAck
 FunctionEnd
 
 ; ── 数据管理页面实现 ──

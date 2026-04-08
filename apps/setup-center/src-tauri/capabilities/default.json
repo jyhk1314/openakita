@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "Default capabilities for the main window",
-  "windows": ["main"],
+  "windows": ["main", "org-editor-popup"],
   "permissions": [
     "core:default",
     "core:event:default",
@@ -10,19 +10,14 @@
     "core:webview:default",
     "core:webview:allow-webview-position",
     "core:webview:allow-webview-size",
+    "core:webview:allow-create-webview-window",
     "core:window:default",
     "core:window:allow-close",
-    "core:window:allow-minimize",
     "core:window:allow-set-size",
     "core:window:allow-set-position",
-    "core:window:allow-set-fullscreen",
-    "core:window:allow-set-resizable",
-    "core:window:allow-set-maximizable",
-    "core:window:allow-unmaximize",
-    "core:window:allow-maximize",
-    "core:window:allow-is-maximized",
-    "core:window:allow-center",
     "core:window:allow-set-theme",
+    "core:window:allow-set-focus",
+    "core:window:allow-create",
     "core:app:default",
     "core:app:allow-version",
     "autostart:default",
@@ -36,10 +31,15 @@
     "process:default",
     "process:allow-restart",
     "process:allow-exit",
+    "clipboard-manager:default",
+    "clipboard-manager:allow-write-text",
+    "clipboard-manager:allow-read-text",
     "dialog:default",
     "dialog:allow-save",
-    "shell:default",
-    "shell:allow-open",
+    "fs:default",
+    "fs:allow-read-text-file",
+    "fs:allow-write-text-file",
+    "fs:allow-write-file",
     {
       "identifier": "http:default",
       "allow": [
@@ -48,6 +48,13 @@
         { "url": "http://localhost" },
         { "url": "http://localhost:*" }
       ]
-    }
+    },
+    "global-shortcut:default",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "notification:default",
+    "notification:allow-notify",
+    "notification:allow-request-permission",
+    "notification:allow-is-permission-granted"
   ]
 }
