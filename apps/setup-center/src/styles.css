@@ -921,7 +921,7 @@ textarea:not([data-slot]):focus {
 
 /* (legacy btnSmall override removed; see status section) */
 
-button:not([data-slot]) {
+button:not([data-slot]):not(.winNativeTitlebarBtn) {
   border: 0;
   cursor: pointer;
   border-radius: 14px;
@@ -934,12 +934,12 @@ button:not([data-slot]) {
   transition: background 0.15s, border-color 0.15s;
 }
 
-button:not([data-slot]):not(.btnPrimary):not(.btnDanger):not(.btnApplyRestart):hover {
+button:not([data-slot]):not(.winNativeTitlebarBtn):not(.btnPrimary):not(.btnDanger):not(.btnApplyRestart):hover {
   background: var(--bg-app);
   border-color: var(--muted2);
 }
 
-button:not([data-slot]):disabled {
+button:not([data-slot]):not(.winNativeTitlebarBtn):disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -4916,13 +4916,23 @@ body > div[id*="sm-" i] {
   background: transparent;
   color: var(--muted);
   font-size: 14px;
+  font-weight: 400;
+  letter-spacing: normal;
   line-height: 1;
+  border-radius: 0;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   transition: background 0.12s, color 0.12s;
   -webkit-app-region: no-drag;
+  outline: none;
+  box-shadow: none;
+}
+
+.winNativeTitlebarBtn:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 .winNativeTitlebarBtn:hover {

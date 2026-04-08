@@ -1,22 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
+import {
+  BorderOutlined,
+  CloseOutlined,
+  MinusOutlined,
+  SwitcherOutlined,
+} from "@ant-design/icons";
 import logoUrl from "../assets/logo.png";
 
-function IconMaximize() {
-  return (
-    <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden>
-      <rect x="1" y="1" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.2" />
-    </svg>
-  );
-}
-
-function IconRestore() {
-  return (
-    <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden>
-      <rect x="2.5" y="3.5" width="7" height="7" fill="none" stroke="currentColor" strokeWidth="1.2" />
-      <rect x="1" y="1.5" width="7" height="7" fill="none" stroke="currentColor" strokeWidth="1.2" />
-    </svg>
-  );
-}
+/** 标题栏控制键图标尺寸（继承按钮 color） */
+const iconSm = { fontSize: 12 } as const;
+const iconClose = { fontSize: 14 } as const;
 
 /**
  * Windows + Tauri：自绘标题栏（可调高度）。系统自带标题栏高度由 DWM 固定，无法通过配置增大。
@@ -99,7 +92,7 @@ export function WindowsTitleBar() {
           onClick={() => void minimize()}
           aria-label="最小化"
         >
-          &#x2212;
+          <MinusOutlined style={iconSm} />
         </button>
         <button
           type="button"
@@ -107,7 +100,11 @@ export function WindowsTitleBar() {
           onClick={() => void toggleMaximize()}
           aria-label={maximized ? "还原" : "最大化"}
         >
-          {maximized ? <IconRestore /> : <IconMaximize />}
+          {maximized ? (
+            <SwitcherOutlined style={iconSm} />
+          ) : (
+            <BorderOutlined style={iconSm} />
+          )}
         </button>
         <button
           type="button"
@@ -115,7 +112,7 @@ export function WindowsTitleBar() {
           onClick={() => void close()}
           aria-label="关闭"
         >
-          &#x2715;
+          <CloseOutlined style={iconClose} />
         </button>
       </div>
     </header>

@@ -352,6 +352,15 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <GlobalErrorBoundary>
       {window.location.pathname === "/pet" ? (
         <PetView />
+      ) : showWinCustomTitlebar ? (
+        <>
+          <WindowsTitleBar />
+          <div className="tauriWinMainColumn">
+            <TooltipProvider>
+              <App />
+            </TooltipProvider>
+          </div>
+        </>
       ) : (
         <TooltipProvider>
           <App />
