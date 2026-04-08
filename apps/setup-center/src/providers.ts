@@ -59,7 +59,7 @@ export function inferCapabilities(modelName: string, _providerSlug?: string | nu
   if (["vl", "vision", "visual", "image", "-v-", "4v"].some(kw => m.includes(kw))) caps.vision = true;
   if (["kimi", "gemini"].some(kw => m.includes(kw))) caps.video = true;
   if (["thinking", "r1", "qwq", "qvq", "o1"].some(kw => m.includes(kw))) caps.thinking = true;
-  if (["qwen", "gpt", "claude", "deepseek", "kimi", "glm", "gemini", "moonshot", "minimax"].some(kw => m.includes(kw))) caps.tools = true;
+  if (["qwen", "gpt", "claude", "deepseek", "kimi", "glm", "gemini", "moonshot", "minimax", "doubao"].some(kw => m.includes(kw))) caps.tools = true;
   if (m.includes("minimax") && m.includes("m2")) caps.thinking = true;
 
   return caps;
@@ -100,6 +100,7 @@ export function isQianFanCodingPlanProvider(providerSlug: string | null, baseUrl
 
 export function miniMaxFallbackModels(providerSlug: string | null): ListedModel[] {
   const ids = [
+    "MiniMax-M2.7",
     "MiniMax-M2.5",
     "MiniMax-M2.5-highspeed",
     "MiniMax-M2.1",
@@ -272,12 +273,27 @@ export async function safeFetch(url: string, init?: RequestInit): Promise<Respon
     ? await authFetch(url, effectiveInit, apiBase)
     : await fetch(url, effectiveInit);
   if (!res.ok) {
-    let detail = res.statusText;
+    let userMessage = res.statusText;
     try {
       const body = await res.text();
-      if (body) detail = body.slice(0, 200);
+      if (body) {
+        try {
+          const parsed = JSON.parse(body);
+          const errObj = parsed?.detail?.error ?? parsed?.detail;
+          if (typeof errObj === "object" && errObj?.message) {
+            userMessage = errObj.message;
+            if (errObj.guidance) userMessage += `\n${errObj.guidance}`;
+          } else if (typeof parsed?.detail === "string") {
+            userMessage = parsed.detail;
+          } else {
+            userMessage = body.slice(0, 200);
+          }
+        } catch {
+          userMessage = body.slice(0, 200);
+        }
+      }
     } catch { /* ignore */ }
-    throw new Error(`HTTP ${res.status}: ${detail}`);
+    throw new Error(userMessage);
   }
   return res;
 }

@@ -69,33 +69,6 @@ export type BundledPythonInstallResult = {
   tag: string;
 };
 
-export type PythonContractStatus = "pass" | "warn" | "fail";
-export type PythonSummaryStatus = "healthy" | "repairable" | "broken";
-
-export type PythonContractResult = {
-  id: string;
-  title: string;
-  status: PythonContractStatus;
-  code: string;
-  evidence: string[];
-  autoFix: boolean;
-  fixHint?: string | null;
-};
-
-export type PythonEnvironmentSnapshot = {
-  platform: string;
-  bundledPythonPath?: string | null;
-  synapseVersion?: string | null;
-};
-
-export type PythonDiagnostic = {
-  summary: PythonSummaryStatus;
-  contracts: PythonContractResult[];
-  environment: PythonEnvironmentSnapshot;
-  traceId: string;
-  generatedAt: string;
-};
-
 export type InstallSource = "pypi" | "github" | "local";
 
 export type EnvMap = Record<string, string>;
@@ -121,11 +94,7 @@ export type Step = {
   desc: string;
 };
 
-export type ViewId =
-  | "wizard" | "status" | "chat" | "skills" | "im" | "onboarding" | "modules" | "token_stats"
-  | "mcp" | "scheduler" | "memory" | "dashboard" | "agent_manager" | "agent_store" | "skill_store"
-  | "org_editor" | "pixel_office" | "identity" | "docs" | "security" | "plugins"
-  | "rd_center" | "team_manage" | "rd_process";
+export type ViewId = "wizard" | "status" | "chat" | "skills" | "im" | "onboarding" | "token_stats" | "mcp" | "scheduler" | "memory" | "dashboard" | "agent_manager" | "agent_store" | "skill_store" | "org_editor" | "pixel_office" | "identity" | "docs" | "security" | "plugins";
 
 // ─── Health check types ───
 
@@ -159,6 +128,7 @@ export type EndpointSummary = {
   model: string;
   keyEnv: string;
   keyPresent: boolean;
+  enabled?: boolean;
   health?: EndpointHealthResult | null;
 };
 
@@ -263,7 +233,7 @@ export type ChatTodo = {
   status: "in_progress" | "completed" | "failed" | "cancelled";
 };
 
-/** @deprecated Use ChatTodo */
+/** @deprecated Use ChatTodo instead */
 export type ChatPlan = ChatTodo;
 
 export type ChatTodoStep = {
@@ -272,9 +242,6 @@ export type ChatTodoStep = {
   status: "pending" | "in_progress" | "completed" | "skipped" | "failed" | "cancelled";
   result?: string | null;
 };
-
-/** @deprecated Use ChatTodoStep */
-export type ChatPlanStep = ChatTodoStep;
 
 export type PlanApprovalEvent = {
   conversation_id: string;
@@ -337,6 +304,21 @@ export type SlashCommand = {
   action: (args: string) => void;
 };
 
+// ─── MCP config types ───
+
+export type MCPConfigField = {
+  key: string;
+  label: string;
+  type: "text" | "secret" | "number" | "select" | "bool" | "url" | "path";
+  required?: boolean;
+  help?: string;
+  helpUrl?: string;
+  default?: string | number | boolean;
+  placeholder?: string;
+  options?: string[];
+  when?: Record<string, string> | null;
+};
+
 // ─── Skill types ───
 
 export type SkillConfigField = {
@@ -352,6 +334,7 @@ export type SkillConfigField = {
 };
 
 export type SkillInfo = {
+  skillId: string;
   name: string;
   description: string;
   name_i18n?: Record<string, string> | null;

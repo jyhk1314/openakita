@@ -279,22 +279,19 @@ export function IconMask(p: IconProps = {}) {
   </>);
 }
 
+export function IconUser(p: IconProps = {}) {
+  return svg(p, <>
+    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+    <circle cx="12" cy="7" r="4" />
+  </>);
+}
+
 export function IconUsers(p: IconProps = {}) {
   return svg(p, <>
     <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
     <circle cx="9" cy="7" r="4" />
     <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
     <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-  </>);
-}
-
-/** 团队管理侧栏：双人叠影 */
-export function IconUserGroup(p: IconProps = {}) {
-  return svg(p, <>
-    <circle cx="9" cy="7" r="3.5" />
-    <path d="M3 19.5v-.5a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v.5" />
-    <circle cx="17" cy="8" r="2.8" />
-    <path d="M21 19.5v-.3a3 3 0 0 0-3-3h-1.2" />
   </>);
 }
 
@@ -305,6 +302,17 @@ export function IconBot(p: IconProps = {}) {
     <path d="M12 7v4" />
     <line x1="8" y1="16" x2="8" y2="16" />
     <line x1="16" y1="16" x2="16" y2="16" />
+  </>);
+}
+
+export function IconBotOff(p: IconProps = {}) {
+  return svg(p, <>
+    <rect x="3" y="11" width="18" height="10" rx="2" />
+    <circle cx="12" cy="5" r="2" />
+    <path d="M12 7v4" />
+    <line x1="8" y1="16" x2="8" y2="16" />
+    <line x1="16" y1="16" x2="16" y2="16" />
+    <line x1="2" y1="2" x2="22" y2="22" strokeWidth="2" />
   </>);
 }
 
@@ -478,6 +486,13 @@ export function DotYellow(p: { size?: number }) {
   );
 }
 
+export function DotBlueProcessing(p: { size?: number }) {
+  const s = p.size ?? 8;
+  return (
+    <span className="dotProcessing" style={{ width: s, height: s }} />
+  );
+}
+
 export function IconLink(p: IconProps = {}) {
   return svg(p, <>
     <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
@@ -580,66 +595,70 @@ export function IconPlug(p: IconProps = {}) {
   </>);
 }
 
-// ── IM Platform Logos (simplified brand marks) ──
+// ── IM Platform Logos (from AstrBot resource files) ──
 
-export function LogoTelegram({ size = 20 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <circle cx="12" cy="12" r="11" fill="#2AABEE" />
-      <path d="M5.5 11.5l11.2-4.3c.5-.2.9.1.8.7l-1.9 9c-.1.5-.5.6-.9.4l-2.7-2-1.3 1.3c-.1.1-.3.2-.5.2l.2-2.7 4.8-4.3c.2-.2 0-.3-.3-.1l-6 3.8-2.6-.8c-.5-.2-.5-.5.1-.7z" fill="#fff" />
-    </svg>
-  );
+import telegramLogoUrl from "./assets/platform_logos/telegram.svg";
+import discordLogoUrl from "./assets/platform_logos/discord.svg";
+import dingtalkLogoUrl from "./assets/platform_logos/dingtalk.svg";
+import slackLogoUrl from "./assets/platform_logos/slack.svg";
+import larkLogoUrl from "./assets/platform_logos/lark.png";
+import wecomLogoUrl from "./assets/platform_logos/wecom.png";
+import qqLogoUrl from "./assets/platform_logos/qq.png";
+import onebotLogoUrl from "./assets/platform_logos/onebot.png";
+import lineLogoUrl from "./assets/platform_logos/line.png";
+import wechatLogoUrl from "./assets/platform_logos/wechat.png";
+
+type LogoProps = { size?: number };
+
+function PlatformLogo({ src, alt, size = 20 }: { src: string; alt: string; size?: number }) {
+  return <img src={src} alt={alt} width={size} height={size} style={{ borderRadius: 4, objectFit: "contain", display: "block" }} />;
 }
 
-export function LogoFeishu({ size = 20 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <rect width="24" height="24" rx="5" fill="#3370FF" />
-      <path d="M7 8.5c0-.3.3-.5.5-.3l4.5 3.3 4.5-3.3c.2-.2.5 0 .5.3v6.5c0 .3-.2.5-.5.5H7.5c-.3 0-.5-.2-.5-.5V8.5z" fill="#fff" />
-    </svg>
-  );
+export function LogoTelegram({ size = 20 }: LogoProps) {
+  return <PlatformLogo src={telegramLogoUrl} alt="Telegram" size={size} />;
 }
 
-export function LogoWework({ size = 20 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <rect width="24" height="24" rx="5" fill="#07C160" />
-      <path d="M12 4C7.6 4 4 7.1 4 11c0 2.2 1.2 4.1 3 5.4V20l3.2-1.8c.6.1 1.2.2 1.8.2 4.4 0 8-3.1 8-7S16.4 4 12 4z" fill="#fff" />
-    </svg>
-  );
+export function LogoFeishu({ size = 20 }: LogoProps) {
+  return <PlatformLogo src={larkLogoUrl} alt="Feishu" size={size} />;
 }
 
-export function LogoDingtalk({ size = 20 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <rect width="24" height="24" rx="5" fill="#0089FF" />
-      <path d="M17.2 10.2c-.4.2-1.1.5-2 .8l-.4.1.8 1.2.1.2H13l-.1.3v.8h2l-.3 1.1H13v2.3h-1.5v-2.3h-1.7l-.2-1.1h1.9V12.7H10l-.1-.2h2.5l-1.6-2.3c1.8-.5 3.2-1.3 4.2-2.2.5.5.9 1 1.2 1.5l1-.6z" fill="#fff" />
-    </svg>
-  );
+export function LogoWework({ size = 20 }: LogoProps) {
+  return <PlatformLogo src={wecomLogoUrl} alt="WeCom" size={size} />;
 }
 
-export function LogoQQ({ size = 20 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <rect width="24" height="24" rx="5" fill="#12B7F5" />
-      <ellipse cx="12" cy="11" rx="5" ry="6" fill="#fff" />
-      <ellipse cx="10.5" cy="10" rx="1" ry="1.5" fill="#333" />
-      <ellipse cx="13.5" cy="10" rx="1" ry="1.5" fill="#333" />
-      <path d="M9 15c0 0 1.5 2 3 2s3-2 3-2" stroke="#333" strokeWidth="0.8" fill="none" />
-    </svg>
-  );
+export function LogoDingtalk({ size = 20 }: LogoProps) {
+  return <PlatformLogo src={dingtalkLogoUrl} alt="DingTalk" size={size} />;
 }
 
-/** OneBot — reuse QQ mark as fallback */
-export function LogoOneBot({ size = 20 }: { size?: number }) {
-  return LogoQQ({ size });
+export function LogoQQ({ size = 20 }: LogoProps) {
+  return <PlatformLogo src={qqLogoUrl} alt="QQ" size={size} />;
 }
 
-export function LogoWechat({ size = 20 }: { size?: number }) {
+export function LogoDiscord({ size = 20 }: LogoProps) {
+  return <PlatformLogo src={discordLogoUrl} alt="Discord" size={size} />;
+}
+
+export function LogoSlack({ size = 20 }: LogoProps) {
+  return <PlatformLogo src={slackLogoUrl} alt="Slack" size={size} />;
+}
+
+export function LogoOneBot({ size = 20 }: LogoProps) {
+  return <PlatformLogo src={onebotLogoUrl} alt="OneBot" size={size} />;
+}
+
+export function LogoLine({ size = 20 }: LogoProps) {
+  return <PlatformLogo src={lineLogoUrl} alt="LINE" size={size} />;
+}
+
+export function LogoWechat({ size = 20 }: LogoProps) {
+  return <PlatformLogo src={wechatLogoUrl} alt="WeChat" size={size} />;
+}
+
+export function LogoWhatsApp({ size = 20 }: LogoProps) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <rect width="24" height="24" rx="5" fill="#07C160" />
-      <path d="M8.5 10c-2 0-3.5 1.4-3.5 3.2 0 1 .5 1.9 1.3 2.5l-.4 1.3 1.5-.8c.5.2 1 .3 1.6.3.2 0 .4 0 .6-.1-.1-.4-.2-.8-.2-1.2 0-2.3 2-4.2 4.6-4.2zm9.2 1.5c0-2.1-2.1-3.8-4.7-3.8S8.3 9.4 8.3 11.5c0 2.1 2.1 3.8 4.7 3.8.6 0 1.1-.1 1.6-.3l1.4.7-.3-1.2c.9-.6 1.5-1.6 1.5-2.7z" fill="#fff" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2C6.48 2 2 6.48 2 12c0 1.77.46 3.43 1.27 4.88L2 22l5.23-1.24A9.96 9.96 0 0012 22c5.52 0 10-4.48 10-10S17.52 2 12 2z" fill="#25D366"/>
+      <path d="M16.75 14.62c-.23-.12-1.37-.68-1.58-.75-.21-.08-.36-.12-.51.11-.15.23-.6.75-.73.9-.13.16-.27.18-.5.06-1.4-.7-2.33-1.27-3.27-2.83-.25-.4.25-.37.7-1.27.08-.15.04-.28-.02-.4-.06-.11-.51-1.23-.7-1.68-.18-.44-.37-.38-.51-.38h-.43c-.15 0-.4.06-.6.28-.21.23-.8.78-.8 1.9s.82 2.2.93 2.35c.12.16 1.62 2.47 3.93 3.47 1.46.63 2.03.7 2.76.58.44-.07 1.37-.56 1.56-1.1.2-.53.2-.99.14-1.09-.06-.1-.21-.15-.44-.27z" fill="white"/>
     </svg>
   );
 }
@@ -655,32 +674,12 @@ export const IM_LOGO_MAP: Record<string, (p: { size?: number }) => React.JSX.Ele
   qqbot: LogoQQ,
   onebot: LogoOneBot,
   onebot_reverse: LogoOneBot,
+  discord: LogoDiscord,
+  slack: LogoSlack,
+  line: LogoLine,
   wechat: LogoWechat,
+  whatsapp: LogoWhatsApp,
 };
-
-export function IconCode(p: IconProps = {}) {
-  return svg(p, <>
-    <polyline points="16 18 22 12 16 6" />
-    <polyline points="8 6 2 12 8 18" />
-  </>);
-}
-
-export function IconFileText2(p: IconProps = {}) {
-  return svg(p, <>
-    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-    <polyline points="14 2 14 8 20 8" />
-    <line x1="16" y1="13" x2="8" y2="13" />
-    <line x1="16" y1="17" x2="8" y2="17" />
-    <polyline points="10 9 9 9 8 9" />
-  </>);
-}
-
-export function IconTerminal(p: IconProps = {}) {
-  return svg(p, <>
-    <polyline points="4 17 10 11 4 5" />
-    <line x1="12" y1="19" x2="20" y2="19" />
-  </>);
-}
 
 export function IconBug(p: IconProps = {}) {
   return svg(p, <>
@@ -927,5 +926,39 @@ export function IconAlertCircle(p: IconProps = {}) {
 export function IconShield(p: IconProps = {}) {
   return svg(p, <>
     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+  </>);
+}
+
+export function IconCode(p: IconProps = {}) {
+  return svg(p, <>
+    <polyline points="16 18 22 12 16 6" />
+    <polyline points="8 6 2 12 8 18" />
+  </>);
+}
+
+export function IconFileText2(p: IconProps = {}) {
+  return svg(p, <>
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
+    <line x1="16" y1="13" x2="8" y2="13" />
+    <line x1="16" y1="17" x2="8" y2="17" />
+    <polyline points="10 9 9 9 8 9" />
+  </>);
+}
+
+export function IconTerminal(p: IconProps = {}) {
+  return svg(p, <>
+    <polyline points="4 17 10 11 4 5" />
+    <line x1="12" y1="19" x2="20" y2="19" />
+  </>);
+}
+
+/** 团队管理侧栏：双人叠影 */
+export function IconUserGroup(p: IconProps = {}) {
+  return svg(p, <>
+    <circle cx="9" cy="7" r="3.5" />
+    <path d="M3 19.5v-.5a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v.5" />
+    <circle cx="17" cy="8" r="2.8" />
+    <path d="M21 19.5v-.3a3 3 0 0 0-3-3h-1.2" />
   </>);
 }

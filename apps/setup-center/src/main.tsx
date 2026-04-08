@@ -13,21 +13,20 @@ if (__BUILD_TARGET__ === "tauri") {
   import("./localFetch").then(m => m.installLocalFetchOverride());
 }
 
-import React, { lazy, Suspense } from "react";
+import React from "react";
 import ReactDOM from "react-dom/client";
 
 import "./i18n";
 import "./globals.css";
 import "./styles.css";
 import { App } from "./App";
+import { PetView } from "./views/PetView";
 import { WindowsTitleBar } from "./components/WindowsTitleBar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { IS_WINDOWS } from "./platform/detect";
 import { initTheme } from "./theme";
 import { logger } from "./platform/logger";
 import { copyToClipboard, readFromClipboard } from "./utils/clipboard";
-
-const PetView = lazy(() => import("./views/PetView").then((m) => ({ default: m.PetView })));
 
 // Initialize theme before rendering to catch OS changes
 initTheme();
@@ -141,10 +140,10 @@ class GlobalErrorBoundary extends React.Component<
               <button
                 onClick={() => location.reload()}
                 style={{
-                  background: "linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%)",
+                  background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
                   color: "#fff", border: "none", borderRadius: 10, padding: "10px 24px",
                   fontSize: 15, fontWeight: 600, cursor: "pointer",
-                  boxShadow: "0 2px 8px rgba(14,165,233,0.3)", transition: "transform 0.1s",
+                  boxShadow: "0 2px 8px rgba(37,99,235,0.3)", transition: "transform 0.1s",
                 }}
                 onMouseDown={(e) => { (e.target as HTMLButtonElement).style.transform = "scale(0.97)"; }}
                 onMouseUp={(e) => { (e.target as HTMLButtonElement).style.transform = ""; }}
@@ -289,7 +288,7 @@ setTimeout(() => hideBoot(true), 8000);
         userSelect: "none",
       } as CSSStyleDeclaration);
       if (!item.disabled) {
-        row.addEventListener("mouseenter", () => { row.style.background = "rgba(14,165,233,0.08)"; });
+        row.addEventListener("mouseenter", () => { row.style.background = "rgba(37,99,235,0.08)"; });
         row.addEventListener("mouseleave", () => { row.style.background = ""; });
         row.addEventListener("click", () => { item.action(); removeMenu(); });
       }
@@ -348,34 +347,17 @@ if (showWinCustomTitlebar && !isPetRoute) {
   rootElement.classList.add("appRootTauriWindows");
 }
 
-const mainApp = (
-  <TooltipProvider delayDuration={200}>
-    <App />
-  </TooltipProvider>
-);
-
-ReactDOM.createRoot(rootElement).render(
+ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    {isPetRoute ? (
-      <GlobalErrorBoundary>
-        <Suspense fallback={null}>
-          <PetView />
-        </Suspense>
-      </GlobalErrorBoundary>
-    ) : showWinCustomTitlebar ? (
-      <>
-        <WindowsTitleBar />
-        <GlobalErrorBoundary>
-          <div className="tauriWinMainColumn">
-            {mainApp}
-          </div>
-        </GlobalErrorBoundary>
-      </>
-    ) : (
-      <GlobalErrorBoundary>
-        {mainApp}
-      </GlobalErrorBoundary>
-    )}
+    <GlobalErrorBoundary>
+      {window.location.pathname === "/pet" ? (
+        <PetView />
+      ) : (
+        <TooltipProvider>
+          <App />
+        </TooltipProvider>
+      )}
+    </GlobalErrorBoundary>
   </React.StrictMode>,
 );
 
