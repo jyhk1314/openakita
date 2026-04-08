@@ -1,11 +1,16 @@
 // ─── WebSocket Event Client ───
-// Replaces Tauri listen() events in web mode.
+// Works in both Web and Tauri modes.
 // Auto-reconnects on disconnect with exponential backoff.
 
 import { IS_TAURI, IS_CAPACITOR } from "./detect";
-import { getAccessToken, isTokenExpiringSoon, refreshAccessToken } from "./auth";
+import { getAccessToken, isTokenExpiringSoon, refreshAccessToken, isTauriRemoteMode } from "./auth";
 import { getActiveServer } from "./servers";
 import { logger } from "./logger";
+
+/** True when WS should be skipped (Tauri local mode — events go via IPC instead). */
+function _skipWs(): boolean {
+  return IS_TAURI && !isTauriRemoteMode();
+}
 
 export type WsEventHandler = (event: string, data: unknown) => void;
 
@@ -22,12 +27,15 @@ function getWsUrl(): string {
   let host: string;
   let proto: string;
 
-  if (IS_CAPACITOR) {
+  if (IS_CAPACITOR || (IS_TAURI && isTauriRemoteMode())) {
     const server = getActiveServer();
     if (!server) return "";
     const url = new URL(server.url);
     host = url.host;
     proto = url.protocol === "https:" ? "wss:" : "ws:";
+  } else if (IS_TAURI) {
+    host = "127.0.0.1:8000";
+    proto = "ws:";
   } else {
     const loc = window.location;
     host = loc.host;
@@ -108,10 +116,10 @@ function _scheduleReconnect(): void {
 
 /**
  * Subscribe to all WebSocket events. Returns unsubscribe function.
- * In Tauri mode this is a no-op (Tauri events are used instead).
+ * Works in both Web and Tauri modes.
  */
 export function onWsEvent(handler: WsEventHandler): () => void {
-  if (IS_TAURI) return () => {};
+  if (_skipWs()) return () => {};
 
   _handlers.push(handler);
   // Ensure connection is started
@@ -147,7 +155,7 @@ export function disconnectWs(): void {
  * Resets backoff and attempts counter. No-op if no handlers are registered.
  */
 export function reconnectWsNow(): void {
-  if (IS_TAURI) return;
+  if (_skipWs()) return;
   _intentionallyClosed = false;
   if (_reconnectTimer) {
     clearTimeout(_reconnectTimer);

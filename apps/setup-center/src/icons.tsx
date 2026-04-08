@@ -630,6 +630,58 @@ export function LogoQQ({ size = 20 }: { size?: number }) {
   );
 }
 
+/** OneBot — reuse QQ mark as fallback */
+export function LogoOneBot({ size = 20 }: { size?: number }) {
+  return LogoQQ({ size });
+}
+
+export function LogoWechat({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <rect width="24" height="24" rx="5" fill="#07C160" />
+      <path d="M8.5 10c-2 0-3.5 1.4-3.5 3.2 0 1 .5 1.9 1.3 2.5l-.4 1.3 1.5-.8c.5.2 1 .3 1.6.3.2 0 .4 0 .6-.1-.1-.4-.2-.8-.2-1.2 0-2.3 2-4.2 4.6-4.2zm9.2 1.5c0-2.1-2.1-3.8-4.7-3.8S8.3 9.4 8.3 11.5c0 2.1 2.1 3.8 4.7 3.8.6 0 1.1-.1 1.6-.3l1.4.7-.3-1.2c.9-.6 1.5-1.6 1.5-2.7z" fill="#fff" />
+    </svg>
+  );
+}
+
+export const IM_LOGO_MAP: Record<string, (p: { size?: number }) => React.JSX.Element> = {
+  telegram: LogoTelegram,
+  feishu: LogoFeishu,
+  lark: LogoFeishu,
+  wework: LogoWework,
+  wework_ws: LogoWework,
+  dingtalk: LogoDingtalk,
+  qq: LogoQQ,
+  qqbot: LogoQQ,
+  onebot: LogoOneBot,
+  onebot_reverse: LogoOneBot,
+  wechat: LogoWechat,
+};
+
+export function IconCode(p: IconProps = {}) {
+  return svg(p, <>
+    <polyline points="16 18 22 12 16 6" />
+    <polyline points="8 6 2 12 8 18" />
+  </>);
+}
+
+export function IconFileText2(p: IconProps = {}) {
+  return svg(p, <>
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
+    <line x1="16" y1="13" x2="8" y2="13" />
+    <line x1="16" y1="17" x2="8" y2="17" />
+    <polyline points="10 9 9 9 8 9" />
+  </>);
+}
+
+export function IconTerminal(p: IconProps = {}) {
+  return svg(p, <>
+    <polyline points="4 17 10 11 4 5" />
+    <line x1="12" y1="19" x2="20" y2="19" />
+  </>);
+}
+
 export function IconBug(p: IconProps = {}) {
   return svg(p, <>
     <path d="M8 2l1.88 1.88M14.12 3.88L16 2" />
@@ -869,5 +921,11 @@ export function IconAlertCircle(p: IconProps = {}) {
     <circle cx="12" cy="12" r="10" />
     <line x1="12" y1="8" x2="12" y2="12" />
     <line x1="12" y1="16" x2="12.01" y2="16" />
+  </>);
+}
+
+export function IconShield(p: IconProps = {}) {
+  return svg(p, <>
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
   </>);
 }

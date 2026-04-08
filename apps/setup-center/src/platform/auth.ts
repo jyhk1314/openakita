@@ -2,23 +2,26 @@
 // Handles JWT access/refresh token lifecycle.
 // Tauri local: no-ops (backend exempts 127.0.0.1). Tauri remote: same as Capacitor.
 
-import { IS_TAURI, IS_CAPACITOR } from "./detect";
+import { IS_TAURI, IS_CAPACITOR, IS_LOCAL_WEB } from "./detect";
 
 const ACCESS_TOKEN_KEY = "synapse_access_token";
 
 let _tauriRemoteMode = false;
-let _localAuthMode = false;
+let _localAuthMode = IS_LOCAL_WEB;
 let _passwordUserSet = true;
 
 /** Enable/disable auth for Tauri desktop connecting to a remote backend. */
 export function setTauriRemoteMode(enabled: boolean): void {
   _tauriRemoteMode = enabled;
-  // Always reset: connecting to a new server must re-evaluate local exemption via checkAuth()
-  _localAuthMode = false;
+  // Reset for Tauri remote; IS_LOCAL_WEB always keeps local mode on.
+  _localAuthMode = IS_LOCAL_WEB;
 }
 export function isTauriRemoteMode(): boolean { return _tauriRemoteMode; }
 
-function needsAuth(): boolean { return !IS_TAURI || _tauriRemoteMode; }
+function needsAuth(): boolean {
+  if (IS_LOCAL_WEB) return false;
+  return !IS_TAURI || _tauriRemoteMode;
+}
 
 /** Cross-origin mode: Capacitor or Tauri remote — no httpOnly cookie refresh. */
 function isCrossOriginMode(): boolean { return IS_CAPACITOR || _tauriRemoteMode; }
@@ -225,6 +228,8 @@ export async function logout(apiBase = ""): Promise<void> {
     await fetch(`${apiBase}/api/auth/logout`, opts);
   } catch { /* ignore */ }
   clearAccessToken();
+  _localAuthMode = false;
+  try { sessionStorage.removeItem(LOCAL_AUTH_SESSION_KEY); } catch { /* */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -265,6 +270,19 @@ export function installFetchInterceptor(): void {
 // Auth check
 // ---------------------------------------------------------------------------
 
+const LOCAL_AUTH_SESSION_KEY = "synapse_auth_local";
+
+/** Restore local-auth mode from sessionStorage (survives page refresh). */
+export function tryRestoreLocalAuth(): boolean {
+  try {
+    if (sessionStorage.getItem(LOCAL_AUTH_SESSION_KEY) === "1") {
+      _localAuthMode = true;
+      return true;
+    }
+  } catch { /* sessionStorage unavailable */ }
+  return false;
+}
+
 export async function checkAuth(apiBase = ""): Promise<boolean> {
   const maxAttempts = IS_CAPACITOR ? 1 : 3;
   const timeoutMs = IS_CAPACITOR ? 3_000 : 5_000;
@@ -282,12 +300,20 @@ export async function checkAuth(apiBase = ""): Promise<boolean> {
       if (res.ok) {
         const data = await res.json();
         if (data.authenticated === true) {
-          if (data.method === "local") _localAuthMode = true;
+          if (data.method === "local") {
+            _localAuthMode = true;
+            try { sessionStorage.setItem(LOCAL_AUTH_SESSION_KEY, "1"); } catch { /* */ }
+          }
           if (data.password_user_set === false) _passwordUserSet = false;
           return true;
         }
       }
-      // Access token missing or expired — try silent refresh via httpOnly cookie
+      // Transient HTTP error (500/502/503) — retry before falling through
+      if (!res.ok && attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, attempt * 1000));
+        continue;
+      }
+      // Final attempt: try silent refresh via httpOnly cookie
       const refreshed = await refreshAccessToken(apiBase);
       if (refreshed) return true;
       return false;

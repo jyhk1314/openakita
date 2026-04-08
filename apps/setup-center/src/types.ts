@@ -52,6 +52,7 @@ export type EndpointDraft = {
   rpm_limit?: number;
   note?: string | null;
   pricing_tiers?: { max_input: number; input_price: number; output_price: number }[];
+  enabled?: boolean;
 };
 
 export type PythonCandidate = {
@@ -120,7 +121,11 @@ export type Step = {
   desc: string;
 };
 
-export type ViewId = "wizard" | "status" | "chat" | "skills" | "im" | "onboarding" | "modules" | "token_stats" | "mcp" | "scheduler" | "memory" | "dashboard" | "agent_manager" | "agent_store" | "skill_store" | "org_editor" | "identity";
+export type ViewId =
+  | "wizard" | "status" | "chat" | "skills" | "im" | "onboarding" | "modules" | "token_stats"
+  | "mcp" | "scheduler" | "memory" | "dashboard" | "agent_manager" | "agent_store" | "skill_store"
+  | "org_editor" | "pixel_office" | "identity" | "docs" | "security" | "plugins"
+  | "rd_center" | "team_manage" | "rd_process";
 
 // ─── Health check types ───
 
@@ -177,6 +182,12 @@ export type ChatArtifact = {
   size?: number;
 };
 
+export type ChatErrorInfo = {
+  message: string;
+  category: "auth" | "quota" | "timeout" | "content_filter" | "network" | "server" | "unknown";
+  raw?: string;
+};
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant" | "system";
@@ -184,11 +195,13 @@ export type ChatMessage = {
   thinking?: string | null;
   agentName?: string | null;
   toolCalls?: ChatToolCall[] | null;
-  plan?: ChatPlan | null;
+  todo?: ChatTodo | null;
   askUser?: ChatAskUser | null;
   attachments?: ChatAttachment[] | null;
   artifacts?: ChatArtifact[] | null;
   thinkingChain?: ChainGroup[] | null;
+  errorInfo?: ChatErrorInfo | null;
+  usage?: { input_tokens: number; output_tokens: number; total_tokens?: number } | null;
   timestamp: number;
   streaming?: boolean;
 };
@@ -243,18 +256,31 @@ export type ChatToolCall = {
   status: "pending" | "running" | "done" | "error";
 };
 
-export type ChatPlan = {
+export type ChatTodo = {
   id: string;
   taskSummary: string;
-  steps: ChatPlanStep[];
+  steps: ChatTodoStep[];
   status: "in_progress" | "completed" | "failed" | "cancelled";
 };
 
-export type ChatPlanStep = {
+/** @deprecated Use ChatTodo */
+export type ChatPlan = ChatTodo;
+
+export type ChatTodoStep = {
   id?: string;
   description: string;
   status: "pending" | "in_progress" | "completed" | "skipped" | "failed" | "cancelled";
   result?: string | null;
+};
+
+/** @deprecated Use ChatTodoStep */
+export type ChatPlanStep = ChatTodoStep;
+
+export type PlanApprovalEvent = {
+  conversation_id: string;
+  summary: string;
+  plan_id: string;
+  plan_file: string;
 };
 
 export type ChatAskQuestion = {
@@ -281,6 +307,8 @@ export type ChatAttachment = {
   previewUrl?: string;
   size?: number;
   mimeType?: string;
+  /** Transient upload tracking ID — not persisted to backend */
+  _uploadId?: string;
 };
 
 export type ConversationStatus = "idle" | "running" | "completed" | "error";
@@ -293,6 +321,7 @@ export type ChatConversation = {
   messageCount: number;
   pinned?: boolean;
   titleGenerated?: boolean;
+  titleManuallySet?: boolean;
   agentProfileId?: string;
   endpointId?: string;
   status?: ConversationStatus;

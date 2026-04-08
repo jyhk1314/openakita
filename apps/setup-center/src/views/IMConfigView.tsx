@@ -1,475 +1,286 @@
-import { useEffect, useState, useCallback } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FieldBool } from "../components/EnvFields";
-import { IconBook, IconClipboard, IconBot, IconPlus, IconEdit, IconTrash, LogoTelegram, LogoFeishu, LogoWework, LogoDingtalk, LogoQQ } from "../icons";
-import { safeFetch } from "../providers";
+import { toast } from "sonner";
+import { LogoTelegram, LogoFeishu, LogoWework, LogoDingtalk, LogoQQ, LogoOneBot, LogoWechat } from "../icons";
+import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import type { EnvMap } from "../types";
 import { envGet, envSet } from "../utils";
 import { copyToClipboard } from "../utils/clipboard";
-import type { IMBot } from "./im-shared";
-import { BOT_TYPE_LABELS, CREDENTIAL_FIELDS, ENABLED_KEY_TO_TYPE, TYPE_TO_ENABLED_KEY } from "./im-shared";
+import { BotConfigTab } from "./IMView";
+import { cn } from "@/lib/utils";
+import { AlertCircle, BookOpen, BrainCircuit, ExternalLink, Info, Terminal } from "lucide-react";
+import { openExternalUrl } from "../platform";
 
 type IMConfigViewProps = {
   envDraft: EnvMap;
   setEnvDraft: (updater: (prev: EnvMap) => EnvMap) => void;
-  setNotice: (v: string | null) => void;
-  busy: string | null;
-  secretShown: Record<string, boolean>;
-  onToggleSecret: (k: string) => void;
+  busy?: string | null;
   currentWorkspaceId: string | null;
-  onNavigateToBotConfig?: (presetType?: string) => void;
+  venvDir?: string;
   apiBaseUrl?: string;
-  pendingBots?: IMBot[];
-  onPendingBotsChange?: (bots: IMBot[]) => void;
+  onRequestRestart?: () => void;
+  wizardMode?: boolean;
+  multiAgentEnabled?: boolean;
 };
+
+const DEFAULT_API = "http://127.0.0.1:18900";
+
+const PLATFORMS = [
+  { id: "wechat", title: "config.imWechat", logo: LogoWechat, docUrl: "https://developers.weixin.qq.com/doc/" },
+  { id: "feishu", title: "config.imFeishu", logo: LogoFeishu, docUrl: "https://open.feishu.cn/" },
+  { id: "dingtalk", title: "config.imDingtalk", logo: LogoDingtalk, docUrl: "https://open.dingtalk.com/" },
+  { id: "wework", title: "config.imWework", logo: LogoWework, docUrl: "https://work.weixin.qq.com/" },
+  { id: "qqbot", title: "config.imQQBot", logo: LogoQQ, docUrl: "https://bot.q.qq.com/wiki/develop/api-v2/" },
+  { id: "telegram", title: "Telegram", logo: LogoTelegram, docUrl: "https://t.me/BotFather" },
+  { id: "onebot", title: "OneBot", logo: LogoOneBot, docUrl: "https://github.com/botuniverse/onebot-11" },
+] as const;
 
 export function IMConfigView(props: IMConfigViewProps) {
   const {
-    envDraft, setEnvDraft, setNotice, busy,
-    onNavigateToBotConfig, apiBaseUrl,
-    pendingBots, onPendingBotsChange,
+    envDraft, setEnvDraft, busy = null, currentWorkspaceId, venvDir = "",
+    apiBaseUrl, onRequestRestart, wizardMode = false, multiAgentEnabled,
   } = props;
   const { t } = useTranslation();
+  const [showCmdRef, setShowCmdRef] = useState(false);
 
-  const isOnboardingMode = pendingBots !== undefined && onPendingBotsChange !== undefined;
-
-  // API bots (wizard mode only)
-  const [apiBots, setApiBots] = useState<IMBot[]>([]);
-  const fetchBots = useCallback(async () => {
-    if (!apiBaseUrl || isOnboardingMode) return;
-    try {
-      const res = await safeFetch(`${apiBaseUrl}/api/agents/bots`);
-      const data = await res.json();
-      setApiBots(data.bots || []);
-    } catch { /* ignore */ }
-  }, [apiBaseUrl, isOnboardingMode]);
-  useEffect(() => { fetchBots(); }, [fetchBots]);
-
-  // Inline editor state (onboarding mode)
-  const [editingBotType, setEditingBotType] = useState<string | null>(null);
-  const [editingBotIdx, setEditingBotIdx] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState<IMBot | null>(null);
-  const [revealedSecrets, setRevealedSecrets] = useState<Set<string>>(new Set());
-
-  const openAddBot = (botType: string) => {
-    setEditingBotType(botType);
-    setEditingBotIdx(null);
-    setEditForm({
-      id: `${botType}-${Date.now().toString(36)}`,
-      type: botType,
-      name: BOT_TYPE_LABELS[botType] || botType,
-      agent_profile_id: "default",
-      enabled: true,
-      credentials: {},
-    });
-    setRevealedSecrets(new Set());
-  };
-
-  const openEditBot = (bot: IMBot, idx: number) => {
-    setEditingBotType(bot.type);
-    setEditingBotIdx(idx);
-    setEditForm({ ...bot, credentials: { ...bot.credentials } });
-    setRevealedSecrets(new Set());
-  };
-
-  const cancelEdit = () => {
-    setEditingBotType(null);
-    setEditingBotIdx(null);
-    setEditForm(null);
-  };
-
-  const saveBot = () => {
-    if (!editForm || !onPendingBotsChange || !pendingBots) return;
-    if (!editForm.id.trim()) return;
-
-    if (editingBotIdx !== null) {
-      const updated = [...pendingBots];
-      updated[editingBotIdx] = editForm;
-      onPendingBotsChange(updated);
-    } else {
-      onPendingBotsChange([...pendingBots, editForm]);
-    }
-
-    // Auto-set the .env enabled flag
-    const enabledKey = TYPE_TO_ENABLED_KEY[editForm.type];
-    if (enabledKey) {
-      setEnvDraft((m) => envSet(m, enabledKey, "true"));
-    }
-
-    cancelEdit();
-  };
-
-  const deleteBot = (idx: number) => {
-    if (!pendingBots || !onPendingBotsChange) return;
-    const removed = pendingBots[idx];
-    const updated = pendingBots.filter((_, i) => i !== idx);
-    onPendingBotsChange(updated);
-
-    // Adjust or cancel the inline editor if indices shifted
-    if (editingBotIdx !== null) {
-      if (idx === editingBotIdx) {
-        cancelEdit();
-      } else if (idx < editingBotIdx) {
-        setEditingBotIdx(editingBotIdx - 1);
-      }
-    }
-
-    // If no more bots of this type, clear the .env enabled flag
-    if (removed && !updated.some((b) => b.type === removed.type)) {
-      const enabledKey = TYPE_TO_ENABLED_KEY[removed.type];
-      if (enabledKey) {
-        setEnvDraft((m) => envSet(m, enabledKey, "false"));
-      }
-    }
-  };
-
-  const _envBase = { envDraft, onEnvChange: setEnvDraft, busy };
-  const FB = (p: { k: string; label: string; help?: string; defaultValue?: boolean }) =>
-    <FieldBool {...p} {..._envBase} />;
-
-  const channels = [
-    {
-      title: "Telegram",
-      appType: t("config.imTypeLongPolling"),
-      logo: <LogoTelegram size={22} />,
-      enabledKey: "TELEGRAM_ENABLED",
-      docUrl: "https://t.me/BotFather",
-      needPublicIp: false,
-    },
-    {
-      title: t("config.imFeishu"),
-      appType: t("config.imTypeCustomApp"),
-      logo: <LogoFeishu size={22} />,
-      enabledKey: "FEISHU_ENABLED",
-      docUrl: "https://open.feishu.cn/",
-      needPublicIp: false,
-    },
-    {
-      title: t("config.imWework"),
-      appType: t("config.imTypeSmartBot"),
-      logo: <LogoWework size={22} />,
-      enabledKey: "WEWORK_ENABLED",
-      docUrl: "https://work.weixin.qq.com/",
-      needPublicIp: true,
-    },
-    {
-      title: t("config.imDingtalk"),
-      appType: t("config.imTypeInternalApp"),
-      logo: <LogoDingtalk size={22} />,
-      enabledKey: "DINGTALK_ENABLED",
-      docUrl: "https://open.dingtalk.com/",
-      needPublicIp: false,
-    },
-    {
-      title: "QQ 机器人",
-      appType: t("config.imTypeQQBot"),
-      logo: <LogoQQ size={22} />,
-      enabledKey: "QQBOT_ENABLED",
-      docUrl: "https://bot.q.qq.com/wiki/develop/api-v2/",
-      needPublicIp: false,
-    },
-    {
-      title: "OneBot",
-      appType: t("config.imTypeOneBot"),
-      logo: <LogoQQ size={22} />,
-      enabledKey: "ONEBOT_ENABLED",
-      docUrl: "https://github.com/botuniverse/onebot-11",
-      needPublicIp: false,
-    },
-  ];
-
-  const renderBotCard = (bot: IMBot, globalIdx: number) => (
-    <div key={bot.id} style={{
-      display: "flex", alignItems: "center", gap: 8,
-      padding: "6px 10px", borderRadius: 6,
-      background: "var(--bg-subtle, #f8fafc)", fontSize: 12,
-    }}>
-      <span style={{
-        width: 6, height: 6, borderRadius: 3, flexShrink: 0,
-        background: bot.enabled ? "#10b981" : "#94a3b8",
-      }} />
-      <span style={{ fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {bot.name || bot.id}
-      </span>
-      <span style={{ opacity: 0.4, fontFamily: "monospace", fontSize: 10 }}>{bot.id}</span>
-      {isOnboardingMode && (
-        <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
-          <button
-            onClick={() => openEditBot(bot, globalIdx)}
-            style={{
-              padding: "2px 6px", borderRadius: 4, border: "1px solid var(--line)",
-              background: "transparent", cursor: "pointer", fontSize: 10, display: "inline-flex", alignItems: "center", gap: 2,
-              color: "var(--text2)",
-            }}
-          ><IconEdit size={10} />{t("config.imInlineEdit")}</button>
-          <button
-            onClick={() => deleteBot(globalIdx)}
-            style={{
-              padding: "2px 6px", borderRadius: 4, border: "1px solid var(--line)",
-              background: "transparent", cursor: "pointer", fontSize: 10, display: "inline-flex", alignItems: "center", gap: 2,
-              color: "#ef4444",
-            }}
-          ><IconTrash size={10} />{t("config.imInlineDelete")}</button>
-        </div>
-      )}
-      {!isOnboardingMode && (
-        <span style={{ marginLeft: "auto", opacity: 0.5, fontSize: 11, whiteSpace: "nowrap" }}>
-          Agent: {bot.agent_profile_id}
-        </span>
-      )}
-    </div>
-  );
-
-  const renderInlineEditor = (forType: string) => {
-    if (!editForm || editingBotType !== forType) return null;
-
-    const fields = CREDENTIAL_FIELDS[forType] || [];
-    const isEditing = editingBotIdx !== null;
-
-    return (
-      <div style={{
-        marginTop: 8, padding: "12px 14px", borderRadius: 8,
-        border: "1px solid var(--primary, #3b82f6)",
-        background: "var(--bg, #fff)",
-      }}>
-        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, color: "var(--primary, #3b82f6)" }}>
-          {isEditing ? t("config.imInlineEditTitle") : t("config.imInlineAddTitle")}
-        </div>
-
-        <label style={{ display: "block", marginBottom: 8 }}>
-          <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.7 }}>Bot ID</span>
-          <input
-            value={editForm.id}
-            onChange={(e) => setEditForm({ ...editForm, id: e.target.value.replace(/[^a-z0-9_-]/g, "") })}
-            disabled={isEditing}
-            placeholder="my-bot"
-            style={{
-              display: "block", width: "100%", padding: "6px 8px", borderRadius: 6,
-              border: "1px solid var(--line)", fontSize: 12, marginTop: 2,
-              background: isEditing ? "var(--bg-subtle, #f1f5f9)" : "var(--bg)",
-              boxSizing: "border-box",
-            }}
-          />
-        </label>
-
-        <label style={{ display: "block", marginBottom: 8 }}>
-          <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.7 }}>Bot Name</span>
-          <input
-            value={editForm.name}
-            onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-            placeholder={BOT_TYPE_LABELS[forType] || "My Bot"}
-            style={{
-              display: "block", width: "100%", padding: "6px 8px", borderRadius: 6,
-              border: "1px solid var(--line)", fontSize: 12, marginTop: 2,
-              boxSizing: "border-box",
-            }}
-          />
-        </label>
-
-        {fields.map((f) => {
-          const val = String(editForm.credentials[f.key] ?? "");
-          const secretKey = `${editForm.id}:${f.key}`;
-          const isSecret = f.secret && !revealedSecrets.has(secretKey);
-          return (
-            <label key={f.key} style={{ display: "block", marginBottom: 8 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.7 }}>{f.label}</span>
-              <div style={{ display: "flex", gap: 4, marginTop: 2 }}>
-                <input
-                  type={isSecret ? "password" : "text"}
-                  value={val}
-                  onChange={(e) => setEditForm({
-                    ...editForm,
-                    credentials: { ...editForm.credentials, [f.key]: e.target.value },
-                  })}
-                  placeholder={f.label}
-                  style={{
-                    flex: 1, padding: "6px 8px", borderRadius: 6,
-                    border: "1px solid var(--line)", fontSize: 12,
-                    boxSizing: "border-box",
-                  }}
-                />
-                {f.secret && (
-                  <button
-                    type="button"
-                    onClick={() => setRevealedSecrets((s) => {
-                      const next = new Set(s);
-                      next.has(secretKey) ? next.delete(secretKey) : next.add(secretKey);
-                      return next;
-                    })}
-                    style={{
-                      padding: "4px 8px", borderRadius: 6, border: "1px solid var(--line)",
-                      background: "transparent", cursor: "pointer", fontSize: 11, whiteSpace: "nowrap",
-                    }}
-                  >{isSecret ? "👁" : "🔒"}</button>
-                )}
-              </div>
-            </label>
-          );
-        })}
-
-        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-          <button
-            onClick={saveBot}
-            disabled={!editForm.id.trim()}
-            style={{
-              padding: "5px 14px", borderRadius: 6, border: "none",
-              background: "var(--primary, #3b82f6)", color: "#fff",
-              cursor: "pointer", fontSize: 12, fontWeight: 600,
-              opacity: editForm.id.trim() ? 1 : 0.5,
-            }}
-          >{t("config.imInlineSave")}</button>
-          <button
-            onClick={cancelEdit}
-            style={{
-              padding: "5px 14px", borderRadius: 6,
-              border: "1px solid var(--line)", background: "transparent",
-              cursor: "pointer", fontSize: 12,
-            }}
-          >{t("config.imInlineCancel")}</button>
-        </div>
-      </div>
-    );
-  };
+  const chainPushOn = envGet(envDraft, "IM_CHAIN_PUSH", "false").toLowerCase() === "true";
 
   return (
-    <>
-      <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div className="cardTitle">{t("config.imTitle")}</div>
-          <div style={{ display: "flex", gap: 6 }}>
-            {!isOnboardingMode && onNavigateToBotConfig && (
-              <button
-                className="btnSmall"
-                style={{
-                  display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12,
-                  background: "var(--primary, #3b82f6)", color: "#fff", border: "none",
-                  padding: "4px 12px", borderRadius: 6, cursor: "pointer", fontWeight: 600,
-                }}
-                onClick={() => onNavigateToBotConfig()}
-              >
-                <IconBot size={13} />{t("config.imGoToBotConfig")}
-              </button>
-            )}
-            <button className="btnSmall" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12 }}
-              onClick={async () => { const ok = await copyToClipboard("https://alidocs.dingtalk.com/i/nodes/ZX6GRezwJl7D5pKOcQXyrbRaVdqbropQ"); if (ok) setNotice(t("config.imGuideDocCopied")); }}
+    <div className="card">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4 overflow-x-auto">
+        <div className="min-w-0">
+          <h3 className="flex min-w-max items-center gap-2 text-base font-bold tracking-tight">
+            <span className="max-w-[240px] truncate" title={t("config.imTitle")}>{t("config.imTitle")}</span>
+            <Button
+              variant="outline" size="sm" className="h-7 shrink-0 gap-1 text-xs"
+              onClick={async () => {
+                const ok = await copyToClipboard(
+                  "https://github.com/anthropic-lab/synapse/blob/main/docs/im-channels.md",
+                );
+                if (ok) toast.success(t("config.imGuideDocCopied"));
+              }}
               title={t("config.imGuideDoc")}
-            ><IconBook size={13} />{t("config.imGuideDoc")}</button>
+            >
+              <BookOpen size={13} />
+              <span className="hidden xl:inline">{t("config.imGuideDoc")}</span>
+            </Button>
+            <Button
+              variant="outline" size="sm" className="h-7 shrink-0 gap-1 text-xs"
+              onClick={() => setShowCmdRef(true)}
+              title={t("config.imQuickCommands")}
+            >
+              <Terminal size={13} />
+              <span className="hidden xl:inline">{t("config.imQuickCommands")}</span>
+            </Button>
+          </h3>
+          <p className="mt-1 truncate text-sm text-muted-foreground" title={t("config.imHint")}>{t("config.imHint")}</p>
+        </div>
+        {!wizardMode && (
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <label
+              className={cn(
+                "inline-flex items-center gap-2.5 h-10 px-3.5 rounded-md border cursor-pointer select-none transition-colors",
+                chainPushOn
+                  ? "border-amber-400 bg-amber-50 dark:border-amber-600 dark:bg-amber-950/40"
+                  : "border-input bg-transparent",
+              )}
+            >
+              <BrainCircuit size={16} className={cn(chainPushOn ? "text-amber-500" : "text-muted-foreground")} />
+              <span className={cn("text-sm font-semibold", chainPushOn ? "text-amber-700 dark:text-amber-400" : "text-foreground")}>
+                {t("config.imChainPush")}
+              </span>
+              <Switch
+                checked={chainPushOn}
+                onCheckedChange={(v) =>
+                  setEnvDraft((d) => envSet(d, "IM_CHAIN_PUSH", String(v)))
+                }
+              />
+              <span className={cn("text-sm w-8 font-semibold", chainPushOn ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground")}>
+                {chainPushOn ? "ON" : "OFF"}
+              </span>
+            </label>
+            <span className="inline-flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-400">
+              <AlertCircle size={12} className="shrink-0" />
+              {t("config.imChainPushHelp")}
+            </span>
           </div>
-        </div>
-        <div className="cardHint">
-          {isOnboardingMode ? t("config.imHintOnboarding") : t("config.imHint")}
-        </div>
-        <div className="divider" />
-
-        {!isOnboardingMode && (
-          <>
-            <FB k="IM_CHAIN_PUSH" label={t("config.imChainPush")} help={t("config.imChainPushHelp")} />
-            <div className="divider" />
-          </>
         )}
+      </div>
 
-        {channels.map((c) => {
-          const botType = ENABLED_KEY_TO_TYPE[c.enabledKey] || "";
-
-          // In onboarding: bots from pendingBots; in wizard: bots from API
-          const channelBots = isOnboardingMode
-            ? (pendingBots || []).filter((b) => b.type === botType)
-            : apiBots.filter((b) => b.type === botType);
-
-          // In onboarding: channel is "enabled" if it has pending bots
-          const enabled = isOnboardingMode
-            ? channelBots.length > 0
-            : envGet(envDraft, c.enabledKey, "false").toLowerCase() === "true";
-
-          return (
-            <div key={c.enabledKey} className="card" style={{ marginTop: 10 }}>
-              <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-                <div className="row" style={{ alignItems: "center", gap: 10 }}>
-                  {c.logo}
-                  <span className="label" style={{ marginBottom: 0 }}>{c.title}</span>
-                  <span className="pill" style={{ fontSize: 10, padding: "1px 6px", background: "var(--bg-subtle, #f1f5f9)", color: "var(--muted)" }}>{c.appType}</span>
-                  {c.needPublicIp && <span className="pill" style={{ fontSize: 10, padding: "1px 6px", background: "var(--warn-bg, #fef3c7)", color: "var(--warn, #92400e)" }}>{t("config.imNeedPublicIp")}</span>}
-                  {enabled && (
-                    <span className="pill" style={{ fontSize: 10, padding: "1px 6px", background: "rgba(16,185,129,0.12)", color: "#10b981" }}>
-                      {channelBots.length} Bot{channelBots.length !== 1 ? "s" : ""}
-                    </span>
-                  )}
-                </div>
-                {!isOnboardingMode && (
-                  <label className="pill" style={{ cursor: "pointer", userSelect: "none" }}>
-                    <input style={{ width: 16, height: 16 }} type="checkbox" checked={enabled}
-                      onChange={(e) => setEnvDraft((m) => envSet(m, c.enabledKey, String(e.target.checked)))} />
-                    {t("config.enable")}
-                  </label>
-                )}
-              </div>
-              <div className="row" style={{ alignItems: "center", gap: 6, marginTop: 4 }}>
-                <button className="btnSmall"
-                  style={{ fontSize: 11, padding: "2px 8px", display: "inline-flex", alignItems: "center", gap: 3 }}
-                  title={c.docUrl}
-                  onClick={async () => { const ok = await copyToClipboard(c.docUrl); if (ok) setNotice(t("config.imDocCopied")); }}
-                ><IconClipboard size={12} />{t("config.imDoc")}</button>
-                <span className="help" style={{ fontSize: 11, userSelect: "all", opacity: 0.6 }}>{c.docUrl}</span>
-              </div>
-
-              {/* Bot list */}
-              <div style={{ marginTop: 8 }}>
-                {channelBots.length > 0 ? (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, opacity: 0.5, marginBottom: 2 }}>
-                      {t("config.imConfiguredBots")} ({channelBots.length})
-                    </div>
-                    {channelBots.map((bot) => {
-                      const globalIdx = isOnboardingMode
-                        ? (pendingBots || []).indexOf(bot)
-                        : -1;
-                      return renderBotCard(bot, globalIdx);
-                    })}
-                  </div>
-                ) : (
-                  <div style={{ fontSize: 12, opacity: 0.4, fontStyle: "italic" }}>
-                    {isOnboardingMode ? t("config.imNoBotsOnboarding") : t("config.imNoBots")}
-                  </div>
-                )}
-
-                {/* Inline editor (onboarding) or redirect button (wizard) */}
-                {isOnboardingMode ? (
-                  <>
-                    {renderInlineEditor(botType)}
-                    {editingBotType !== botType && (
-                      <button
-                        onClick={() => openAddBot(botType)}
-                        style={{
-                          marginTop: 6, display: "inline-flex", alignItems: "center", gap: 4,
-                          padding: "4px 12px", borderRadius: 6, border: "1px dashed var(--line)",
-                          background: "transparent", cursor: "pointer", fontSize: 11,
-                          color: "var(--primary, #3b82f6)", fontWeight: 500,
+      {/* IM Platform overview */}
+      <div className="mt-4 space-y-2">
+        <span className="text-sm font-bold text-foreground">
+          {t("config.imPlatformOverview")}
+        </span>
+        <div className="flex flex-wrap gap-3">
+          {PLATFORMS.map((p) => {
+            const Logo = p.logo;
+            const needsTranslation = p.title.startsWith("config.");
+            const title = needsTranslation ? t(p.title) : p.title;
+            return (
+              <div
+                key={p.id}
+                className="flex items-center gap-2.5 rounded-lg border px-3 py-2.5 bg-card hover:bg-accent/50 transition-colors"
+              >
+                <Logo size={28} />
+                <span className="font-medium text-sm">{title}</span>
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span
+                        className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openExternalUrl(p.docUrl);
                         }}
                       >
-                        <IconPlus size={10} />{t("config.imAddBot")}
-                      </button>
-                    )}
-                  </>
-                ) : (
-                  onNavigateToBotConfig && (
-                    <button
-                      onClick={() => onNavigateToBotConfig(botType)}
-                      style={{
-                        marginTop: 6, display: "inline-flex", alignItems: "center", gap: 4,
-                        padding: "3px 10px", borderRadius: 6, border: "1px dashed var(--line)",
-                        background: "transparent", cursor: "pointer", fontSize: 11,
-                        color: "var(--primary, #3b82f6)", fontWeight: 500,
-                      }}
-                    >
-                      <IconPlus size={10} />{t("config.imAddBot")}
-                    </button>
-                  )
-                )}
+                        <ExternalLink size={13} />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">
+                      {t("config.imDoc")} — {p.docUrl}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="border-t mt-4 mb-5" />
+
+      {/* Bot guide */}
+      {!wizardMode && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30 px-4 py-3 mb-4">
+          <Info size={16} className="shrink-0 mt-0.5 text-blue-500" />
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            {t("config.imBotGuide")}
+          </p>
+        </div>
+      )}
+
+      {/* Bot config */}
+      {!wizardMode && (
+        <BotConfigTab
+          apiBase={apiBaseUrl ?? DEFAULT_API}
+          multiAgentEnabled={multiAgentEnabled}
+          onRequestRestart={onRequestRestart}
+          venvDir={venvDir}
+          apiBaseUrl={apiBaseUrl}
+        />
+      )}
+
+      <QuickCommandsDialog open={showCmdRef} onOpenChange={setShowCmdRef} />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Quick Commands Reference Dialog                                    */
+/* ------------------------------------------------------------------ */
+
+type CmdEntry = { cmd: string; desc: string };
+type CmdCategory = { labelKey: string; icon: string; entries: CmdEntry[] };
+
+const CMD_CATEGORIES: CmdCategory[] = [
+  {
+    labelKey: "imCmdCatTask", icon: "🎯",
+    entries: [
+      { cmd: "停止 / stop / /stop / kill", desc: "imCmdStop" },
+      { cmd: "跳过 / skip / /skip", desc: "imCmdSkip" },
+      { cmd: "——", desc: "imCmdInsert" },
+    ],
+  },
+  {
+    labelKey: "imCmdCatChat", icon: "💬",
+    entries: [
+      { cmd: "/new  /新话题", desc: "imCmdNew" },
+      { cmd: "/help  /帮助", desc: "imCmdHelp" },
+    ],
+  },
+  {
+    labelKey: "imCmdCatModel", icon: "🤖",
+    entries: [
+      { cmd: "/model", desc: "imCmdModel" },
+      { cmd: "/switch [name]", desc: "imCmdSwitch" },
+      { cmd: "/restore", desc: "imCmdRestore" },
+    ],
+  },
+  {
+    labelKey: "imCmdCatThinking", icon: "🧠",
+    entries: [
+      { cmd: "/thinking [on|off|auto]", desc: "imCmdThinking" },
+      { cmd: "/thinking_depth [low|medium|high]", desc: "imCmdThinkingDepth" },
+      { cmd: "/chain [on|off]", desc: "imCmdChain" },
+    ],
+  },
+  {
+    labelKey: "imCmdCatMode", icon: "🔧",
+    entries: [
+      { cmd: "/模式  /mode", desc: "imCmdMode" },
+    ],
+  },
+  {
+    labelKey: "imCmdCatMultiAgent", icon: "👥",
+    entries: [
+      { cmd: "/切换  /switch", desc: "imCmdAgentSwitch" },
+      { cmd: "/状态  /status", desc: "imCmdAgentStatus" },
+      { cmd: "/重置  /agent_reset", desc: "imCmdAgentReset" },
+    ],
+  },
+  {
+    labelKey: "imCmdCatSystem", icon: "⚙️",
+    entries: [
+      { cmd: "/restart  /重启", desc: "imCmdRestart" },
+    ],
+  },
+];
+
+function QuickCommandsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+  const { t } = useTranslation();
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Terminal size={18} />
+            {t("config.imQuickCommandsTitle")}
+          </DialogTitle>
+          <DialogDescription>{t("config.imQuickCommandsDesc")}</DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-3 mt-2">
+          {CMD_CATEGORIES.map((cat) => (
+            <div
+              key={cat.labelKey}
+              className="rounded-lg border bg-card px-4 py-3"
+            >
+              <div className="text-sm font-semibold mb-2 flex items-center gap-1.5">
+                <span>{cat.icon}</span>
+                {t(`config.${cat.labelKey}`)}
+              </div>
+              <div className="space-y-1.5">
+                {cat.entries.map((e, i) => (
+                  <div key={i} className="flex items-baseline gap-3 text-sm">
+                    <code className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs font-mono text-foreground">
+                      {e.cmd}
+                    </code>
+                    <span className="text-muted-foreground text-xs">
+                      {t(`config.${e.desc}`)}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
-          );
-        })}
-      </div>
-    </>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

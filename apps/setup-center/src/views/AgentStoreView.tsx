@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { safeFetch } from "../providers";
 
 interface Agent {
@@ -22,6 +23,9 @@ interface AgentStoreViewProps {
   visible: boolean;
 }
 
+const agentUniqueKey = (a: Agent): string =>
+  a.authorName ? `${a.authorName}::${a.id}` : a.id;
+
 export function AgentStoreView({ apiBaseUrl, visible }: AgentStoreViewProps) {
   const { t } = useTranslation();
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -32,8 +36,7 @@ export function AgentStoreView({ apiBaseUrl, visible }: AgentStoreViewProps) {
   const [sort, setSort] = useState("downloads");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [installing, setInstalling] = useState<string | null>(null);
-  const [notice, setNotice] = useState("");
+  const [installingSet, setInstallingSet] = useState<Set<string>>(new Set());
   const [confirmAgent, setConfirmAgent] = useState<Agent | null>(null);
 
   const fetchAgents = useCallback(async () => {
@@ -59,24 +62,22 @@ export function AgentStoreView({ apiBaseUrl, visible }: AgentStoreViewProps) {
     if (visible) fetchAgents();
   }, [visible, fetchAgents]);
 
-  const doInstall = async (agentId: string) => {
-    setInstalling(agentId);
-    setNotice("");
+  const doInstall = async (agent: Agent) => {
+    const key = agentUniqueKey(agent);
+    setInstallingSet(prev => { const next = new Set(prev); next.add(key); return next; });
     try {
-      const resp = await safeFetch(`${apiBaseUrl}/api/hub/agents/${agentId}/install`, { method: "POST" });
+      const resp = await safeFetch(`${apiBaseUrl}/api/hub/agents/${agent.id}/install`, { method: "POST" });
       const data = await resp.json();
-      setNotice(t("agentStore.installSuccess", { name: data.profile?.name || agentId }));
+      toast.success(t("agentStore.installSuccess", { name: data.profile?.name || agent.name }));
       safeFetch(`${apiBaseUrl}/api/skills/reload`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
     } catch (e: any) {
-      setNotice(t("agentStore.installFail", { msg: e.message }));
+      toast.error(t("agentStore.installFail", { msg: e.message }));
     } finally {
-      setInstalling(null);
+      setInstallingSet(prev => { const next = new Set(prev); next.delete(key); return next; });
     }
   };
 
   if (!visible) return null;
-
-  const isSuccess = !notice.includes("❌") && !notice.toLowerCase().includes("fail");
 
   return (
     <div>
@@ -114,17 +115,6 @@ export function AgentStoreView({ apiBaseUrl, visible }: AgentStoreViewProps) {
             {loading ? t("agentStore.searching") : t("common.search")}
           </button>
         </div>
-
-        {notice && (
-          <div style={{
-            padding: "8px 12px", marginTop: 10, borderRadius: 6,
-            background: isSuccess ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)",
-            color: isSuccess ? "var(--success, #16a34a)" : "var(--error, #dc2626)",
-            fontSize: 13,
-          }}>
-            {notice}
-          </div>
-        )}
       </div>
 
       {error && (
@@ -144,57 +134,60 @@ export function AgentStoreView({ apiBaseUrl, visible }: AgentStoreViewProps) {
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
-        {agents.map((a) => (
-          <div key={a.id} className="card" style={{ position: "relative" }}>
-            {a.isFeatured && (
-              <span style={{
-                position: "absolute", top: 8, right: 8, fontSize: 10, padding: "2px 6px",
-                background: "var(--accent)", color: "#fff", borderRadius: 4, fontWeight: 600,
-              }}>
-                {t("agentStore.featured")}
-              </span>
-            )}
-            <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>
-              {a.name}
-            </div>
-            <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8, lineHeight: 1.5 }}>
-              {a.description?.slice(0, 120) || t("agentStore.noDesc")}
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: "var(--muted)", marginBottom: 8, flexWrap: "wrap" }}>
-              <span>{t("agentStore.downloads", { count: a.downloads })}</span>
-              {a.avgRating != null && a.avgRating > 0 && <span>{a.avgRating.toFixed(1)}</span>}
-              {a.latestVersion && <span>v{a.latestVersion}</span>}
-              {a.authorName && <span>by {a.authorName}</span>}
-              {a.license && (
+        {agents.map((a) => {
+          const uk = agentUniqueKey(a);
+          return (
+            <div key={uk} className="card" style={{ position: "relative" }}>
+              {a.isFeatured && (
                 <span style={{
-                  fontSize: 10, padding: "1px 5px", borderRadius: 3,
-                  background: "rgba(139,92,246,0.12)", color: "var(--accent, #7c3aed)", fontWeight: 500,
+                  position: "absolute", top: 8, right: 8, fontSize: 10, padding: "2px 6px",
+                  background: "var(--accent)", color: "#fff", borderRadius: 4, fontWeight: 600,
                 }}>
-                  {a.license}
+                  {t("agentStore.featured")}
                 </span>
               )}
-            </div>
-            {a.tags && a.tags.length > 0 && (
-              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
-                {a.tags.slice(0, 4).map((tag) => (
-                  <span key={tag} style={{
-                    fontSize: 10, padding: "2px 6px", borderRadius: 4,
-                    background: "var(--bg-hover, rgba(0,0,0,0.05))", color: "var(--muted)",
-                  }}>
-                    {tag}
-                  </span>
-                ))}
+              <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>
+                {a.name}
               </div>
-            )}
-            <button
-              onClick={() => setConfirmAgent(a)}
-              disabled={installing === a.id}
-              style={{ width: "100%", marginTop: 4 }}
-            >
-              {installing === a.id ? t("agentStore.installing") : t("agentStore.install")}
-            </button>
-          </div>
-        ))}
+              <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8, lineHeight: 1.5 }}>
+                {a.description?.slice(0, 120) || t("agentStore.noDesc")}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: "var(--muted)", marginBottom: 8, flexWrap: "wrap" }}>
+                <span>{t("agentStore.downloads", { count: a.downloads })}</span>
+                {a.avgRating != null && a.avgRating > 0 && <span>{a.avgRating.toFixed(1)}</span>}
+                {a.latestVersion && <span>v{a.latestVersion}</span>}
+                {a.authorName && <span>by {a.authorName}</span>}
+                {a.license && (
+                  <span style={{
+                    fontSize: 10, padding: "1px 5px", borderRadius: 3,
+                    background: "rgba(139,92,246,0.12)", color: "var(--accent, #7c3aed)", fontWeight: 500,
+                  }}>
+                    {a.license}
+                  </span>
+                )}
+              </div>
+              {a.tags && a.tags.length > 0 && (
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+                  {a.tags.slice(0, 4).map((tag) => (
+                    <span key={tag} style={{
+                      fontSize: 10, padding: "2px 6px", borderRadius: 4,
+                      background: "var(--bg-hover, rgba(0,0,0,0.05))", color: "var(--muted)",
+                    }}>
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <button
+                onClick={() => setConfirmAgent(a)}
+                disabled={installingSet.has(uk)}
+                style={{ width: "100%", marginTop: 4 }}
+              >
+                {installingSet.has(uk) ? t("agentStore.installing") : t("agentStore.install")}
+              </button>
+            </div>
+          );
+        })}
       </div>
 
       {total > 20 && (
@@ -239,7 +232,7 @@ export function AgentStoreView({ apiBaseUrl, visible }: AgentStoreViewProps) {
               <button onClick={() => setConfirmAgent(null)}>{t("common.cancel")}</button>
               <button
                 className="btnPrimary"
-                onClick={() => { const id = confirmAgent.id; setConfirmAgent(null); doInstall(id); }}
+                onClick={() => { const a = confirmAgent!; setConfirmAgent(null); doInstall(a); }}
               >
                 {t("agentStore.confirmInstall")}
               </button>

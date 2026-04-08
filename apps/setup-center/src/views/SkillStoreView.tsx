@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { safeFetch } from "../providers";
 
 interface Skill {
@@ -23,6 +24,9 @@ interface SkillStoreViewProps {
   visible: boolean;
 }
 
+const skillUniqueKey = (s: Skill): string =>
+  s.sourceRepo ? `${s.sourceRepo}::${s.id}` : s.id;
+
 export function SkillStoreView({ apiBaseUrl, visible }: SkillStoreViewProps) {
   const { t } = useTranslation();
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -34,8 +38,7 @@ export function SkillStoreView({ apiBaseUrl, visible }: SkillStoreViewProps) {
   const [sort, setSort] = useState("installs");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [installing, setInstalling] = useState<string | null>(null);
-  const [notice, setNotice] = useState("");
+  const [installingSet, setInstallingSet] = useState<Set<string>>(new Set());
   const [confirmSkill, setConfirmSkill] = useState<Skill | null>(null);
 
   const trustBadge = (level: string) => {
@@ -73,29 +76,27 @@ export function SkillStoreView({ apiBaseUrl, visible }: SkillStoreViewProps) {
     if (visible) fetchSkills();
   }, [visible, fetchSkills]);
 
-  const doInstall = async (skillId: string) => {
-    setInstalling(skillId);
-    setNotice("");
+  const doInstall = async (skill: Skill) => {
+    const key = skillUniqueKey(skill);
+    setInstallingSet(prev => { const next = new Set(prev); next.add(key); return next; });
     try {
-      const resp = await safeFetch(`${apiBaseUrl}/api/hub/skills/${skillId}/install`, { method: "POST" });
+      const resp = await safeFetch(`${apiBaseUrl}/api/hub/skills/${skill.id}/install`, { method: "POST" });
       const data = await resp.json();
-      setNotice(t("skillStore.installSuccess", { name: data.skill_name || skillId }));
+      toast.success(t("skillStore.installSuccess", { name: data.skill_name || skill.name }));
       safeFetch(`${apiBaseUrl}/api/skills/reload`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
     } catch (e: any) {
-      setNotice(t("skillStore.installFail", { msg: e.message }));
+      toast.error(t("skillStore.installFail", { msg: e.message }));
     } finally {
-      setInstalling(null);
+      setInstallingSet(prev => { const next = new Set(prev); next.delete(key); return next; });
     }
   };
 
   if (!visible) return null;
 
-  const isSuccess = !notice.includes("❌") && !notice.toLowerCase().includes("fail");
-
   return (
     <div>
       <div className="card" style={{ marginBottom: 16 }}>
-        <h2 className="cardTitle">Skill Store</h2>
+        <h2 className="cardTitle">{t("skillStore.title", "Skill Store")}</h2>
         <p style={{ color: "var(--muted)", fontSize: 13, margin: "4px 0 12px" }}>
           {t("skillStore.subtitle")}
         </p>
@@ -134,17 +135,6 @@ export function SkillStoreView({ apiBaseUrl, visible }: SkillStoreViewProps) {
             {loading ? t("skillStore.searching") : t("common.search")}
           </button>
         </div>
-
-        {notice && (
-          <div style={{
-            padding: "8px 12px", marginTop: 10, borderRadius: 6,
-            background: isSuccess ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)",
-            color: isSuccess ? "var(--success, #16a34a)" : "var(--error, #dc2626)",
-            fontSize: 13,
-          }}>
-            {notice}
-          </div>
-        )}
       </div>
 
       {error && (
@@ -166,8 +156,9 @@ export function SkillStoreView({ apiBaseUrl, visible }: SkillStoreViewProps) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
         {skills.map((s) => {
           const badge = trustBadge(s.trustLevel);
+          const uk = skillUniqueKey(s);
           return (
-            <div key={s.id} className="card" style={{ position: "relative" }}>
+            <div key={uk} className="card" style={{ position: "relative" }}>
               <span style={{
                 position: "absolute", top: 8, right: 8, fontSize: 10, padding: "2px 6px",
                 background: badge.bg, color: badge.color, borderRadius: 4, fontWeight: 600,
@@ -209,10 +200,10 @@ export function SkillStoreView({ apiBaseUrl, visible }: SkillStoreViewProps) {
               )}
               <button
                 onClick={() => setConfirmSkill(s)}
-                disabled={installing === s.id}
+                disabled={installingSet.has(uk)}
                 style={{ width: "100%", marginTop: 4 }}
               >
-                {installing === s.id ? t("skillStore.installing") : t("skillStore.install")}
+                {installingSet.has(uk) ? t("skillStore.installing") : t("skillStore.install")}
               </button>
             </div>
           );
@@ -270,7 +261,7 @@ export function SkillStoreView({ apiBaseUrl, visible }: SkillStoreViewProps) {
               <button onClick={() => setConfirmSkill(null)}>{t("common.cancel")}</button>
               <button
                 className="btnPrimary"
-                onClick={() => { const id = confirmSkill.id; setConfirmSkill(null); doInstall(id); }}
+                onClick={() => { const s = confirmSkill!; setConfirmSkill(null); doInstall(s); }}
               >
                 {t("skillStore.confirmInstall")}
               </button>

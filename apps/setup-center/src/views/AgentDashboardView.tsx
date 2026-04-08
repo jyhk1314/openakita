@@ -78,8 +78,16 @@ const _rgbCache = new Map<string, [number, number, number]>();
 function hexToRgb(hex: string): [number, number, number] {
   const cached = _rgbCache.get(hex);
   if (cached) return cached;
-  const h = hex.replace("#", "");
-  const rgb: [number, number, number] = [parseInt(h.substring(0, 2), 16), parseInt(h.substring(2, 4), 16), parseInt(h.substring(4, 6), 16)];
+  let h = hex.replace("#", "");
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  const rgb: [number, number, number] = [
+    Number.isFinite(r) ? r : 107,
+    Number.isFinite(g) ? g : 114,
+    Number.isFinite(b) ? b : 128,
+  ];
   _rgbCache.set(hex, rgb);
   return rgb;
 }
@@ -105,7 +113,7 @@ const TOOL_ICONS: Record<string, string> = {
   file_read: "📄", read_file: "📄", file_write: "✏️", write_file: "✏️",
   execute_command: "⚡", create_agent: "🤖", delegate_to_agent: "🔗",
   list_skills: "📋", memory_read: "🧠", memory_write: "💾",
-  create_plan: "📝", mcp_call: "🔌", send_message: "💬",
+  create_todo: "📝", mcp_call: "🔌", send_message: "💬",
   desktop_click: "🖱️", desktop_type: "⌨️", desktop_action: "🖥️",
 };
 function toolIcon(name: string): string {
@@ -203,6 +211,8 @@ export function AgentDashboardView({
   const sizeRef = useRef({ w: 800, h: 500 });
   const breathRef = useRef(0);
   const lastPulseRef = useRef<Map<string, number>>(new Map());
+  const pageHiddenRef = useRef(false);
+  const lastFrameTimeRef = useRef(0);
   const dragRef = useRef<{ nodeId: string; offsetX: number; offsetY: number; moved: boolean } | null>(null);
 
   const [topoData, setTopoData] = useState<TopoData | null>(null);
@@ -359,7 +369,7 @@ export function AgentDashboardView({
     const W = sizeRef.current.w;
     const H = sizeRef.current.h;
     if (motesRef.current.length === 0) {
-      for (let i = 0; i < 50; i++) {
+      for (let i = 0; i < 20; i++) {
         motesRef.current.push({
           x: Math.random() * W,
           y: Math.random() * H,
@@ -400,7 +410,27 @@ export function AgentDashboardView({
     darkRef.current = isDark();
     const themeObs = setInterval(() => { darkRef.current = isDark(); }, 2000);
 
+    const onVisChange = () => { pageHiddenRef.current = document.hidden; };
+    document.addEventListener("visibilitychange", onVisChange);
+    pageHiddenRef.current = document.hidden;
+
     const step = () => {
+      if (pageHiddenRef.current) {
+        animRef.current = requestAnimationFrame(step);
+        return;
+      }
+
+      const t = now();
+      const hasRunning = Array.from(simNodesRef.current.values()).some(
+        (n) => n.status === "running",
+      );
+      const targetInterval = hasRunning ? 1 / 30 : 1 / 10;
+      if (t - lastFrameTimeRef.current < targetInterval) {
+        animRef.current = requestAnimationFrame(step);
+        return;
+      }
+      lastFrameTimeRef.current = t;
+
       const cvs = canvasRef.current;
       if (!cvs) { animRef.current = requestAnimationFrame(step); return; }
       const ctx = cvs.getContext("2d");
@@ -409,7 +439,6 @@ export function AgentDashboardView({
       const dpr = devicePixelRatio;
       const W = sizeRef.current.w;
       const H = sizeRef.current.h;
-      const t = now();
       const dark = darkRef.current;
       const map = simNodesRef.current;
       const nodes = Array.from(map.values());
@@ -633,18 +662,21 @@ export function AgentDashboardView({
         ctx.fill();
       }
 
-      // constellation lines between nearby motes (batched by alpha bin)
+      // constellation lines between nearby motes (batched by alpha bin, capped)
       ctx.lineWidth = 0.5;
       const moteBins: [number, number, number, number][][] = [[], [], []];
-      for (let i = 0; i < motes.length; i++) {
-        for (let j = i + 1; j < motes.length; j++) {
+      let moteLineCount = 0;
+      const MAX_MOTE_LINES = 30;
+      for (let i = 0; i < motes.length && moteLineCount < MAX_MOTE_LINES; i++) {
+        for (let j = i + 1; j < motes.length && moteLineCount < MAX_MOTE_LINES; j++) {
           const dx = motes[i].x - motes[j].x;
           const dy = motes[i].y - motes[j].y;
           const d = Math.sqrt(dx * dx + dy * dy);
-          if (d < 60) {
-            const a = (1 - d / 60) * 0.06;
+          if (d < 40) {
+            const a = (1 - d / 40) * 0.06;
             const bin = a > 0.04 ? 2 : a > 0.02 ? 1 : 0;
             moteBins[bin].push([motes[i].x, motes[i].y, motes[j].x, motes[j].y]);
+            moteLineCount++;
           }
         }
       }
@@ -973,7 +1005,7 @@ export function AgentDashboardView({
           visCount++;
           const el = children[idx] as HTMLElement | undefined;
           if (el) {
-            el.style.transform = `translate(${n.x}px, ${n.y}px)`;
+            el.style.transform = `translate(${n.x}px, ${n.y + 24}px) translateX(-50%)`;
             el.style.opacity = String(n.opacity);
           }
           idx++;
@@ -996,6 +1028,7 @@ export function AgentDashboardView({
     return () => {
       cancelAnimationFrame(animRef.current);
       clearInterval(themeObs);
+      document.removeEventListener("visibilitychange", onVisChange);
     };
   }, [visible, multiAgentEnabled]);
 
@@ -1183,7 +1216,7 @@ export function AgentDashboardView({
           )}
         </div>
         <button className="neural-hud-btn" onClick={fetchTopo} title={t("dashboard.refresh")}>
-          <IconRefresh size={13} />
+          <IconRefresh size={14} />
         </button>
       </div>
 
@@ -1298,8 +1331,6 @@ function NeuralStyles() {
         background: rgba(15,15,25,0.7);
         border: 1px solid rgba(255,255,255,0.06);
         transform-origin: center center;
-        margin-left: -40px;
-        margin-top: 24px;
         transition: border-color 0.3s, box-shadow 0.3s;
         white-space: nowrap;
       }
@@ -1375,13 +1406,15 @@ function NeuralStyles() {
       }
       [data-theme="light"] .neural-hud-stats,
       :root:not([data-theme="dark"]) .neural-hud-stats {
-        background: rgba(255,255,255,0.6);
+        background: rgba(255,255,255,0.75);
         color: rgba(0,0,0,0.7);
+        box-shadow: 0 1px 4px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.06);
       }
       .neural-hud-sep { opacity: 0.3; }
-      .neural-hud-btn {
+      button.neural-hud-btn {
         pointer-events: all;
-        width: 30px; height: 30px;
+        width: 32px; height: 32px;
+        padding: 0;
         border-radius: 50%;
         border: none;
         background: rgba(0,0,0,0.3);
@@ -1393,16 +1426,19 @@ function NeuralStyles() {
         align-items: center;
         justify-content: center;
         transition: background 0.2s;
+        letter-spacing: normal;
       }
-      .neural-hud-btn:hover { background: rgba(0,0,0,0.5); }
-      [data-theme="light"] .neural-hud-btn,
-      :root:not([data-theme="dark"]) .neural-hud-btn {
-        background: rgba(255,255,255,0.6);
-        color: rgba(0,0,0,0.6);
+      button.neural-hud-btn:hover { background: rgba(0,0,0,0.5); }
+      [data-theme="light"] button.neural-hud-btn,
+      :root:not([data-theme="dark"]) button.neural-hud-btn {
+        background: rgba(255,255,255,0.75);
+        color: rgba(0,0,0,0.55);
+        box-shadow: 0 1px 4px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.06);
       }
-      [data-theme="light"] .neural-hud-btn:hover,
-      :root:not([data-theme="dark"]) .neural-hud-btn:hover {
-        background: rgba(255,255,255,0.85);
+      [data-theme="light"] button.neural-hud-btn:hover,
+      :root:not([data-theme="dark"]) button.neural-hud-btn:hover {
+        background: rgba(255,255,255,0.92);
+        color: rgba(0,0,0,0.75);
       }
 
       /* Empty state */

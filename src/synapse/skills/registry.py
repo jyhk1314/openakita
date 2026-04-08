@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_MARKETPLACE_HOSTS = {"github.com/openakita", "openakita.com", "skill.openakita.com"}
+_MARKETPLACE_HOSTS = {"github.com/jyhk1314/synapse", "synapse.ai", "skill.synapse.ai"}
 
 _RESTRICTED_TOOLS_FOR_UNTRUSTED = frozenset(
     {

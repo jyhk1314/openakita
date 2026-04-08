@@ -1,3 +1,3 @@
 # Synapse
 
-基于 openakita 的公司内部研发流程处理工具
+基于开源工具 openakita 的公司内部非商业 Harness devel ai 工具

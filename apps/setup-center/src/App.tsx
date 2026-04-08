@@ -23,13 +23,16 @@ import { TYPE_TO_ENABLED_KEY } from "./views/im-shared";
 import { AgentSystemView } from "./views/AgentSystemView";
 import { AgentStoreView } from "./views/AgentStoreView";
 import { SkillStoreView } from "./views/SkillStoreView";
+import PluginManagerView from "./views/PluginManagerView";
+import SecurityView from "./views/SecurityView";
+import { PixelOfficeView } from "./views/PixelOfficeView";
 import { TeamManagementView } from "./components/team-manage/TeamManagementView";
 import { RdProcessManagementView } from "./components/rd-process/RdProcessManagementView";
 import type {
   EndpointSummary as EndpointSummaryType,
   PlatformInfo, WorkspaceSummary, ProviderInfo, ListedModel,
   EndpointDraft, PythonCandidate, BundledPythonInstallResult, InstallSource,
-  EnvMap, StepId, Step, PythonDiagnostic,
+  EnvMap, StepId, Step, PythonDiagnostic, ViewId,
 } from "./types";
 import {
   IconRefresh, IconCheck, IconCheckCircle, IconX, IconXCircle,
@@ -250,7 +253,7 @@ export function App() {
     [t],
   );
 
-  const [view, setView] = useState<"wizard" | "status" | "chat" | "skills" | "im" | "onboarding" | "modules" | "token_stats" | "mcp" | "scheduler" | "memory" | "identity" | "dashboard" | "org_editor" | "agent_manager" | "agent_store" | "skill_store" | "rd_center" | "team_manage" | "rd_process">(() => {
+  const [view, setView] = useState<ViewId>(() => {
     const hash = window.location.hash;
     if (hash === "#/org-editor") return "org_editor";
     return (IS_WEB || IS_CAPACITOR) ? "chat" : "wizard";
@@ -5202,8 +5205,8 @@ export function App() {
         {/* ── CLI 命令行工具管理 (desktop only) ── */}
         {IS_TAURI && (
         <div className="card" style={{ marginTop: 16 }}>
-          <div className="cardTitle">CLI 命令行工具</div>
-          <div className="cardHint">管理终端命令注册，注册后可在 CMD / PowerShell / 终端中直接使用 oa 或 synapse 命令。</div>
+          <div className="cardTitle">{t("config.cliTitle")}</div>
+          <div className="cardHint">{t("config.cliDesc")}</div>
           <div className="divider" />
           <CliManager />
         </div>
@@ -5664,7 +5667,7 @@ export function App() {
                 className="btnSmall btnSmallPrimary"
                 disabled={!!busy}
                 onClick={async () => {
-                  const val = hubApiUrl.trim() || "https://openakita.ai/api";
+                  const val = hubApiUrl.trim() || "https://synapse.ai/api";
                   if (shouldUseHttpApi()) {
                     try {
                       await safeFetch(`${httpApiBase()}/api/config/env`, {
@@ -5686,7 +5689,7 @@ export function App() {
                 className="btnSmall"
                 disabled={!!busy}
                 onClick={async () => {
-                  const url = (hubApiUrl.trim() || "https://openakita.ai/api").replace(/\/$/, "");
+                  const url = (hubApiUrl.trim() || "https://synapse.ai/api").replace(/\/$/, "");
                   try {
                     const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(6000) });
                     if (res.ok) setNotice(t("adv.hubTestOk"));
@@ -8233,6 +8236,37 @@ export function App() {
           apiBaseUrl={apiBaseUrl}
           visible={view === "org_editor"}
         />
+      );
+    }
+    if (view === "plugins") {
+      return <PluginManagerView visible httpApiBase={httpApiBase} />;
+    }
+    if (view === "pixel_office") {
+      return (
+        <PixelOfficeView
+          apiBaseUrl={apiBaseUrl}
+          visible={view === "pixel_office"}
+        />
+      );
+    }
+    if (view === "security") {
+      return (
+        <SecurityView
+          apiBaseUrl={apiBaseUrl}
+          serviceRunning={serviceStatus?.running ?? false}
+        />
+      );
+    }
+    if (view === "docs") {
+      const docsBase = httpApiBase();
+      return (
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+          <iframe
+            src={`${docsBase}/user-docs/`}
+            style={{ flex: 1, border: "none", width: "100%", height: "100%", borderRadius: 8, background: "var(--bg, #fff)" }}
+            title={t("sidebar.docs")}
+          />
+        </div>
       );
     }
     if (view === "agent_manager") {

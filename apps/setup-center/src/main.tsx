@@ -13,17 +13,21 @@ if (__BUILD_TARGET__ === "tauri") {
   import("./localFetch").then(m => m.installLocalFetchOverride());
 }
 
-import React from "react";
+import React, { lazy, Suspense } from "react";
 import ReactDOM from "react-dom/client";
 
 import "./i18n";
+import "./globals.css";
 import "./styles.css";
 import { App } from "./App";
 import { WindowsTitleBar } from "./components/WindowsTitleBar";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { IS_WINDOWS } from "./platform/detect";
 import { initTheme } from "./theme";
 import { logger } from "./platform/logger";
-import { copyToClipboard } from "./utils/clipboard";
+import { copyToClipboard, readFromClipboard } from "./utils/clipboard";
+
+const PetView = lazy(() => import("./views/PetView").then((m) => ({ default: m.PetView })));
 
 // Initialize theme before rendering to catch OS changes
 initTheme();
@@ -212,7 +216,7 @@ setTimeout(() => hideBoot(true), 8000);
         {
           label: "粘贴",
           action: () => {
-            navigator.clipboard.readText().then((text) => {
+            readFromClipboard().then((text) => {
               if (!text) return;
               if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
                 const el = target;
@@ -241,7 +245,7 @@ setTimeout(() => hideBoot(true), 8000);
         },
         { label: "全选", action: () => document.execCommand("selectAll") },
       );
-    } else {
+    } else if (hasSelection) {
       items.push(
         {
           label: "复制",
@@ -249,10 +253,10 @@ setTimeout(() => hideBoot(true), 8000);
             const text = window.getSelection()?.toString() ?? "";
             if (text) await copyToClipboard(text);
           },
-          disabled: !hasSelection,
         },
-        { label: "全选", action: () => document.execCommand("selectAll") },
       );
+    } else {
+      return;
     }
 
     const menu = document.createElement("div");
@@ -338,25 +342,38 @@ if ("serviceWorker" in navigator && __BUILD_TARGET__ === "web") {
 }
 
 const showWinCustomTitlebar = __BUILD_TARGET__ === "tauri" && IS_WINDOWS;
+const isPetRoute = window.location.pathname === "/pet";
 const rootElement = document.getElementById("root")!;
-if (showWinCustomTitlebar) {
+if (showWinCustomTitlebar && !isPetRoute) {
   rootElement.classList.add("appRootTauriWindows");
 }
 
+const mainApp = (
+  <TooltipProvider delayDuration={200}>
+    <App />
+  </TooltipProvider>
+);
+
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    {showWinCustomTitlebar ? (
+    {isPetRoute ? (
+      <GlobalErrorBoundary>
+        <Suspense fallback={null}>
+          <PetView />
+        </Suspense>
+      </GlobalErrorBoundary>
+    ) : showWinCustomTitlebar ? (
       <>
         <WindowsTitleBar />
         <GlobalErrorBoundary>
           <div className="tauriWinMainColumn">
-            <App />
+            {mainApp}
           </div>
         </GlobalErrorBoundary>
       </>
     ) : (
       <GlobalErrorBoundary>
-        <App />
+        {mainApp}
       </GlobalErrorBoundary>
     )}
   </React.StrictMode>,

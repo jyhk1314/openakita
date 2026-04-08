@@ -3,8 +3,9 @@ import { useTranslation } from "react-i18next";
 import { safeFetch } from "../providers";
 import {
   IconRefresh, IconCheck, IconX, IconInfo,
-  IconChevronRight, IconLoader,
+  IconChevronRight, IconLoader, IconFingerprint,
 } from "../icons";
+import { ModalOverlay } from "../components/ModalOverlay";
 
 type IdentityFile = {
   name: string;
@@ -233,8 +234,10 @@ export function IdentityView({ serviceRunning, apiBaseUrl }: Props) {
 
   if (!serviceRunning) {
     return (
-      <div className="card" style={{ textAlign: "center", padding: 40 }}>
-        <p style={{ color: "#94a3b8", fontSize: 15 }}>服务未运行，无法管理身份文件</p>
+      <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+        <IconFingerprint size={48} />
+        <div className="mt-3 font-semibold">{t("identity.title")}</div>
+        <div className="mt-1 text-xs opacity-50">后端服务未启动，请启动后再进行使用</div>
       </div>
     );
   }
@@ -447,14 +450,14 @@ export function IdentityView({ serviceRunning, apiBaseUrl }: Props) {
 
       {/* Confirm dialog */}
       {confirmDialog && (
-        <div style={{
+        <ModalOverlay onClose={() => setConfirmDialog(null)} className="" style={{
           position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex",
           justifyContent: "center", alignItems: "center", zIndex: 9999,
-        }} onClick={() => setConfirmDialog(null)}>
+        }}>
           <div style={{
             background: "var(--card-bg, #fff)", borderRadius: 12, padding: 24,
             maxWidth: 480, width: "90%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
-          }} onClick={e => e.stopPropagation()}>
+          }}>
             <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12, color: "#dc2626" }}>
               {confirmDialog.title}
             </div>
@@ -475,7 +478,7 @@ export function IdentityView({ serviceRunning, apiBaseUrl }: Props) {
               </button>
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* Toast */}

@@ -3,8 +3,28 @@
 // Tauri-specific modules are loaded via dynamic import() so they are never
 // bundled into the web build and never evaluated when running in a browser.
 
-import { IS_TAURI, IS_WEB, IS_CAPACITOR, IS_WINDOWS } from "./detect";
-export { IS_TAURI, IS_WEB, IS_CAPACITOR, IS_WINDOWS };
+import { IS_TAURI, IS_WEB, IS_CAPACITOR, IS_LOCAL_WEB, IS_MOBILE_BROWSER } from "./detect";
+export { IS_TAURI, IS_WEB, IS_CAPACITOR, IS_LOCAL_WEB, IS_MOBILE_BROWSER };
+
+// ---------------------------------------------------------------------------
+// Asset protocol: serve local files directly from disk (desktop only)
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a local file path to a Tauri asset protocol URL.
+ * Desktop: direct disk access via asset:// — no HTTP, no proxy, no CORS.
+ * Web: returns null — caller should fall back to HTTP URL.
+ */
+export function getAssetUrl(filePath: string): string | null {
+  if (!IS_TAURI || !filePath) return null;
+  try {
+    const internals = (window as any).__TAURI_INTERNALS__;
+    if (internals?.convertFileSrc) {
+      return internals.convertFileSrc(filePath, "asset");
+    }
+  } catch { /* unavailable — fall back to HTTP */ }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Core: invoke & listen
@@ -125,6 +145,22 @@ export async function readFileBase64(path: string): Promise<string> {
     throw new Error("readFileBase64 is only available in Tauri");
   const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
   return tauriInvoke<string>("read_file_base64", { path });
+}
+
+/** Write text content to a local file. Only available in Tauri. */
+export async function writeTextFile(path: string, content: string): Promise<void> {
+  if (!IS_TAURI)
+    throw new Error("writeTextFile is only available in Tauri");
+  const { writeTextFile: _writeTextFile } = await import("@tauri-apps/plugin-fs");
+  await _writeTextFile(path, content);
+}
+
+/** Write binary data to a local file. Only available in Tauri. */
+export async function writeFile(path: string, data: Uint8Array): Promise<void> {
+  if (!IS_TAURI)
+    throw new Error("writeFile is only available in Tauri");
+  const { writeFile: _writeFile } = await import("@tauri-apps/plugin-fs");
+  await _writeFile(path, data);
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +306,26 @@ export async function openFileDialog(options?: {
   return typeof selected === "string" ? selected : (selected as any)?.path ?? null;
 }
 
+/**
+ * Show a native "Save File" dialog (Tauri only).
+ * Returns the chosen path or null if cancelled.
+ * On web, returns null — callers should fall back to browser download.
+ */
+export async function saveFileDialog(options?: {
+  title?: string;
+  defaultPath?: string;
+  filters?: { name: string; extensions: string[] }[];
+}): Promise<string | null> {
+  if (!IS_TAURI) return null;
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const selected = await save({
+    title: options?.title,
+    defaultPath: options?.defaultPath,
+    filters: options?.filters,
+  });
+  return selected ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Tauri updater & process
 // ---------------------------------------------------------------------------
@@ -301,14 +357,20 @@ export async function openPopupWindow(
   const title = opts?.title ?? label;
 
   if (IS_CAPACITOR) {
-    // Mobile: popup windows not supported, navigate in-place or no-op
     return;
   }
 
   if (IS_TAURI) {
     try {
       const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-      new WebviewWindow(label, {
+
+      const existing = await WebviewWindow.getByLabel(label);
+      if (existing) {
+        try { await existing.setFocus(); } catch { /* best-effort */ }
+        return;
+      }
+
+      const wv = new WebviewWindow(label, {
         url: path,
         title,
         width,
@@ -317,23 +379,80 @@ export async function openPopupWindow(
         decorations: true,
         resizable: true,
       });
+      wv.once("tauri://error", (e) => {
+        console.error(`[openPopupWindow] failed to create "${label}":`, e);
+      });
     } catch (e) {
+      console.warn("[openPopupWindow] Tauri API unavailable, falling back to window.open:", e);
       window.open(path, label, `width=${width},height=${height}`);
     }
-  } else {
-    const left = (screen.width - width) / 2;
-    const top = (screen.height - height) / 2;
-    window.open(
-      path,
-      label,
-      `width=${width},height=${height},left=${left},top=${top},resizable=yes`,
-    );
+    return;
   }
+
+  const left = (screen.width - width) / 2;
+  const top = (screen.height - height) / 2;
+  window.open(
+    path,
+    label,
+    `width=${width},height=${height},left=${left},top=${top},resizable=yes`,
+  );
 }
 
 /** Whether popup windows are available on the current platform. */
 export function canOpenPopupWindow(): boolean {
   return !IS_CAPACITOR;
+}
+
+// ---------------------------------------------------------------------------
+// Global Shortcut
+// ---------------------------------------------------------------------------
+
+/**
+ * Register a global shortcut (desktop only).
+ * Returns an unregister function. No-op in web mode.
+ */
+export async function registerGlobalShortcut(
+  shortcut: string,
+  handler: () => void,
+): Promise<() => void> {
+  if (!IS_TAURI) return () => {};
+  try {
+    const mod = await import("@tauri-apps/plugin-global-shortcut");
+    await mod.register(shortcut, handler);
+    return () => { mod.unregister(shortcut).catch(() => {}); };
+  } catch (e) {
+    console.warn("[GlobalShortcut] Failed to register:", e);
+    return () => {};
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Notification
+// ---------------------------------------------------------------------------
+
+/**
+ * Send a desktop notification (Tauri plugin-notification).
+ * No-op in web mode.
+ */
+export async function sendNotification(options: {
+  title: string;
+  body?: string;
+  icon?: string;
+}): Promise<void> {
+  if (!IS_TAURI) return;
+  try {
+    const mod = await import("@tauri-apps/plugin-notification");
+    let granted = await mod.isPermissionGranted();
+    if (!granted) {
+      const perm = await mod.requestPermission();
+      granted = perm === "granted";
+    }
+    if (granted) {
+      mod.sendNotification(options);
+    }
+  } catch (e) {
+    console.warn("[Notification] Failed:", e);
+  }
 }
 
 // ---------------------------------------------------------------------------

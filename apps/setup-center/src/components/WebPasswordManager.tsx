@@ -1,25 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { safeFetch } from "../providers";
 import { copyToClipboard } from "../utils/clipboard";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
-export function WebPasswordManager({
-  apiBase,
-  busy,
-  setBusy,
-  setNotice,
-  setError,
-}: {
-  apiBase: string;
-  busy: string | null;
-  setBusy: (v: string | null) => void;
-  setNotice: (v: string | null) => void;
-  setError: (v: string | null) => void;
-}) {
+export function WebPasswordManager({ apiBase }: { apiBase: string }) {
   const { t } = useTranslation();
   const [hint, setHint] = useState<string | null>(null);
   const [newPw, setNewPw] = useState("");
-  const [showNew, setShowNew] = useState(false);
+  const [isBusy, setIsBusy] = useState(false);
 
   const loadHint = useCallback(async () => {
     try {
@@ -34,20 +25,22 @@ export function WebPasswordManager({
   useEffect(() => { loadHint(); }, [loadHint]);
 
   const doChangePassword = async (password: string) => {
-    setBusy(t("common.loading"));
+    const loadingId = toast.loading(t("common.loading"));
+    setIsBusy(true);
     try {
       await safeFetch(`${apiBase}/api/auth/change-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ new_password: password }),
       });
-      setNotice(t("adv.webPasswordChanged"));
+      toast.success(t("adv.webPasswordChanged"));
       setNewPw("");
       await loadHint();
     } catch (e) {
-      setError(String(e));
+      toast.error(String(e));
     } finally {
-      setBusy(null);
+      toast.dismiss(loadingId);
+      setIsBusy(false);
     }
   };
 
@@ -60,54 +53,52 @@ export function WebPasswordManager({
     await doChangePassword(pw);
     setGeneratedPw(pw);
     await copyToClipboard(pw);
-    setNotice(t("adv.webPasswordReset", { password: pw }));
+    toast.success(t("adv.webPasswordReset", { password: pw }));
   };
 
   const copyGenerated = async () => {
     if (!generatedPw) return;
     const ok = await copyToClipboard(generatedPw);
-    if (ok) setNotice(t("adv.webPasswordCopied", { defaultValue: "密码已复制到剪贴板" }));
+    if (ok) toast.success(t("adv.webPasswordCopied", { defaultValue: "密码已复制到剪贴板" }));
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+    <div className="flex flex-col gap-2.5">
       {hint !== null && (
-        <div style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ color: "var(--muted)", minWidth: 80 }}>{t("adv.webPasswordCurrent")}:</span>
-          <code style={{ padding: "2px 8px", background: "var(--bg)", borderRadius: 4, fontSize: 13, letterSpacing: 1 }}>{hint}</code>
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground min-w-[80px]">{t("adv.webPasswordCurrent")}:</span>
+          <code className="px-2 py-0.5 bg-muted/40 rounded text-sm tracking-wide">{hint}</code>
         </div>
       )}
       {generatedPw && (
-        <div style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "var(--success-bg, #f0fdf4)", borderRadius: 6, border: "1px solid var(--success-line, #bbf7d0)" }}>
-          <span style={{ color: "var(--success, #16a34a)", fontWeight: 500, whiteSpace: "nowrap" }}>{t("adv.webPasswordGenerated", { defaultValue: "新密码" })}:</span>
-          <code style={{ flex: 1, padding: "2px 6px", background: "var(--bg)", borderRadius: 4, fontSize: 13, letterSpacing: 0.5, userSelect: "all", wordBreak: "break-all" }}>{generatedPw}</code>
-          <button className="btnSmall" onClick={copyGenerated} style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+        <div className="flex items-center gap-2 text-sm px-2.5 py-1.5 rounded-md border border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950/30">
+          <span className="text-green-600 dark:text-green-400 font-medium whitespace-nowrap">{t("adv.webPasswordGenerated", { defaultValue: "新密码" })}:</span>
+          <code className="flex-1 px-1.5 py-0.5 bg-muted/40 rounded text-sm tracking-wide select-all break-all">{generatedPw}</code>
+          <Button variant="outline" size="xs" onClick={copyGenerated}>
             {t("common.copy", { defaultValue: "复制" })}
-          </button>
+          </Button>
         </div>
       )}
-      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-        <input
-          type={showNew ? "text" : "password"}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <Input
+          type="password"
           value={newPw}
           onChange={(e) => setNewPw(e.target.value)}
           placeholder={t("adv.webPasswordNewPlaceholder")}
-          style={{ flex: 1, minWidth: 160, fontSize: 13, padding: "6px 10px", borderRadius: 6, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--fg)" }}
+          className="flex-1 min-w-[160px]"
         />
-        <button className="btnSmall" onClick={() => setShowNew((v) => !v)} style={{ fontSize: 12 }}>
-          {showNew ? "🙈" : "👁"}
-        </button>
-        <button
-          className="btnSmall btnSmallPrimary"
+        <Button
+          size="sm"
           onClick={() => { if (newPw.trim()) doChangePassword(newPw.trim()); }}
-          disabled={!newPw.trim() || !!busy}
+          disabled={!newPw.trim() || isBusy}
         >
           {t("adv.webPasswordSet")}
-        </button>
-        <button className="btnSmall" onClick={doRandomize} disabled={!!busy}>
+        </Button>
+        <Button variant="outline" size="sm" onClick={doRandomize} disabled={isBusy}>
           {t("adv.webPasswordRandomize")}
-        </button>
+        </Button>
       </div>
+      <p className="text-xs text-muted-foreground/70">{t("adv.webPasswordSetHint")}</p>
     </div>
   );
 }
