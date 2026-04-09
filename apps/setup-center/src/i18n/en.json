@@ -31,7 +31,16 @@
     "plugins": "Plugins",
     "rdCenter": "R&D Center",
     "teamManage": "Team Metrics",
-    "rdProcess": "R&D Process"
+    "rdProcess": "R&D Process",
+    "workbench": "Workbench",
+    "workbenchProducts": "Product management",
+    "workbenchTickets": "Ticket management",
+    "workbenchMeeting": "R&D meeting room",
+    "workbenchSandbox": "Code sandbox",
+    "workbenchTeam": "Team view"
+  },
+  "workbench": {
+    "placeholderHint": "This page is a placeholder; it will be replaced when the real feature is wired in."
   },
   "topbar": {
     "workspace": "Workspace",

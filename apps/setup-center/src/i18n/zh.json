@@ -31,7 +31,16 @@
     "plugins": "插件",
     "rdCenter": "研发中心",
     "teamManage": "团队指标",
-    "rdProcess": "研发流程管理"
+    "rdProcess": "研发流程管理",
+    "workbench": "工作台",
+    "workbenchProducts": "产品管理",
+    "workbenchTickets": "工单管理",
+    "workbenchMeeting": "研发会议室",
+    "workbenchSandbox": "代码沙盒",
+    "workbenchTeam": "团队视图"
+  },
+  "workbench": {
+    "placeholderHint": "此页面为占位，真实功能组件接入后将在路由中替换。"
   },
   "topbar": {
     "workspace": "工作区",

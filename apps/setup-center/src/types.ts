@@ -94,7 +94,32 @@ export type Step = {
   desc: string;
 };
 
-export type ViewId = "wizard" | "status" | "chat" | "skills" | "im" | "onboarding" | "token_stats" | "mcp" | "scheduler" | "memory" | "dashboard" | "agent_manager" | "agent_store" | "skill_store" | "org_editor" | "pixel_office" | "identity" | "docs" | "security" | "plugins";
+export type ViewId =
+  | "wizard"
+  | "status"
+  | "chat"
+  | "skills"
+  | "im"
+  | "onboarding"
+  | "token_stats"
+  | "mcp"
+  | "scheduler"
+  | "memory"
+  | "dashboard"
+  | "agent_manager"
+  | "agent_store"
+  | "skill_store"
+  | "org_editor"
+  | "pixel_office"
+  | "identity"
+  | "docs"
+  | "security"
+  | "plugins"
+  | "workbench_products"
+  | "workbench_tickets"
+  | "workbench_meeting"
+  | "workbench_sandbox"
+  | "workbench_team";
 
 // ─── Health check types ───
 

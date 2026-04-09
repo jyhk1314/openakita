@@ -24,6 +24,9 @@ const AgentStoreView = lazy(() => import("./views/AgentStoreView").then(m => ({ 
 const SkillStoreView = lazy(() => import("./views/SkillStoreView").then(m => ({ default: m.SkillStoreView })));
 const SecurityView = lazy(() => import("./views/SecurityView"));
 const PetView = lazy(() => import("./views/PetView").then(m => ({ default: m.PetView })));
+const WorkbenchPlaceholderView = lazy(() =>
+  import("./views/workbench/WorkbenchPlaceholderView").then((m) => ({ default: m.WorkbenchPlaceholderView })),
+);
 
 import { FeedbackModal } from "./views/FeedbackModal";
 import { IMConfigView } from "./views/IMConfigView";
@@ -121,6 +124,11 @@ const _HASH_TO_VIEW: Record<string, ViewId> = {
   "agent-manager": "agent_manager", "agent-store": "agent_store",
   "skill-store": "skill_store", "wizard": "wizard", "docs": "docs",
   "security": "security",
+  "workbench-products": "workbench_products",
+  "workbench-tickets": "workbench_tickets",
+  "workbench-meeting": "workbench_meeting",
+  "workbench-sandbox": "workbench_sandbox",
+  "workbench-team": "workbench_team",
 };
 
 const _VIEW_TO_HASH: Record<string, string> = Object.fromEntries(
@@ -5428,6 +5436,21 @@ export function App() {
           />
         </div>
       );
+    }
+    if (view === "workbench_products") {
+      return <WorkbenchPlaceholderView titleKey="sidebar.workbenchProducts" />;
+    }
+    if (view === "workbench_tickets") {
+      return <WorkbenchPlaceholderView titleKey="sidebar.workbenchTickets" />;
+    }
+    if (view === "workbench_meeting") {
+      return <WorkbenchPlaceholderView titleKey="sidebar.workbenchMeeting" />;
+    }
+    if (view === "workbench_sandbox") {
+      return <WorkbenchPlaceholderView titleKey="sidebar.workbenchSandbox" />;
+    }
+    if (view === "workbench_team") {
+      return <WorkbenchPlaceholderView titleKey="sidebar.workbenchTeam" />;
     }
     switch (stepId) {
       case "llm":

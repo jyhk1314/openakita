@@ -9,18 +9,19 @@
 
 ## 当前未提交批次（工作区快照）
 
-**快照说明**：以下依据 `git status` / `git diff`（未暂存）整理；含未跟踪的功能性路径时仅作索引，不展开二进制内容。
+**快照依据**（openakita-localized-sync / 提交前步骤）：在仓库根执行 `git status --short -- apps/setup-center/`、`git diff --stat -- apps/setup-center/`；无暂存区命中；本节仅列**当前仍相对于 HEAD 变更**的路径。
+
+**简要分析**：本批次为**侧栏「工作台」导航 + 五子路由占位**，不涉及 Tauri 命令或 `src-tauri/` 未提交改动。后续将各 `workbench_*` 视图从 `WorkbenchPlaceholderView` 替换为真实业务组件时，优先改 `App.tsx` 中 `renderStepContent` 的 lazy 与分支，侧栏 `ViewId` 与 hash 可保持不变。
 
 | 路径 | 功能摘要 |
 |------|----------|
-| `src-tauri/resources/opencode-releases/` | 新增打包资源目录（含 `opencode-windows-x64.zip`），供离线安装 OpenCode |
-| `src-tauri/tauri.conf.json` | `bundle.resources` 增加 `resources/opencode-releases/` |
-| `src-tauri/src/main.rs` | 引导阶段 **研发工具** 能力：统一 `dev_tools_check`（Claude Code / Cursor CLI / OpenCode 三者任一为真即可继续）；`bundled_claude_win32_dir` 简化为 `resources` + `CARGO_MANIFEST_DIR` 回退；新增 `bundled_opencode_windows_zip_path`、`synapse_opencode_install_dir`、`extract_zip_safely_to_dir`、`write_windows_cmd_shim`；`claude_code_install_local_sync` + `opencode_cli_install_local_sync` 离线复制/解压至工作区并写 `bin/*.cmd`、合并用户 PATH；安装日志事件统一为 `dev_tools_install_log`；**移除** `claude_code_check` 单点接口与 **winget** 安装路径；注册 Tauri 命令 `dev_tools_check`、`claude_code_install`、`opencode_cli_install` |
-| `src/App.tsx` | 引导页「CLI」步骤改为多工具列表 UI：调用 `dev_tools_check`；Claude / OpenCode 一键安装分别走 `claude_code_install`、`opencode_cli_install`；监听 `dev_tools_install_log`；移除 `CLAUDE_CODE_BUNDLED_VERSION` 与 winget/脚本多入口安装格 |
-| `src/i18n/en.json`、`src/i18n/zh.json` | `onboarding.step` 补全；`onboarding.claudeCode` 文案改为「研发工具 / Dev tools」语义，覆盖三工具说明、安装提示与错误提示 |
-| `src/styles.css` | 新增 `.obDevToolOptList`、`.obDevToolOptRow` 布局样式 |
+| `src/types.ts` | 扩展 `ViewId`：`workbench_products`、`workbench_tickets`、`workbench_meeting`、`workbench_sandbox`、`workbench_team` |
+| `src/App.tsx` | 懒加载 `WorkbenchPlaceholderView`；`_HASH_TO_VIEW` 增加 `#/workbench-products` 等五条 hash；`renderStepContent` 内为上述五视图各返回占位页 |
+| `src/components/Sidebar.tsx` | 在「状态」项下新增可折叠分组「工作台」（`NavGroupId.workbench`、`wbViews`、进入子路由时自动展开）；子项：产品/工单/会议/沙盒/团队；**代码沙盒**图标为 `IconTerminal`（非 `IconFileCode`） |
+| `src/views/workbench/WorkbenchPlaceholderView.tsx` | **新增（未跟踪）**：工作台子页共用占位；`titleKey` + `workbench.placeholderHint` |
+| `src/i18n/zh.json`、`src/i18n/en.json` | `sidebar.workbench`、`sidebar.workbenchProducts` 等子菜单文案；根键 `workbench.placeholderHint` |
 
-**合并/同步提示**：上游若仍只有「仅 Claude Code」检测，合并 `main.rs` / `App.tsx` 时需保留本批 **`dev_tools_check` 聚合模型** 与 **OpenCode zip 离线安装** 分支；`tauri.conf.json` 需保留 `opencode-releases` 资源声明。
+**合并/同步提示**：上游若无「工作台」分组，合并 `Sidebar.tsx` / `App.tsx` / `types.ts` 时保留本批 `ViewId`、hash 表与 `wbViews` 逻辑；占位组件可整体替换为业务实现而不影响路由键名。
 
 ---
 

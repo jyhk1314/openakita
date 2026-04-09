@@ -8,6 +8,7 @@ import {
   IconBug, IconBrain, IconGitHub, IconGitee, IconUsers, IconBot,
   IconGear, IconBook, IconStorefront, IconPuzzle, IconFingerprint, IconLayoutGrid,
   IconShield, IconRadar, IconBuilding,
+  IconLaptop, IconPackage, IconClipboard, IconTerminal,
 } from "../icons";
 import logoUrl from "../assets/logo.png";
 import { openExternalUrl } from "../platform";
@@ -48,7 +49,7 @@ function StepDot({ stepId: sid }: { stepId: StepId }) {
   return <div className="stepDot">{stepIcons[sid]}</div>;
 }
 
-type NavGroupId = "capabilities" | "monitor" | "multiAgent" | "store";
+type NavGroupId = "capabilities" | "workbench" | "monitor" | "multiAgent" | "store";
 const GROUP_ICON_SIZE = 16;
 
 const BETA_SUP = <sup style={{ fontSize: 9, color: "var(--primary, #3b82f6)", fontWeight: 600 }}>Beta</sup>;
@@ -99,6 +100,7 @@ export function Sidebar({
 
   const [expandedGroups, setExpandedGroups] = useState<Record<NavGroupId, boolean>>({
     capabilities: false,
+    workbench: false,
     monitor: false,
     multiAgent: false,
     store: false,
@@ -109,6 +111,13 @@ export function Sidebar({
   }, []);
 
   const capViews: ViewId[] = ["skills", "mcp", "plugins", "memory", "scheduler"];
+  const wbViews: ViewId[] = [
+    "workbench_products",
+    "workbench_tickets",
+    "workbench_meeting",
+    "workbench_sandbox",
+    "workbench_team",
+  ];
   const monViews: ViewId[] = ["token_stats", "security"];
   const maViews: ViewId[] = ["dashboard", "org_editor", "pixel_office", "agent_manager"];
   const stViews: ViewId[] = ["agent_store", "skill_store"];
@@ -119,6 +128,7 @@ export function Sidebar({
     prevViewRef.current = view;
     const groupOf = (v: ViewId): NavGroupId | null =>
       capViews.includes(v) ? "capabilities"
+        : wbViews.includes(v) ? "workbench"
         : monViews.includes(v) ? "monitor"
         : maViews.includes(v) ? "multiAgent"
         : stViews.includes(v) ? "store"
@@ -128,6 +138,7 @@ export function Sidebar({
   }, [view]);
 
   const capExpanded = expandedGroups.capabilities;
+  const wbExpanded = expandedGroups.workbench;
   const monExpanded = expandedGroups.monitor;
   const maExpanded = expandedGroups.multiAgent;
   const stExpanded = expandedGroups.store;
@@ -166,6 +177,28 @@ export function Sidebar({
         <div className={`navItem ${view === "status" ? "navItemActive" : ""}`} onClick={async () => { onViewChange("status"); try { await onRefreshStatus(); } catch { /* ignore */ } }} role="button" tabIndex={0} title={t("sidebar.status")}>
           <IconStatus size={16} /> {!collapsed && <span>{t("sidebar.status")}</span>}
         </div>
+
+        {/* ── Group: Workbench 工作台 ── */}
+        <NavGroupHeader collapsed={collapsed} icon={<IconLaptop size={GROUP_ICON_SIZE} />} label={t("sidebar.workbench")} expanded={wbExpanded} onToggle={() => toggleGroup("workbench")} />
+        {(collapsed || wbExpanded) && (
+          <div className="navGroupItems">
+            <div className={`navItem ${view === "workbench_products" ? "navItemActive" : ""}`} onClick={() => onViewChange("workbench_products")} role="button" tabIndex={0} title={t("sidebar.workbenchProducts")}>
+              <IconPackage size={16} /> {!collapsed && <span>{t("sidebar.workbenchProducts")}</span>}
+            </div>
+            <div className={`navItem ${view === "workbench_tickets" ? "navItemActive" : ""}`} onClick={() => onViewChange("workbench_tickets")} role="button" tabIndex={0} title={t("sidebar.workbenchTickets")}>
+              <IconClipboard size={16} /> {!collapsed && <span>{t("sidebar.workbenchTickets")}</span>}
+            </div>
+            <div className={`navItem ${view === "workbench_meeting" ? "navItemActive" : ""}`} onClick={() => onViewChange("workbench_meeting")} role="button" tabIndex={0} title={t("sidebar.workbenchMeeting")}>
+              <IconCalendar size={16} /> {!collapsed && <span>{t("sidebar.workbenchMeeting")}</span>}
+            </div>
+            <div className={`navItem ${view === "workbench_sandbox" ? "navItemActive" : ""}`} onClick={() => onViewChange("workbench_sandbox")} role="button" tabIndex={0} title={t("sidebar.workbenchSandbox")}>
+              <IconTerminal size={16} /> {!collapsed && <span>{t("sidebar.workbenchSandbox")}</span>}
+            </div>
+            <div className={`navItem ${view === "workbench_team" ? "navItemActive" : ""}`} onClick={() => onViewChange("workbench_team")} role="button" tabIndex={0} title={t("sidebar.workbenchTeam")}>
+              <IconUsers size={16} /> {!collapsed && <span>{t("sidebar.workbenchTeam")}</span>}
+            </div>
+          </div>
+        )}
 
         {/* ── Group: Capabilities ── */}
         <NavGroupHeader collapsed={collapsed} icon={<IconPuzzle size={GROUP_ICON_SIZE} />} label={t("sidebar.groupCapabilities")} expanded={capExpanded} onToggle={() => toggleGroup("capabilities")} />
