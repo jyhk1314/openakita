@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 DEV_IWHALECLOUD_BASE_URL = "https://dev.iwhalecloud.com"  # 研发云地址
+DEV_IWHALECLOUD_PRODUCT_ANALYZE_URL = ""
+
 # Playwright 默认超时 30000ms；login 使用 networkidle，易触发超时，故单独放宽（毫秒）
 DEV_IWHALECLOUD_LOGIN_PLAYWRIGHT_TIMEOUT_MS = 300_000  # 5 分钟
 # 研发云 API 的 Authorization 从 userinfo.encryption 的 token 读取
@@ -180,16 +182,6 @@ def _build_get_project_list_headers(body: GetProjectListRequest) -> dict:
         "cookie": body.cookies,
     }
 
-def _simplify_project_list_payload(raw: object) -> list[dict]:
-    """上游可能直接返回数组，或包在 {code,data} 中；统一成项目对象列表。"""
-    if isinstance(raw, list):
-        return [x for x in raw if isinstance(x, dict)]
-    if isinstance(raw, dict):
-        inner = raw.get("data")
-        if isinstance(inner, list):
-            return [x for x in inner if isinstance(x, dict)]
-    return []
-
 @router.post("/api/dev/iwhalecloud/get_project_list")
 async def get_project_list(body: GetProjectListRequest) -> dict:
     """
@@ -273,30 +265,23 @@ async def _get_product_list(body: GetProductListRequest) -> dict:
 
 
 class GetProductVersionListRequest(BaseModel):
-    """补丁计划分页查询（按产品版本维度）；入参均可省略，使用默认值。"""
+    """产品版本筛选列表（上游返回数组）；入参均可省略，使用默认值。"""
 
     token: str = Field("", description="x-csrf-token")
     cookies: str = Field("", description="Cookie 请求头字符串")
-    userId: int = Field(2787, description="用户ID，默认2787")
-    projectId: int = Field(-1, description="项目空间ID，默认-1")
-    productVersionIdList: list[str] = Field(
-        default_factory=lambda: ["18325"],
-        description='产品版本ID列表，默认["18325"]',
-    )
-    stateList: list[str] = Field(default_factory=list, description="版本状态筛选，默认空（不过滤）")
-    patchName: str = Field("", description="补丁名称模糊，默认空")
-    page: int = Field(1, ge=1, description="页码")
-    limit: int = Field(100000, ge=1, le=500000, description="每页条数，默认100")
+    keyWord: str = Field("_", description="关键字（上游字段名 keyWord），默认 '_'")
+    limit: int = Field(200000, ge=1, le=500000, description="返回条数上限（query 参数 limit）")
+    ignoreState: bool = Field(True, description="是否忽略状态（query 参数 ignoreState）")
 
 def _build_get_product_version_list_headers(body: GetProductVersionListRequest) -> dict:
     return {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
-        "app-nonce": "JGDR4VgtULX3",
-        "app-signature": "a31e918b200803ea534974b4361519b085fd826e5cd8ab6ae6c6db010ef5ecc7",
-        "app-timestamp": "1774777473996",
+        "app-nonce": "y7ATcsxsiStu",
+        "app-signature": "0fac7aba41b08a5a5f9b060e7a65bd9be16c2c21991c41d0884b709314c7c8df",
+        "app-timestamp": "1775724063904",
         "content-type": "application/json",
-        "menu-id": "auto-7248672c7ba17406",
+        "menu-id": "auto-97006c427ba17406",
         "sec-ch-ua": '"Chromium";v="146", "Not-A.Brand";v="24", "Microsoft Edge";v="146"',
         "sec-ch-ua-mobile": "?0",
         "sec-ch-ua-platform": '"Windows"',
@@ -309,31 +294,15 @@ def _build_get_product_version_list_headers(body: GetProductVersionListRequest) 
     }
 
 def _build_get_product_version_list_payload(body: GetProductVersionListRequest) -> dict:
-    return {
-        "createUserIdList": [],
-        "patchPurposeList": [],
-        "stateList": body.stateList,
-        "branchVersionIdList": [],
-        "productVersionIdList": body.productVersionIdList,
-        "projectIdList": [body.projectId],
-        "patchName": body.patchName,
-        "patchDetailConditionDto": {
-            "withProject": True,
-            "withZmpProject": True,
-            "withUser": True,
-            "withPatchGroup": True,
-            "withBranchVersion": True,
-        },
-        "currentProjectId": body.projectId,
-    }
+    return {"keyWord": body.keyWord}
 
 @router.post("/api/dev/iwhalecloud/get_product_version_list")
 async def get_product_version_list(
     body: GetProductVersionListRequest = Body(default_factory=GetProductVersionListRequest),
 ) -> dict:
     """
-    对外路由：按产品版本等条件分页查询补丁计划列表。
-    转调：POST /portal/zcm-devspace/patch/page/list/{userId}?page=&limit=
+    对外路由：产品版本筛选列表（精简字段）。
+    转调：POST /portal/zcm-cicd/rpc/product/product-version-filter?limit=&ignoreState=
     """
     return await _get_product_version_list(body)
 
@@ -343,8 +312,8 @@ async def _get_product_version_list(body: GetProductVersionListRequest) -> dict:
     if not body.cookies:
         return error_response(400, "cookies 不能为空")
 
-    url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-devspace/patch/page/list/{body.userId}"
-    params = {"page": body.page, "limit": body.limit}
+    url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-cicd/rpc/product/product-version-filter"
+    params = {"limit": body.limit, "ignoreState": "true" if body.ignoreState else "false"}
     headers = _build_get_product_version_list_headers(body)
     payload = _build_get_product_version_list_payload(body)
 
@@ -354,42 +323,141 @@ async def _get_product_version_list(body: GetProductVersionListRequest) -> dict:
             resp = await client.post(url, headers=headers, params=params, json=payload)
             _log_httpx_response("get_product_version_list", resp)
     except httpx.RequestError as exc:
-        logger.exception("调用研发云获取产品版本补丁列表接口异常: %s", exc)
+        logger.exception("调用研发云获取产品版本筛选列表接口异常: %s", exc)
         return error_response(503, f"调用研发云接口异常: {exc}")
 
     if resp.status_code >= 400:
-        return error_response(resp.status_code, f"研发云获取产品版本补丁列表失败：{resp.text}")
+        return error_response(resp.status_code, f"研发云获取产品版本筛选列表失败：{resp.text}")
     try:
         raw = resp.json()
     except ValueError:
         return error_response(502, f"研发云返回非 JSON：{resp.text}")
 
-    if isinstance(raw, dict) and "code" in raw and raw.get("code") != "9999":
-        msg = raw.get("finalMessage") or raw.get("msg") or raw.get("message") or "研发云执行失败"
-        return error_response(502, f"{msg}", error=str(raw))
-
-    page_data = (raw.get("data") if isinstance(raw, dict) else None) or {}
-    total = page_data.get("total", 0)
-    raw_list = page_data.get("list") or []
+    # 上游正常为数组
+    raw_list = raw if isinstance(raw, list) else []
     simplified: list[dict] = []
     for row in raw_list:
         if not isinstance(row, dict):
             continue
-        ap = row.get("adPatch") or {}
-        if not isinstance(ap, dict):
+        simplified.append(
+            {
+                "productVersionId": row.get("productVersionId"),
+                "productId": row.get("productId"),
+                "productVersionCode": row.get("productVersionCode"),
+            }
+        )
+    return success_response(simplified)
+
+
+class GetRepoDetailRequest(BaseModel):
+    token: str = Field(..., description="x-csrf-token")
+    cookies: str = Field(..., description="Cookie 请求头字符串")
+    userId: int = Field(2787, description="用户ID，默认2787")
+    isSuper: bool = Field(False, description="是否超管，默认false")
+    projectId: int = Field(..., description="项目空间ID")
+    isRecursion: bool = Field(True, description="是否递归，默认true")
+    moduleId: int = Field(..., description="应用模块ID（必填）")
+    repoNameKeyWord: str = Field("", description="仓库名称关键字（可选）")
+    state: str = Field("", description="状态筛选（可选）")
+    branchVersionIdList: list[int] = Field(default_factory=list, description="分支版本ID列表（可选）")
+    productVersionIdList: list[int] = Field(default_factory=list, description="产品版本ID列表（可选）")
+    typeIdList: list[int] = Field(default_factory=list, description="类型ID列表（可选）")
+
+
+def _build_get_repo_detail_headers(body: GetRepoDetailRequest) -> dict:
+    return {
+        "accept": "application/json, text/javascript, */*; q=0.01",
+        "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
+        "app-nonce": "yknMgRosoTCR",
+        "app-signature": "fe4b9f2fc31b43a8af11108acaac242621cf5084ee3d2506fc9842e7882ea602",
+        "app-timestamp": "1775726087151",
+        "content-type": "application/json",
+        "menu-id": "auto-4ed35e937ba17406",
+        "sec-ch-ua": '"Chromium";v="146", "Not-A.Brand";v="24", "Microsoft Edge";v="146"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+        "x-csrf-token": body.token,
+        "x-requested-with": "XMLHttpRequest",
+        "cookie": body.cookies,
+    }
+
+def _build_get_repo_detail_payload(body: GetRepoDetailRequest) -> dict:
+    return {
+        "state": body.state,
+        "branchVersionIdList": body.branchVersionIdList,
+        "productVersionIdList": body.productVersionIdList,
+        "typeIdList": body.typeIdList,
+        "moduleIdList": [body.moduleId],
+        "repoNameKeyWord": body.repoNameKeyWord,
+    }
+
+@router.post("/api/dev/iwhalecloud/get_repo_detail")
+async def get_repo_detail(body: GetRepoDetailRequest) -> dict:
+    """
+    对外路由：获取代码仓库信息（按应用模块ID筛选）。
+    转调：POST /portal/zcm-devspace/gitea-repo/catalog/-1/repos
+    """
+    return await _get_repo_detail(body)
+
+async def _get_repo_detail(body: GetRepoDetailRequest) -> dict:
+    if not body.token:
+        return error_response(400, "token 不能为空")
+    if not body.cookies:
+        return error_response(400, "cookies 不能为空")
+    if not body.moduleId:
+        return error_response(400, "moduleId 不能为空")
+
+    url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-devspace/gitea-repo/catalog/-1/repos"
+    params: dict[str, str | int] = {
+        "userId": body.userId,
+        "isSuper": "true" if body.isSuper else "false",
+        "projectId": body.projectId,
+        "isRecursion": "true" if body.isRecursion else "false",
+    }
+    headers = _build_get_repo_detail_headers(body)
+    payload = _build_get_repo_detail_payload(body)
+
+    logger.debug("get_repo_detail url:%s params:%s payload:%s", url, params, payload)
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(url, headers=headers, params=params, json=payload)
+            _log_httpx_response("get_repo_detail", resp)
+    except httpx.RequestError as exc:
+        logger.exception("调用研发云获取代码仓库信息接口异常: %s", exc)
+        return error_response(503, f"调用研发云接口异常: {exc}")
+
+    if resp.status_code >= 400:
+        return error_response(resp.status_code, f"研发云获取代码仓库信息失败：{resp.text}")
+    try:
+        data = resp.json()
+    except ValueError:
+        return error_response(502, f"研发云获取代码仓库信息返回非 JSON：{resp.text}")
+    if data.get("code") != "9999":
+        msg = data.get("finalMessage") or data.get("msg") or data.get("message") or "研发云获取代码仓库信息失败"
+        return error_response(502, msg, error=str(data))
+
+    items = data.get("data") or []
+    if not isinstance(items, list):
+        items = []
+
+    simplified: list[dict] = []
+    for one in items:
+        if not isinstance(one, dict):
+            continue
+        repo = one.get("gitRepoDto") or {}
+        if not isinstance(repo, dict):
             continue
         simplified.append(
             {
-                "patchId": ap.get("patchId"),
-                "patchName": ap.get("patchName"),
-                "projectId": ap.get("projectId"),
-                "productVersionId": ap.get("productVersionId"),
-                "productVersionCode": ap.get("productVersionCode"),
-                "branchVersionId": ap.get("branchVersionId"),
-                "branchName": ap.get("branchName"),
+                "repoName": repo.get("repoName"),
+                "repoUrl": repo.get("repoUrl"),
+                "defaultBranch": repo.get("defaultBranch"),
             }
         )
-    return success_response({"total": total, "list": simplified})
+    return success_response(simplified)
 
 
 class GetProductVersionIdRequest(BaseModel):
@@ -2588,3 +2656,6 @@ def get_token_and_cookies(body: GetTokenAndCookiesRequest):
         },
         "获取研发云x-csrf-token和cookies成功",
     )
+
+class ProductInitializeRequest(BaseModel):
+    product_id: int = Field(..., description="产品ID")
