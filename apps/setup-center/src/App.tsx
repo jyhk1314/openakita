@@ -39,7 +39,7 @@ import type {
 import {
   IconCheckCircle, IconXCircle, IconInfo,
 } from "./icons";
-import { ChevronRight, ChevronDown, Loader2, AlertTriangle, CheckCircle2, Eye, EyeOff, RefreshCw, AlertCircle } from "lucide-react";
+import { ChevronRight, ChevronDown, Loader2, AlertTriangle, CheckCircle2, Eye, EyeOff, RefreshCw, AlertCircle, Terminal } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -445,6 +445,12 @@ export function App() {
   const [obIwcValidating, setObIwcValidating] = useState(false);
   const [obIwcValidated, setObIwcValidated] = useState(false);
   const [obIwcError, setObIwcError] = useState<string | null>(null);
+  /** 进入研发云步骤后自动请求 local-userinfo-exists；与表单「验证」共用按钮的加载态 */
+  const [obIwcLocalDetecting, setObIwcLocalDetecting] = useState(false);
+  /** 自动检测通过：已有非空 userinfo.encryption，可直接下一步 */
+  const [obIwcLocalDetectPassed, setObIwcLocalDetectPassed] = useState(false);
+  /** 自动检测结束且未通过时可选提示（如未找到凭据、无法连接后端） */
+  const [obIwcLocalDetectHint, setObIwcLocalDetectHint] = useState<string | null>(null);
 
   /** Claude Code CLI：检测 / 安装 / 用户目录初始化 */
   const [obClaudeInstalled, setObClaudeInstalled] = useState<boolean | null>(null);
@@ -587,6 +593,55 @@ export function App() {
     })();
     return () => { cancelled = true; };
   }, [obStep]);
+
+  useEffect(() => {
+    if (obStep !== "ob-iwhalecloud") return;
+    let cancelled = false;
+    setObIwcLocalDetecting(true);
+    setObIwcLocalDetectPassed(false);
+    setObIwcLocalDetectHint(null);
+    const base = IS_TAURI
+      ? (dataMode === "remote" ? apiBaseUrl : "http://127.0.0.1:18900")
+      : (apiBaseUrl || window.location.origin);
+    const url = `${String(base).replace(/\/$/, "")}/api/dev/iwhalecloud/local-userinfo-exists`;
+    (async () => {
+      try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        if (cancelled) return;
+        if (!res.ok) {
+          setObIwcLocalDetectHint(
+            t("onboarding.iwhalecloud.localDetectBackendHint", "无法连接后端，请确认服务已启动后刷新本页，或直接填写下方信息并点击「验证」。"),
+          );
+          return;
+        }
+        const j = (await res.json()) as { errorcode?: number; data?: { exists?: boolean } };
+        if (cancelled) return;
+        if (j?.errorcode === 0 && j?.data?.exists === true) {
+          setObIwcLocalDetectPassed(true);
+          setObIwcLocalDetectHint(null);
+          setObIwcValidated(false);
+        } else {
+          setObIwcLocalDetectPassed(false);
+          setObIwcLocalDetectHint(
+            t("onboarding.iwhalecloud.localDetectNoCredentialHint", "未检测到本地已保存凭据，请填写下方信息并点击「验证」。"),
+          );
+        }
+      } catch {
+        if (!cancelled) {
+          setObIwcLocalDetectHint(
+            t("onboarding.iwhalecloud.localDetectBackendHint", "无法连接后端，请确认服务已启动后刷新本页，或直接填写下方信息并点击「验证」。"),
+          );
+        }
+      } finally {
+        if (!cancelled) setObIwcLocalDetecting(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // 仅依赖步骤与 API 基址；文案用当前 t()，不在语言切换时重复请求
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- t intentionally omitted to avoid refetch on i18n change
+  }, [obStep, dataMode, apiBaseUrl]);
 
   useEffect(() => {
     if (obStep !== "ob-claude-code" || !IS_TAURI || !obClaudeShowLlmVideo) {
@@ -4470,6 +4525,7 @@ export function App() {
                     <div className="space-y-2">
                       <Label>{t("onboarding.iwhalecloud.fullName")} <span className="text-destructive">*</span></Label>
                       <Input
+                        disabled={obIwcLocalDetecting || obIwcLocalDetectPassed}
                         value={obIwcFullName}
                         onChange={(e) => { setObIwcFullName(e.target.value); setObIwcValidated(false); setObIwcError(null); }}
                         placeholder={t("onboarding.iwhalecloud.fullNamePlaceholder")}
@@ -4478,6 +4534,7 @@ export function App() {
                     <div className="space-y-2">
                       <Label>{t("onboarding.iwhalecloud.employeeId")} <span className="text-destructive">*</span></Label>
                       <Input
+                        disabled={obIwcLocalDetecting || obIwcLocalDetectPassed}
                         value={obIwcEmployeeId}
                         onChange={(e) => { setObIwcEmployeeId(e.target.value); setObIwcValidated(false); setObIwcError(null); }}
                         placeholder={t("onboarding.iwhalecloud.employeeIdPlaceholder")}
@@ -4487,13 +4544,14 @@ export function App() {
                       <Label>{t("onboarding.iwhalecloud.password")} <span className="text-destructive">*</span></Label>
                       <div className="relative">
                         <Input
+                          disabled={obIwcLocalDetecting || obIwcLocalDetectPassed}
                           type={obIwcShowPassword ? "text" : "password"}
                           className="pr-10"
                           value={obIwcPassword}
                           onChange={(e) => { setObIwcPassword(e.target.value); setObIwcValidated(false); setObIwcError(null); }}
                           placeholder={t("onboarding.iwhalecloud.passwordPlaceholder")}
                         />
-                        <Button type="button" variant="ghost" size="icon" className="absolute right-0 top-0 h-full px-3" onClick={() => setObIwcShowPassword((v) => !v)}>
+                        <Button type="button" variant="ghost" size="icon" className="absolute right-0 top-0 h-full px-3" disabled={obIwcLocalDetecting || obIwcLocalDetectPassed} onClick={() => setObIwcShowPassword((v) => !v)}>
                           {obIwcShowPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                         </Button>
                       </div>
@@ -4503,7 +4561,7 @@ export function App() {
                         <Label className="mb-0">{t("onboarding.iwhalecloud.token")} <span className="text-destructive">*</span></Label>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <button type="button" className="text-muted-foreground hover:text-foreground inline-flex" aria-label={t("onboarding.iwhalecloud.tokenHint")}>
+                            <button type="button" className="text-muted-foreground hover:text-foreground inline-flex disabled:opacity-50" aria-label={t("onboarding.iwhalecloud.tokenHint")} disabled={obIwcLocalDetecting || obIwcLocalDetectPassed}>
                               <AlertCircle className="size-4" />
                             </button>
                           </TooltipTrigger>
@@ -4512,19 +4570,20 @@ export function App() {
                       </div>
                       <div className="relative">
                         <Input
+                          disabled={obIwcLocalDetecting || obIwcLocalDetectPassed}
                           type={obIwcShowToken ? "text" : "password"}
                           className="pr-10"
                           value={obIwcToken}
                           onChange={(e) => { setObIwcToken(e.target.value); setObIwcValidated(false); setObIwcError(null); }}
                           placeholder={t("onboarding.iwhalecloud.tokenPlaceholder")}
                         />
-                        <Button type="button" variant="ghost" size="icon" className="absolute right-0 top-0 h-full px-3" onClick={() => setObIwcShowToken((v) => !v)}>
+                        <Button type="button" variant="ghost" size="icon" className="absolute right-0 top-0 h-full px-3" disabled={obIwcLocalDetecting || obIwcLocalDetectPassed} onClick={() => setObIwcShowToken((v) => !v)}>
                           {obIwcShowToken ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                         </Button>
                       </div>
                     </div>
                     <div>
-                      <Button type="button" variant="link" className="h-auto p-0 text-xs" onClick={() => setObIwcShowVideo((v) => !v)}>
+                      <Button type="button" variant="link" className="h-auto p-0 text-xs" disabled={obIwcLocalDetecting || obIwcLocalDetectPassed} onClick={() => setObIwcShowVideo((v) => !v)}>
                         {obIwcShowVideo ? `▾ ${t("onboarding.iwhalecloud.tokenVideoHide")}` : `▸ ${t("onboarding.iwhalecloud.tokenVideoLabel")}`}
                       </Button>
                       {obIwcShowVideo && (
@@ -4534,65 +4593,85 @@ export function App() {
                       )}
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
-                      <Button disabled={obIwcValidating} onClick={async () => {
-                        if (!obIwcFullName.trim() || !obIwcEmployeeId.trim() || !obIwcPassword.trim() || !obIwcToken.trim()) {
-                          setObIwcError(t("onboarding.iwhalecloud.fieldRequired"));
-                          return;
-                        }
-                        setObIwcValidating(true);
-                        setObIwcError(null);
-                        setObIwcValidated(false);
-                        try {
-                          if (IWHALECLOUD_ONBOARDING_VALIDATION_MOCK) {
-                            await new Promise((r) => setTimeout(r, 350));
-                            setObIwcValidated(true);
-                            setObIwcError(null);
-                          } else {
-                            const base = httpApiBase();
-                            const res = await fetch(`${base}/api/dev/iwhalecloud/login`, {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({
-                                purpose: "guide",
-                                name: obIwcFullName.trim(),
-                                username: obIwcEmployeeId.trim(),
-                                password: obIwcPassword.trim(),
-                                token: obIwcToken.trim(),
-                              }),
-                            });
-                            const data = await res.json().catch(() => ({}));
-                            const errText = (() => {
-                              if (data?.errorcode === 0) return null;
-                              if (data?.message) return String(data.message);
-                              const d = data?.detail;
-                              if (Array.isArray(d)) {
-                                return d.map((x: unknown) => (typeof x === "string" ? x : (x as { msg?: string })?.msg || JSON.stringify(x))).join("; ");
-                              }
-                              if (d && typeof d === "object") return JSON.stringify(d);
-                              if (d) return String(d);
-                              return null;
-                            })();
-                            if (data?.errorcode === 0) {
+                      <Button
+                        disabled={obIwcLocalDetecting || obIwcLocalDetectPassed || obIwcValidating}
+                        onClick={async () => {
+                          if (obIwcLocalDetecting || obIwcLocalDetectPassed) return;
+                          if (!obIwcFullName.trim() || !obIwcEmployeeId.trim() || !obIwcPassword.trim() || !obIwcToken.trim()) {
+                            setObIwcError(t("onboarding.iwhalecloud.fieldRequired"));
+                            return;
+                          }
+                          setObIwcValidating(true);
+                          setObIwcError(null);
+                          setObIwcValidated(false);
+                          try {
+                            if (IWHALECLOUD_ONBOARDING_VALIDATION_MOCK) {
+                              await new Promise((r) => setTimeout(r, 350));
                               setObIwcValidated(true);
                               setObIwcError(null);
                             } else {
-                              setObIwcError(errText || t("onboarding.iwhalecloud.validateFailed"));
+                              const base = httpApiBase();
+                              const res = await fetch(`${base}/api/dev/iwhalecloud/login`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                  purpose: "guide",
+                                  name: obIwcFullName.trim(),
+                                  username: obIwcEmployeeId.trim(),
+                                  password: obIwcPassword.trim(),
+                                  token: obIwcToken.trim(),
+                                }),
+                              });
+                              const data = await res.json().catch(() => ({}));
+                              const errText = (() => {
+                                if (data?.errorcode === 0) return null;
+                                if (data?.message) return String(data.message);
+                                const d = data?.detail;
+                                if (Array.isArray(d)) {
+                                  return d.map((x: unknown) => (typeof x === "string" ? x : (x as { msg?: string })?.msg || JSON.stringify(x))).join("; ");
+                                }
+                                if (d && typeof d === "object") return JSON.stringify(d);
+                                if (d) return String(d);
+                                return null;
+                              })();
+                              if (data?.errorcode === 0) {
+                                setObIwcValidated(true);
+                                setObIwcError(null);
+                              } else {
+                                setObIwcError(errText || t("onboarding.iwhalecloud.validateFailed"));
+                              }
                             }
+                          } catch {
+                            setObIwcError(t("onboarding.iwhalecloud.validateFailed"));
+                          } finally {
+                            setObIwcValidating(false);
                           }
-                        } catch {
-                          setObIwcError(t("onboarding.iwhalecloud.validateFailed"));
-                        } finally {
-                          setObIwcValidating(false);
-                        }
-                      }}>
-                        {obIwcValidating ? <><Loader2 className="size-4 animate-spin inline mr-2" />{t("onboarding.iwhalecloud.validating")}</> : t("onboarding.iwhalecloud.validate")}
+                        }}
+                      >
+                        {obIwcLocalDetecting ? (
+                          <><Loader2 className="size-4 animate-spin inline mr-2" />{t("onboarding.iwhalecloud.localDetecting", "正在检测本地凭据…")}</>
+                        ) : obIwcLocalDetectPassed ? (
+                          t("onboarding.iwhalecloud.localDetectDone", "检测已完成")
+                        ) : obIwcValidating ? (
+                          <><Loader2 className="size-4 animate-spin inline mr-2" />{t("onboarding.iwhalecloud.validating")}</>
+                        ) : (
+                          t("onboarding.iwhalecloud.validate")
+                        )}
                       </Button>
-                      {obIwcValidated && (
+                      {obIwcLocalDetectPassed && (
+                        <span className="text-sm text-emerald-600 flex items-center gap-1">
+                          <CheckCircle2 className="size-4" /> {t("onboarding.iwhalecloud.localDetectDoneDetail", "已检测到本地凭据，可直接进入下一步")}
+                        </span>
+                      )}
+                      {obIwcValidated && !obIwcLocalDetectPassed && (
                         <span className="text-sm text-emerald-600 flex items-center gap-1">
                           <CheckCircle2 className="size-4" /> {t("onboarding.iwhalecloud.validateSuccess")}
                         </span>
                       )}
                     </div>
+                    {obIwcLocalDetectHint && !obIwcLocalDetectPassed && (
+                      <p className="text-sm text-muted-foreground m-0">{obIwcLocalDetectHint}</p>
+                    )}
                     {obIwcError && <p className="text-sm text-destructive">{obIwcError}</p>}
                   </CardContent>
                 </Card>
@@ -4601,9 +4680,13 @@ export function App() {
                 {stepIndicator}
                 <div className="obFooterBtns">
                   <Button variant="outline" onClick={() => setObStep("ob-welcome")}>{t("config.prev")}</Button>
-                  <Button disabled={!obIwcValidated} title={!obIwcValidated ? t("onboarding.iwhalecloud.validateRequired") : undefined} onClick={() => {
-                    if (obIwcValidated) setObStep(IS_TAURI ? "ob-claude-code" : "ob-agreement");
-                  }}>
+                  <Button
+                    disabled={obIwcLocalDetecting || !(obIwcValidated || obIwcLocalDetectPassed)}
+                    title={obIwcLocalDetecting || !(obIwcValidated || obIwcLocalDetectPassed) ? t("onboarding.iwhalecloud.validateRequired") : undefined}
+                    onClick={() => {
+                      if (obIwcValidated || obIwcLocalDetectPassed) setObStep(IS_TAURI ? "ob-claude-code" : "ob-agreement");
+                    }}
+                  >
                     {t("onboarding.iwhalecloud.proceed")}
                   </Button>
                 </div>
@@ -4686,66 +4769,122 @@ export function App() {
 
         return (
           <div className="obPage">
-            <div className="obContent">
-              <h2 className="obStepTitle">{t("onboarding.claudeCode.title")}</h2>
-              <p className="obStepDesc">{t("onboarding.claudeCode.subtitle")}</p>
-              <Card className="text-left mb-4">
-                <CardContent className="py-4 px-5 space-y-3">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground m-0">{t("onboarding.claudeCode.statusTitle")}</p>
-                    <Button type="button" variant="secondary" size="sm" disabled={installBusy || obClaudeChecking} className="gap-1.5" onClick={() => { void obClaudeRecheck(); }}>
-                      <RefreshCw className="size-4" /> {t("onboarding.claudeCode.recheck")}
-                    </Button>
+            <div className="obContent obClaudeWrap">
+              <header className="obClaudeHero">
+                <div className="obClaudeHeroMark" aria-hidden>
+                  <Terminal className="obClaudeHeroMarkIcon" strokeWidth={2.25} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h2 className="obStepTitle obClaudeHeroTitle">{t("onboarding.claudeCode.title")}</h2>
+                  <p className="obStepDesc obClaudeHeroDesc">{t("onboarding.claudeCode.subtitle")}</p>
+                </div>
+              </header>
+
+              <section className="obClaudePanel">
+                <div className="obClaudePanelHead">
+                  <span className="obClaudePanelKicker">{t("onboarding.claudeCode.statusTitle")}</span>
+                  <Button type="button" variant="secondary" size="sm" disabled={installBusy || obClaudeChecking} className="gap-1.5 shrink-0" onClick={() => { void obClaudeRecheck(); }}>
+                    <RefreshCw className="size-4" /> {t("onboarding.claudeCode.recheck")}
+                  </Button>
+                </div>
+                {statusLoading && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground py-1">
+                    <Loader2 className="size-4 animate-spin shrink-0" /> {t("onboarding.claudeCode.checking")}
                   </div>
-                  {statusLoading && (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="size-4 animate-spin" /> {t("onboarding.claudeCode.checking")}
+                )}
+                {!statusLoading && obClaudeInstalled === true && (
+                  <div className="obClaudeStatusOk">
+                    <CheckCircle2 className="size-6 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2} />
+                    <div className="min-w-0">
+                      <p className="font-semibold text-foreground m-0 leading-snug">{t("onboarding.claudeCode.installed")}</p>
+                      {obClaudeVersion ? (
+                        <p className="text-sm font-mono text-muted-foreground mt-1.5 mb-0">
+                          {t("onboarding.claudeCode.versionLabel")}: {obClaudeVersion}
+                        </p>
+                      ) : null}
                     </div>
-                  )}
-                  {!statusLoading && obClaudeInstalled === true && (
-                    <div className="flex gap-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3">
-                      <CheckCircle2 className="size-5 text-emerald-600 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-semibold text-emerald-800 dark:text-emerald-200 m-0">{t("onboarding.claudeCode.installed")}</p>
-                        {obClaudeVersion ? <p className="text-sm font-mono mt-1 mb-0">{t("onboarding.claudeCode.versionLabel")}: {obClaudeVersion}</p> : null}
+                  </div>
+                )}
+                {!statusLoading && obClaudeInstalled === false && (
+                  <div className="obClaudeStatusWarn">
+                    <AlertTriangle className="size-6 text-amber-600 dark:text-amber-400 shrink-0" strokeWidth={2} />
+                    <div className="min-w-0">
+                      <p className="font-semibold text-foreground m-0 leading-snug">{t("onboarding.claudeCode.missing")}</p>
+                      <p className="text-sm text-muted-foreground mt-1.5 mb-0 leading-relaxed">{t("onboarding.claudeCode.notDetectedHint")}</p>
+                    </div>
+                  </div>
+                )}
+              </section>
+
+              {!statusLoading && obClaudeInstalled === false && (
+                <section className="obClaudePanel">
+                  <div className="obClaudePanelHead obClaudePanelHeadTight">
+                    <span className="obClaudePanelKicker">{t("onboarding.claudeCode.installActionsTitle")}</span>
+                  </div>
+                  {isWindows ? (
+                    <div className="obClaudeMethodGrid obClaudeMethodGrid2">
+                      <div className="obClaudeMethodTile obClaudeMethodTilePrimary">
+                        <span className="obClaudeRecBadge">{t("onboarding.claudeCode.installMethodRecommended")}</span>
+                        <p className="obClaudeMethodDesc">{t("onboarding.claudeCode.installLocalDesc")}</p>
+                        <Button className="w-full sm:w-auto" disabled={installBusy} onClick={() => { void runObClaudeInstall("local"); }}>
+                          {obClaudeInstalling === "local" ? t("onboarding.claudeCode.installingLocal") : t("onboarding.claudeCode.installLocalBundled", { version: CLAUDE_CODE_BUNDLED_VERSION })}
+                        </Button>
+                      </div>
+                      <div className="obClaudeMethodTile">
+                        <p className="obClaudeMethodDesc">{t("onboarding.claudeCode.installWingetDesc")}</p>
+                        <Button variant="secondary" className="w-full sm:w-auto" disabled={installBusy} onClick={() => { void runObClaudeInstall("winget"); }}>
+                          {obClaudeInstalling === "winget" ? t("onboarding.claudeCode.installingWingetShort") : t("onboarding.claudeCode.installWingetShort")}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="obClaudeMethodGrid">
+                      <div className="obClaudeMethodTile">
+                        <p className="obClaudeMethodDesc">{t("onboarding.claudeCode.installScriptDesc")}</p>
+                        <Button className="w-full sm:w-auto" disabled={installBusy} onClick={() => { void runObClaudeInstall("script"); }}>
+                          {obClaudeInstalling === "script" ? t("onboarding.claudeCode.installing") : t("onboarding.claudeCode.installOneClick")}
+                        </Button>
                       </div>
                     </div>
                   )}
-                  {!statusLoading && obClaudeInstalled === false && (
-                    <div className="flex gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
-                      <AlertTriangle className="size-5 text-amber-600 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-semibold text-amber-900 dark:text-amber-200 m-0">{t("onboarding.claudeCode.missing")}</p>
-                        <p className="text-sm text-muted-foreground mt-1 mb-0">{t("onboarding.claudeCode.notDetectedHint")}</p>
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                </section>
+              )}
 
               {IS_TAURI && (
-                <Card className="text-left mb-4">
-                  <CardContent className="py-4 px-5 space-y-3">
-                    <p className="text-sm font-semibold m-0">{t("onboarding.claudeCode.userConfigTitle")}</p>
-                    <p className="text-xs text-muted-foreground m-0">{t("onboarding.claudeCode.userConfigDesc")}</p>
-                    <Label>{t("onboarding.claudeCode.companyToken")} <span className="text-destructive">*</span></Label>
-                    <p className="text-xs text-amber-700 dark:text-amber-400 m-0">{t("onboarding.claudeCode.companyTokenHint")}</p>
+                <section className="obClaudePanel">
+                  <div className="obClaudePanelHead obClaudePanelHeadTight">
+                    <span className="obClaudePanelKicker">{t("onboarding.claudeCode.userConfigTitle")}</span>
+                  </div>
+                  <p className="text-[13px] text-muted-foreground leading-relaxed m-0 mb-3">{t("onboarding.claudeCode.userConfigDesc")}</p>
+                  <div className="space-y-3">
+                    <div>
+                      <Label className="text-sm">{t("onboarding.claudeCode.companyToken")} <span className="text-destructive">*</span></Label>
+                      <p className="text-xs text-amber-800/90 dark:text-amber-400/95 m-0 mt-1">{t("onboarding.claudeCode.companyTokenHint")}</p>
+                    </div>
                     <Input
                       type="password"
                       value={obClaudeCompanyToken}
                       onChange={(e) => { setObClaudeCompanyToken(e.target.value); setObClaudeUserConfigOk(null); setObClaudeError(null); }}
                       placeholder={t("onboarding.claudeCode.companyTokenPlaceholder")}
+                      className="font-mono text-[13px]"
                     />
                     <div>
-                      <Button type="button" variant="link" className="h-auto p-0 text-xs" onClick={() => setObClaudeShowLlmVideo((v) => !v)}>
-                        {obClaudeShowLlmVideo ? `▾ ${t("onboarding.claudeCode.llmTokenVideoHide")}` : `▸ ${t("onboarding.claudeCode.llmTokenVideoLabel")}`}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 gap-1.5 px-2 text-xs text-muted-foreground -ml-2"
+                        onClick={() => setObClaudeShowLlmVideo((v) => !v)}
+                      >
+                        <ChevronDown className={`size-3.5 shrink-0 transition-transform duration-200 ${obClaudeShowLlmVideo ? "rotate-180" : ""}`} />
+                        {obClaudeShowLlmVideo ? t("onboarding.claudeCode.llmTokenVideoHide") : t("onboarding.claudeCode.llmTokenVideoLabel")}
                       </Button>
                       {obClaudeShowLlmVideo && (
-                        <div className="mt-2 rounded-lg overflow-hidden border">
+                        <div className="mt-2 obClaudeVideoShell">
                           {obClaudeLlmVideoSrc ? (
-                            <video src={obClaudeLlmVideoSrc} controls className="w-full max-h-[260px] bg-black block" />
+                            <video src={obClaudeLlmVideoSrc} controls className="w-full max-h-[240px] block" />
                           ) : (
-                            <p className="text-sm text-muted-foreground p-4 m-0">{t("onboarding.claudeCode.videoNotFound")}</p>
+                            <p className="text-sm text-muted-foreground p-4 m-0 bg-muted/30">{t("onboarding.claudeCode.videoNotFound")}</p>
                           )}
                         </div>
                       )}
@@ -4753,44 +4892,28 @@ export function App() {
                     <Button disabled={obClaudeUserConfigBusy || installBusy || obClaudeChecking} onClick={() => { void runObClaudeUserConfig(); }}>
                       {obClaudeUserConfigBusy ? t("onboarding.claudeCode.applyingUserConfig") : t("onboarding.claudeCode.applyUserConfig")}
                     </Button>
-                    {obClaudeUserConfigOk ? <p className="text-sm text-emerald-600 m-0">{obClaudeUserConfigOk}</p> : null}
-                  </CardContent>
-                </Card>
-              )}
-
-              {!statusLoading && obClaudeInstalled === false && (
-                <div className="mb-4">
-                  <p className="text-sm font-semibold mb-2">{t("onboarding.claudeCode.installActionsTitle")}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {isWindows && (
-                      <>
-                        <Button disabled={installBusy} onClick={() => { void runObClaudeInstall("local"); }}>
-                          {obClaudeInstalling === "local" ? t("onboarding.claudeCode.installingLocal") : t("onboarding.claudeCode.installLocalBundled", { version: CLAUDE_CODE_BUNDLED_VERSION })}
-                        </Button>
-                        <Button variant="secondary" disabled={installBusy} onClick={() => { void runObClaudeInstall("winget"); }}>
-                          {obClaudeInstalling === "winget" ? t("onboarding.claudeCode.installingWingetShort") : t("onboarding.claudeCode.installWingetShort")}
-                        </Button>
-                      </>
-                    )}
-                    {!isWindows && (
-                      <Button disabled={installBusy} onClick={() => { void runObClaudeInstall("script"); }}>
-                        {obClaudeInstalling === "script" ? t("onboarding.claudeCode.installing") : t("onboarding.claudeCode.installOneClick")}
-                      </Button>
-                    )}
+                    {obClaudeUserConfigOk ? <p className="obClaudeUserOk">{obClaudeUserConfigOk}</p> : null}
                   </div>
-                </div>
+                </section>
               )}
 
               {(installBusy || (obClaudeInstallLog != null && obClaudeInstallLog !== "")) && (
-                <div className="mb-3">
-                  <p className="text-xs font-semibold text-muted-foreground mb-1">{t("onboarding.claudeCode.liveLogLabel")}</p>
-                  <pre className="text-xs max-h-60 overflow-auto rounded-md border bg-muted p-3 whitespace-pre-wrap m-0">
+                <div className="obClaudeLogBox">
+                  <div className="obClaudeLogHead">
+                    <span className="obClaudeLogHeadDots" aria-hidden>
+                      <span />
+                      <span />
+                      <span />
+                    </span>
+                    <span>{t("onboarding.claudeCode.liveLogLabel")}</span>
+                  </div>
+                  <pre className="obClaudeLogPre">
                     {obClaudeInstallLog || (installBusy ? t("onboarding.claudeCode.logWaiting") : "")}
                   </pre>
                 </div>
               )}
-              {obClaudeError && <p className="text-sm text-destructive mb-2">{obClaudeError}</p>}
-              <p className="text-xs text-muted-foreground m-0">{t("onboarding.claudeCode.installSuccessHint")}</p>
+              {obClaudeError ? <p className="obClaudeErr" role="alert">{obClaudeError}</p> : null}
+              <p className="obClaudeTip">{t("onboarding.claudeCode.installSuccessHint")}</p>
             </div>
             <div className="obFooter">
               {stepIndicator}

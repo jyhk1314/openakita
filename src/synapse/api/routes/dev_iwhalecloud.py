@@ -2361,6 +2361,28 @@ def _resolve_iwhalecloud_login_creds(body: LoginRequest) -> tuple[str, str, dict
     return u, p, data
 
 
+@router.get("/api/dev/iwhalecloud/local-userinfo-exists")
+def local_userinfo_exists():
+    """
+    检测当前进程 `settings.project_root` 下是否存在非空的 `data/userinfo.encryption`。
+
+    供 Setup Center 引导等判断「可跳过研发云表单验证」；路径与登录写入逻辑一致，避免桌面端猜测 cwd。
+    """
+    path = _userinfo_encryption_path()
+    try:
+        st = path.stat()
+        exists = path.is_file() and st.st_size > 0
+    except OSError:
+        exists = False
+    return success_response(
+        {
+            "exists": exists,
+            "path": str(path.resolve()),
+            "project_root": str(settings.project_root.resolve()),
+        }
+    )
+
+
 @router.post("/api/dev/iwhalecloud/login")
 def login(body: LoginRequest):
     """

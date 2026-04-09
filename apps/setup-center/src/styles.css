@@ -5136,3 +5136,250 @@ body > div[id*="sm-" i] {
     var(--rd-terminal-shadow);
   box-sizing: border-box;
 }
+
+
+/* Claude Code onboarding step */
+.obClaudeWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.obClaudeHero {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  text-align: left;
+}
+
+.obClaudeHeroMark {
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--brand) 88%, #fff),
+    color-mix(in srgb, var(--brand) 50%, #1a1a2e)
+  );
+  box-shadow:
+    0 10px 28px color-mix(in srgb, var(--brand) 32%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 22%, transparent);
+}
+
+.obClaudeHeroMarkIcon {
+  width: 26px;
+  height: 26px;
+  color: #fff;
+}
+
+.obClaudeHeroTitle {
+  margin-bottom: 6px;
+}
+
+.obClaudeHeroDesc {
+  margin-bottom: 0;
+  line-height: 1.55;
+}
+
+.obClaudePanel {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  text-align: left;
+}
+
+.obClaudePanelHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.obClaudePanelHeadTight {
+  margin-bottom: 10px;
+}
+
+.obClaudePanelKicker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.obClaudeStatusOk,
+.obClaudeStatusWarn {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+.obClaudeStatusOk {
+  border: 1px solid color-mix(in srgb, var(--ok) 45%, var(--line));
+  background: color-mix(in srgb, var(--ok) 10%, var(--panel));
+}
+
+.obClaudeStatusWarn {
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.obClaudeMethodGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+@media (min-width: 560px) {
+  .obClaudeMethodGrid.obClaudeMethodGrid2 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.obClaudeMethodTile {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 100%;
+}
+
+.obClaudeMethodTilePrimary {
+  border-color: color-mix(in srgb, var(--brand) 42%, var(--line));
+  background: color-mix(in srgb, var(--brand) 7%, var(--panel));
+}
+
+.obClaudeRecBadge {
+  align-self: flex-start;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand) 20%, transparent);
+  color: var(--brand);
+}
+
+.obClaudeMethodDesc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.55;
+  margin: 0;
+  flex: 1;
+}
+
+.obClaudeLogBox {
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  overflow: hidden;
+  background: var(--panel);
+  text-align: left;
+}
+
+.obClaudeLogHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--nav-hover);
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.obClaudeLogHeadDots {
+  display: flex;
+  gap: 5px;
+}
+
+.obClaudeLogHeadDots span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted2);
+}
+
+.obClaudeLogHeadDots span:nth-child(1) {
+  background: #ff5f57;
+}
+.obClaudeLogHeadDots span:nth-child(2) {
+  background: #febc2e;
+}
+.obClaudeLogHeadDots span:nth-child(3) {
+  background: #28c840;
+}
+
+.obClaudeLogPre {
+  margin: 0;
+  padding: 12px 14px;
+  max-height: 220px;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.45;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  background: var(--panel2);
+}
+
+:root[data-theme="dark"] .obClaudeLogPre,
+:root[data-theme="daltonized-dark"] .obClaudeLogPre {
+  background: color-mix(in srgb, var(--panel2) 88%, #020617);
+}
+
+.obClaudeTip {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--nav-hover);
+  border-left: 3px solid color-mix(in srgb, var(--brand) 55%, var(--line));
+  line-height: 1.55;
+  text-align: left;
+}
+
+.obClaudeErr {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: left;
+  border: 1px solid color-mix(in srgb, #ef4444 45%, var(--line));
+  background: color-mix(in srgb, #ef4444 10%, var(--panel2));
+  color: color-mix(in srgb, #ef4444 92%, var(--text));
+}
+
+.obClaudeUserOk {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  border: 1px solid color-mix(in srgb, var(--ok) 45%, var(--line));
+  background: color-mix(in srgb, var(--ok) 10%, var(--panel));
+  color: color-mix(in srgb, var(--ok) 25%, var(--text));
+}
+
+.obClaudeVideoShell {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: #000;
+}

@@ -50,6 +50,16 @@ export default defineConfig({
         "../../src/synapse/llm/registries/providers.json",
       ),
     },
+    dedupe: ["three"],
+  },
+  optimizeDeps: {
+    include: [
+      "react-force-graph-3d",
+      "3d-force-graph",
+      "three-forcegraph",
+      "three-render-objects",
+      "three",
+    ],
   },
   base: isWebBuild ? "/web/" : isCapBuild ? "./" : undefined,
   build: isRemoteBuild
@@ -58,12 +68,6 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    // Cargo/Tauri 会把资源拷到 src-tauri/target；若 Vite 监视该目录会与构建进程抢锁，触发 Windows os error 32。
-    watch: {
-      ignored: ["**/src-tauri/target/**"],
-    },
-    // 与迁移前一致：仅在 web 构建目标（npm run dev:web）下代理 /api、/ws，避免 CORS。
-    // tauri dev / npm run dev 默认不走代理；前端本地模式多用 apiBaseUrl 直连 18900。
     ...(isWebBuild
       ? {
           proxy: {
