@@ -20,6 +20,7 @@
       "resources/claude-code-releases/",
       "resources/opencode-releases/",
       "resources/claude-code-init/",
+      "resources/opencode-init/",
       "resources/synapse-term/",
       "video/"
     ],

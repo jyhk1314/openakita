@@ -462,7 +462,6 @@ export function App() {
   const [obClaudeChecking, setObClaudeChecking] = useState(false);
   const [obClaudeInstalling, setObClaudeInstalling] = useState<false | "claude" | "opencode">(false);
   const [obClaudeError, setObClaudeError] = useState<string | null>(null);
-  const [obClaudeInstallLog, setObClaudeInstallLog] = useState<string | null>(null);
   const [obClaudeCompanyToken, setObClaudeCompanyToken] = useState("");
   const [obClaudeShowLlmVideo, setObClaudeShowLlmVideo] = useState(false);
   const [obClaudeLlmVideoSrc, setObClaudeLlmVideoSrc] = useState<string | null>(null);
@@ -563,7 +562,6 @@ export function App() {
 
   useEffect(() => {
     if (obStep !== "ob-claude-code") return;
-    setObClaudeInstallLog(null);
     setObClaudeError(null);
     setObClaudeInstalling(false);
     setObClaudeShowLlmVideo(false);
@@ -4723,33 +4721,15 @@ export function App() {
           }
         }
 
-        async function attachDevToolsInstallLog() {
-          return listen("dev_tools_install_log", (ev) => {
-            const p = ev.payload as { text?: string } | null;
-            const chunk = typeof p?.text === "string" ? p.text : "";
-            if (!chunk) return;
-            setObClaudeInstallLog((prev) => {
-              const base = prev ?? "";
-              const next = base + chunk;
-              const max = 80_000;
-              return next.length > max ? next.slice(next.length - max) : next;
-            });
-          });
-        }
-
         async function runObClaudeInstall() {
           setObClaudeInstalling("claude");
           setObClaudeError(null);
-          setObClaudeInstallLog("");
-          let unlisten: (() => void) | undefined;
           try {
-            unlisten = await attachDevToolsInstallLog();
             await invoke<string>("claude_code_install");
             await obClaudeRecheck({ afterInstall: true });
           } catch (e) {
             setObClaudeError(String(e));
           } finally {
-            unlisten?.();
             setObClaudeInstalling(false);
           }
         }
@@ -4757,16 +4737,12 @@ export function App() {
         async function runObOpencodeInstall() {
           setObClaudeInstalling("opencode");
           setObClaudeError(null);
-          setObClaudeInstallLog("");
-          let unlisten: (() => void) | undefined;
           try {
-            unlisten = await attachDevToolsInstallLog();
             await invoke<string>("opencode_cli_install");
             await obClaudeRecheck({ afterInstall: true });
           } catch (e) {
             setObClaudeError(String(e));
           } finally {
-            unlisten?.();
             setObClaudeInstalling(false);
           }
         }
@@ -4782,8 +4758,8 @@ export function App() {
           setObClaudeError(null);
           setObClaudeUserConfigOk(null);
           try {
-            const r = await invoke<{ homeDir: string; claudeConfigDir: string }>("claude_code_apply_user_init", { companyToken: tok });
-            setObClaudeUserConfigOk(t("onboarding.claudeCode.userConfigSuccess", { dir: r.claudeConfigDir }));
+            const r = await invoke<{ homeDir: string; claudeConfigDir: string; opencodeConfigPath: string }>("claude_code_apply_user_init", { companyToken: tok });
+            setObClaudeUserConfigOk(t("onboarding.claudeCode.userConfigSuccess", { claudeDir: r.claudeConfigDir, opencodePath: r.opencodeConfigPath }));
           } catch (e) {
             setObClaudeError(String(e));
           } finally {
@@ -4929,21 +4905,6 @@ export function App() {
                 </section>
               )}
 
-              {(installBusy || (obClaudeInstallLog != null && obClaudeInstallLog !== "")) && (
-                <div className="obClaudeLogBox">
-                  <div className="obClaudeLogHead">
-                    <span className="obClaudeLogHeadDots" aria-hidden>
-                      <span />
-                      <span />
-                      <span />
-                    </span>
-                    <span>{t("onboarding.claudeCode.liveLogLabel")}</span>
-                  </div>
-                  <pre className="obClaudeLogPre">
-                    {obClaudeInstallLog || (installBusy ? t("onboarding.claudeCode.logWaiting") : "")}
-                  </pre>
-                </div>
-              )}
               {obClaudeError ? <p className="obClaudeErr" role="alert">{obClaudeError}</p> : null}
               <p className="obClaudeTip">{t("onboarding.claudeCode.installSuccessHint")}</p>
             </div>

@@ -483,80 +483,6 @@ fn bundled_backend_dir() -> PathBuf {
     primary
 }
 
-/// 安装包内 Claude Code 用户配置模板：`resources/claude-code-init/`（与 tauri.conf bundle.resources 一致）。
-fn bundled_claude_code_init_dir() -> PathBuf {
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-        .unwrap_or_else(|| PathBuf::from("."));
-
-    #[cfg(target_os = "macos")]
-    {
-        if let Some(contents_dir) = exe_dir.parent() {
-            let primary = contents_dir
-                .join("Resources")
-                .join("resources")
-                .join("claude-code-init");
-            if primary.exists() {
-                return primary;
-            }
-            let fallback = contents_dir
-                .join("Resources")
-                .join("claude-code-init");
-            if fallback.exists() {
-                return fallback;
-            }
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let mut candidates: Vec<PathBuf> = vec![];
-        for app_name in &["synapse-desktop", "synapse-desktop"] {
-            candidates.push(PathBuf::from(format!(
-                "/usr/lib/{}/resources/claude-code-init",
-                app_name
-            )));
-        }
-        if let Some(usr_dir) = exe_dir.parent() {
-            for app_name in &["synapse-desktop", "synapse-desktop"] {
-                candidates.push(
-                    usr_dir
-                        .join("lib")
-                        .join(app_name)
-                        .join("resources")
-                        .join("claude-code-init"),
-                );
-            }
-        }
-        if let Some(mount_root) = exe_dir.parent().and_then(|p| p.parent()) {
-            for app_name in &["synapse-desktop", "synapse-desktop"] {
-                candidates.push(
-                    mount_root
-                        .join("lib")
-                        .join(app_name)
-                        .join("resources")
-                        .join("claude-code-init"),
-                );
-            }
-            candidates.push(mount_root.join("resources").join("claude-code-init"));
-        }
-        for c in &candidates {
-            if c.exists() {
-                return c.clone();
-            }
-        }
-    }
-
-    let primary = exe_dir.join("resources").join("claude-code-init");
-    if primary.exists() {
-        return primary;
-    }
-
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("resources")
-        .join("claude-code-init")
-}
 
 /// 大模型 Token 申请说明视频：`video/llmtoken.mp4`。
 fn bundled_llm_token_guide_video_path() -> PathBuf {
@@ -7180,6 +7106,85 @@ struct DevToolsCheckResult {
 struct ClaudeCodeUserInitResult {
     home_dir: String,
     claude_config_dir: String,
+    opencode_config_path: String,
+}
+
+
+/// 安装包内 `resources/<pack_folder>/`（与 tauri.conf bundle.resources 一致）。
+fn bundled_resources_pack_dir(pack_folder: &str) -> PathBuf {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(contents_dir) = exe_dir.parent() {
+            let primary = contents_dir
+                .join("Resources")
+                .join("resources")
+                .join(pack_folder);
+            if primary.exists() {
+                return primary;
+            }
+            let fallback = contents_dir.join("Resources").join(pack_folder);
+            if fallback.exists() {
+                return fallback;
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let mut candidates: Vec<PathBuf> = vec![];
+        for app_name in &["synapse-desktop", "synapse-desktop"] {
+            candidates.push(PathBuf::from(format!(
+                "/usr/lib/{}/resources/{}",
+                app_name, pack_folder
+            )));
+        }
+        if let Some(usr_dir) = exe_dir.parent() {
+            for app_name in &["synapse-desktop", "synapse-desktop"] {
+                candidates.push(
+                    usr_dir
+                        .join("lib")
+                        .join(app_name)
+                        .join("resources")
+                        .join(pack_folder),
+                );
+            }
+        }
+        if let Some(mount_root) = exe_dir.parent().and_then(|p| p.parent()) {
+            for app_name in &["synapse-desktop", "synapse-desktop"] {
+                candidates.push(
+                    mount_root
+                        .join("lib")
+                        .join(app_name)
+                        .join("resources")
+                        .join(pack_folder),
+                );
+            }
+            candidates.push(mount_root.join("resources").join(pack_folder));
+        }
+        for c in &candidates {
+            if c.exists() {
+                return c.clone();
+            }
+        }
+    }
+
+    let primary = exe_dir.join("resources").join(pack_folder);
+    if primary.exists() {
+        return primary;
+    }
+
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("resources")
+        .join(pack_folder)
+}
+
+fn bundled_claude_code_init_dir() -> PathBuf {
+    bundled_resources_pack_dir("claude-code-init")
 }
 
 fn patch_claude_settings_company_token(home: &Path, token: &str) -> Result<(), String> {
@@ -7236,50 +7241,108 @@ fn patch_known_marketplaces_install_locations(home: &Path) -> Result<(), String>
     Ok(())
 }
 
+fn patch_opencode_config_api_key(v: &mut serde_json::Value, token: &str) -> Result<(), String> {
+    let prov = v
+        .get_mut("provider")
+        .and_then(|p| p.as_object_mut())
+        .ok_or_else(|| "opencode.json 缺少 provider 对象".to_string())?;
+    let mut updated = false;
+    for (_, cfg) in prov.iter_mut() {
+        if let Some(opts) = cfg.get_mut("options").and_then(|o| o.as_object_mut()) {
+            opts.insert(
+                "apiKey".to_string(),
+                serde_json::Value::String(token.to_string()),
+            );
+            updated = true;
+        }
+    }
+    if !updated {
+        return Err("opencode.json 中未找到 provider.*.options".into());
+    }
+    Ok(())
+}
+
+/// 将打包内 `opencode-init/opencode.json` 写入 `~/.config/opencode/opencode.json`，并填入 `provider.*.options.apiKey`。
+fn apply_opencode_config_from_bundle(home: &Path, token: &str) -> Result<PathBuf, String> {
+    let template = bundled_resources_pack_dir("opencode-init").join("opencode.json");
+    if !template.is_file() {
+        return Err(format!(
+            "安装包中未找到 OpenCode 配置模板: {}",
+            template.display()
+        ));
+    }
+    let raw = fs::read_to_string(&template)
+        .map_err(|e| format!("读取 opencode 模板失败: {e}"))?;
+    let mut v: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| format!("解析 opencode.json 模板失败: {e}"))?;
+    patch_opencode_config_api_key(&mut v, token)?;
+    let dest_dir = home.join(".config").join("opencode");
+    fs::create_dir_all(&dest_dir).map_err(|e| format!("创建 OpenCode 配置目录失败: {e}"))?;
+    let dest = dest_dir.join("opencode.json");
+    let out = serde_json::to_string_pretty(&v)
+        .map_err(|e| format!("序列化 opencode.json 失败: {e}"))?;
+    fs::write(&dest, out.as_bytes()).map_err(|e| format!("写入 opencode.json 失败: {e}"))?;
+    Ok(dest)
+}
+
 fn claude_code_apply_user_init_sync(company_token: String) -> Result<ClaudeCodeUserInitResult, String> {
     let token = company_token.trim();
     if token.is_empty() {
         return Err("公司 Token 不能为空".into());
     }
     let home = home_dir().ok_or_else(|| "无法解析用户主目录".to_string())?;
-    let src = bundled_claude_code_init_dir();
-    if !src.is_dir() {
-        return Err(format!(
-            "安装包中未找到 claude-code-init 模板目录: {}",
-            src.display()
-        ));
-    }
-    for entry in fs::read_dir(&src).map_err(|e| format!("读取模板目录失败: {e}"))? {
-        let entry = entry.map_err(|e| format!("读取目录项失败: {e}"))?;
-        let from = entry.path();
-        let name = entry.file_name();
-        let to = home.join(&name);
-        let ty = entry
-            .file_type()
-            .map_err(|e| format!("读取文件类型失败: {e}"))?;
-        if ty.is_dir() {
-            copy_dir_all(&from, &to)?;
-        } else if ty.is_file() {
-            if let Some(parent) = to.parent() {
-                fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
-            }
-            fs::copy(&from, &to).map_err(|e| {
-                format!(
-                    "复制 {} 失败: {e}",
-                    name.to_string_lossy()
-                )
-            })?;
+
+    let claude_settings = home.join(".claude").join("settings.json");
+    if !claude_settings.is_file() {
+        let src = bundled_claude_code_init_dir();
+        if !src.is_dir() {
+            return Err(format!(
+                "安装包中未找到 claude-code-init 模板目录: {}",
+                src.display()
+            ));
         }
+        for entry in fs::read_dir(&src).map_err(|e| format!("读取模板目录失败: {e}"))? {
+            let entry = entry.map_err(|e| format!("读取目录项失败: {e}"))?;
+            let from = entry.path();
+            let name = entry.file_name();
+            let to = home.join(&name);
+            let ty = entry
+                .file_type()
+                .map_err(|e| format!("读取文件类型失败: {e}"))?;
+            if ty.is_dir() {
+                copy_dir_all(&from, &to)?;
+            } else if ty.is_file() {
+                if let Some(parent) = to.parent() {
+                    fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
+                }
+                fs::copy(&from, &to).map_err(|e| {
+                    format!(
+                        "复制 {} 失败: {e}",
+                        name.to_string_lossy()
+                    )
+                })?;
+            }
+        }
+        patch_claude_settings_company_token(&home, token)?;
+        patch_known_marketplaces_install_locations(&home)?;
     }
-    patch_claude_settings_company_token(&home, token)?;
-    patch_known_marketplaces_install_locations(&home)?;
+
+    let opencode_json = home.join(".config").join("opencode").join("opencode.json");
+    let opencode_config_path = if opencode_json.is_file() {
+        opencode_json
+    } else {
+        apply_opencode_config_from_bundle(&home, token)?
+    };
+
     Ok(ClaudeCodeUserInitResult {
         home_dir: home.to_string_lossy().to_string(),
         claude_config_dir: home.join(".claude").to_string_lossy().to_string(),
+        opencode_config_path: opencode_config_path.to_string_lossy().to_string(),
     })
 }
 
-/// 将打包内的 `claude-code-init` 完整同步到当前用户主目录，写入公司 Token，并重写插件市场的 `installLocation` 为当前用户路径。
+/// 将打包内的 `claude-code-init` 同步到用户主目录并写入 Token；同时将 `opencode-init/opencode.json` 写入 `~/.config/opencode/` 并填入 apiKey。
+/// 若已存在 `~/.claude/settings.json` 或 `~/.config/opencode/opencode.json`，则对应侧跳过写入，不覆盖已有配置。
 #[tauri::command]
 async fn claude_code_apply_user_init(company_token: String) -> Result<ClaudeCodeUserInitResult, String> {
     spawn_blocking_result(move || claude_code_apply_user_init_sync(company_token)).await
