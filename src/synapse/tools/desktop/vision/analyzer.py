@@ -72,10 +72,8 @@ class VisionAnalyzer:
         """
         from synapse.llm.types import ImageBlock, ImageContent, Message, TextBlock
 
-        # 将图片转换为 base64
         b64_data = self._capture.to_base64(image, resize_for_api=True)
 
-        # 构建消息
         messages = [
             Message(
                 role="user",
