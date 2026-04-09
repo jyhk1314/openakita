@@ -56,7 +56,6 @@ import {
   BUILTIN_PROVIDERS,
   PIP_INDEX_PRESETS,
   IWHALECLOUD_ONBOARDING_VALIDATION_MOCK,
-  CLAUDE_CODE_BUNDLED_VERSION,
 } from "./constants";
 import { safeFetch } from "./providers";
 import {
@@ -452,11 +451,16 @@ export function App() {
   /** 自动检测结束且未通过时可选提示（如未找到凭据、无法连接后端） */
   const [obIwcLocalDetectHint, setObIwcLocalDetectHint] = useState<string | null>(null);
 
-  /** Claude Code CLI：检测 / 安装 / 用户目录初始化 */
-  const [obClaudeInstalled, setObClaudeInstalled] = useState<boolean | null>(null);
-  const [obClaudeVersion, setObClaudeVersion] = useState<string | null>(null);
+  /** 研发工具 CLI：Claude Code / Cursor / OpenCode，任装其一即可继续 */
+  type ObDevToolStatus = { installed: boolean; version?: string };
+  type ObDevToolsCheck = {
+    claude: ObDevToolStatus;
+    cursor: ObDevToolStatus;
+    opencode: ObDevToolStatus;
+  };
+  const [obDevTools, setObDevTools] = useState<ObDevToolsCheck | null>(null);
   const [obClaudeChecking, setObClaudeChecking] = useState(false);
-  const [obClaudeInstalling, setObClaudeInstalling] = useState<false | "local" | "winget" | "script">(false);
+  const [obClaudeInstalling, setObClaudeInstalling] = useState<false | "claude" | "opencode">(false);
   const [obClaudeError, setObClaudeError] = useState<string | null>(null);
   const [obClaudeInstallLog, setObClaudeInstallLog] = useState<string | null>(null);
   const [obClaudeCompanyToken, setObClaudeCompanyToken] = useState("");
@@ -567,24 +571,19 @@ export function App() {
     setObClaudeUserConfigOk(null);
     let cancelled = false;
     if (!IS_TAURI) {
-      setObClaudeInstalled(null);
-      setObClaudeVersion(null);
+      setObDevTools(null);
       setObClaudeChecking(false);
       return () => { cancelled = true; };
     }
-    setObClaudeInstalled(null);
-    setObClaudeVersion(null);
+    setObDevTools(null);
     (async () => {
       setObClaudeChecking(true);
       try {
-        const r = await invoke<{ installed: boolean; version?: string }>("claude_code_check");
-        if (!cancelled) {
-          setObClaudeInstalled(r.installed);
-          setObClaudeVersion(r.version ?? null);
-        }
+        const r = await invoke<ObDevToolsCheck>("dev_tools_check");
+        if (!cancelled) setObDevTools(r);
       } catch (e) {
         if (!cancelled) {
-          setObClaudeInstalled(false);
+          setObDevTools(null);
           setObClaudeError(String(e));
         }
       } finally {
@@ -4240,7 +4239,7 @@ export function App() {
     const obStepLabels: Record<string, string> = {
       "ob-welcome": t("onboarding.step.welcome", "欢迎"),
       "ob-iwhalecloud": t("onboarding.step.iwhalecloud", "研发云"),
-      "ob-claude-code": t("onboarding.step.claudeCode", "CLI"),
+      "ob-claude-code": t("onboarding.step.claudeCode", "Dev tools"),
       "ob-agreement": t("onboarding.step.agreement", "协议"),
       "ob-llm": t("onboarding.step.llm", "模型"),
       "ob-im": t("onboarding.step.im", "通讯"),
@@ -4696,48 +4695,73 @@ export function App() {
         );
 
       case "ob-claude-code": {
-        const canProceedClaude = obClaudeInstalled === true;
-        const isWindows = info?.os === "windows";
+        const anyCliOk =
+          !!obDevTools &&
+          (obDevTools.claude.installed ||
+            obDevTools.cursor.installed ||
+            obDevTools.opencode.installed);
+        const canProceedClaude = anyCliOk;
         const installBusy = obClaudeInstalling !== false;
-        const statusLoading = obClaudeChecking || (IS_TAURI && obClaudeInstalled === null);
+        const statusLoading = obClaudeChecking || (IS_TAURI && obDevTools === null);
 
         async function obClaudeRecheck(opts?: { afterInstall?: boolean }) {
           setObClaudeChecking(true);
           setObClaudeError(null);
           try {
-            const r = await invoke<{ installed: boolean; version?: string }>("claude_code_check");
-            setObClaudeInstalled(r.installed);
-            setObClaudeVersion(r.version ?? null);
-            if (!r.installed && opts?.afterInstall) {
+            const r = await invoke<ObDevToolsCheck>("dev_tools_check");
+            setObDevTools(r);
+            const any =
+              r.claude.installed || r.cursor.installed || r.opencode.installed;
+            if (!any && opts?.afterInstall) {
               setObClaudeError(t("onboarding.claudeCode.installStillMissing"));
             }
           } catch (e) {
-            setObClaudeInstalled(false);
+            setObDevTools(null);
             setObClaudeError(String(e));
           } finally {
             setObClaudeChecking(false);
           }
         }
 
-        async function runObClaudeInstall(kind: "local" | "winget" | "script") {
-          const cmd = kind === "local" ? "claude_code_install_local" : kind === "winget" ? "claude_code_install_winget" : "claude_code_install";
-          setObClaudeInstalling(kind);
+        async function attachDevToolsInstallLog() {
+          return listen("dev_tools_install_log", (ev) => {
+            const p = ev.payload as { text?: string } | null;
+            const chunk = typeof p?.text === "string" ? p.text : "";
+            if (!chunk) return;
+            setObClaudeInstallLog((prev) => {
+              const base = prev ?? "";
+              const next = base + chunk;
+              const max = 80_000;
+              return next.length > max ? next.slice(next.length - max) : next;
+            });
+          });
+        }
+
+        async function runObClaudeInstall() {
+          setObClaudeInstalling("claude");
           setObClaudeError(null);
           setObClaudeInstallLog("");
           let unlisten: (() => void) | undefined;
           try {
-            unlisten = await listen("claude_code_install_log", (ev) => {
-              const p = ev.payload as { text?: string } | null;
-              const chunk = typeof p?.text === "string" ? p.text : "";
-              if (!chunk) return;
-              setObClaudeInstallLog((prev) => {
-                const base = prev ?? "";
-                const next = base + chunk;
-                const max = 80_000;
-                return next.length > max ? next.slice(next.length - max) : next;
-              });
-            });
-            await invoke<string>(cmd);
+            unlisten = await attachDevToolsInstallLog();
+            await invoke<string>("claude_code_install");
+            await obClaudeRecheck({ afterInstall: true });
+          } catch (e) {
+            setObClaudeError(String(e));
+          } finally {
+            unlisten?.();
+            setObClaudeInstalling(false);
+          }
+        }
+
+        async function runObOpencodeInstall() {
+          setObClaudeInstalling("opencode");
+          setObClaudeError(null);
+          setObClaudeInstallLog("");
+          let unlisten: (() => void) | undefined;
+          try {
+            unlisten = await attachDevToolsInstallLog();
+            await invoke<string>("opencode_cli_install");
             await obClaudeRecheck({ afterInstall: true });
           } catch (e) {
             setObClaudeError(String(e));
@@ -4782,73 +4806,81 @@ export function App() {
 
               <section className="obClaudePanel">
                 <div className="obClaudePanelHead">
-                  <span className="obClaudePanelKicker">{t("onboarding.claudeCode.statusTitle")}</span>
+                  <span className="obClaudePanelKicker">{t("onboarding.claudeCode.toolsListTitle")}</span>
                   <Button type="button" variant="secondary" size="sm" disabled={installBusy || obClaudeChecking} className="gap-1.5 shrink-0" onClick={() => { void obClaudeRecheck(); }}>
                     <RefreshCw className="size-4" /> {t("onboarding.claudeCode.recheck")}
                   </Button>
                 </div>
+                <p className="text-[13px] text-muted-foreground leading-relaxed m-0 mb-3">{t("onboarding.claudeCode.toolsListDesc")}</p>
                 {statusLoading && (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground py-1">
                     <Loader2 className="size-4 animate-spin shrink-0" /> {t("onboarding.claudeCode.checking")}
                   </div>
                 )}
-                {!statusLoading && obClaudeInstalled === true && (
-                  <div className="obClaudeStatusOk">
-                    <CheckCircle2 className="size-6 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2} />
-                    <div className="min-w-0">
-                      <p className="font-semibold text-foreground m-0 leading-snug">{t("onboarding.claudeCode.installed")}</p>
-                      {obClaudeVersion ? (
-                        <p className="text-sm font-mono text-muted-foreground mt-1.5 mb-0">
-                          {t("onboarding.claudeCode.versionLabel")}: {obClaudeVersion}
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
-                )}
-                {!statusLoading && obClaudeInstalled === false && (
-                  <div className="obClaudeStatusWarn">
-                    <AlertTriangle className="size-6 text-amber-600 dark:text-amber-400 shrink-0" strokeWidth={2} />
-                    <div className="min-w-0">
-                      <p className="font-semibold text-foreground m-0 leading-snug">{t("onboarding.claudeCode.missing")}</p>
-                      <p className="text-sm text-muted-foreground mt-1.5 mb-0 leading-relaxed">{t("onboarding.claudeCode.notDetectedHint")}</p>
-                    </div>
+                {!statusLoading && obDevTools && (
+                  <div className="obDevToolOptList">
+                    {([
+                      {
+                        key: "claude" as const,
+                        nameKey: "onboarding.claudeCode.toolClaude",
+                        hintKey: "onboarding.claudeCode.claudeInstallHint",
+                        installKey: "onboarding.claudeCode.installClaude",
+                        installingKey: "onboarding.claudeCode.installingClaude",
+                        runInstall: () => { void runObClaudeInstall(); },
+                      },
+                      {
+                        key: "cursor" as const,
+                        nameKey: "onboarding.claudeCode.toolCursor",
+                        hintKey: "onboarding.claudeCode.cursorInstallHint",
+                        installKey: "",
+                        installingKey: "",
+                        runInstall: null,
+                      },
+                      {
+                        key: "opencode" as const,
+                        nameKey: "onboarding.claudeCode.toolOpencode",
+                        hintKey: "onboarding.claudeCode.opencodeInstallHint",
+                        installKey: "onboarding.claudeCode.installOpencode",
+                        installingKey: "onboarding.claudeCode.installingOpencode",
+                        runInstall: () => { void runObOpencodeInstall(); },
+                      },
+                    ]).map(({ key, nameKey, hintKey, installKey, installingKey, runInstall }) => {
+                      const row = obDevTools[key];
+                      const ok = row.installed;
+                      return (
+                        <div key={key} className="obDevToolOptRow">
+                          <div className="min-w-0 flex-1">
+                            <span className="font-semibold text-sm text-foreground block">{t(nameKey)}</span>
+                            {ok ? (
+                              <p className="text-xs font-mono text-muted-foreground m-0 mt-1">
+                                {t("onboarding.claudeCode.statusDetected")}: {row.version ?? "—"}
+                              </p>
+                            ) : (
+                              <p className="text-xs text-muted-foreground m-0 mt-1 leading-relaxed">{t(hintKey)}</p>
+                            )}
+                          </div>
+                          {!ok && runInstall ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              disabled={installBusy || obClaudeChecking}
+                              className="shrink-0"
+                              onClick={runInstall}
+                            >
+                              {obClaudeInstalling === key ? t(installingKey) : t(installKey)}
+                            </Button>
+                          ) : ok ? (
+                            <CheckCircle2 className="size-5 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2} aria-hidden />
+                          ) : (
+                            <span className="text-xs text-muted-foreground shrink-0 w-[72px] text-right" aria-hidden />
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </section>
-
-              {!statusLoading && obClaudeInstalled === false && (
-                <section className="obClaudePanel">
-                  <div className="obClaudePanelHead obClaudePanelHeadTight">
-                    <span className="obClaudePanelKicker">{t("onboarding.claudeCode.installActionsTitle")}</span>
-                  </div>
-                  {isWindows ? (
-                    <div className="obClaudeMethodGrid obClaudeMethodGrid2">
-                      <div className="obClaudeMethodTile obClaudeMethodTilePrimary">
-                        <span className="obClaudeRecBadge">{t("onboarding.claudeCode.installMethodRecommended")}</span>
-                        <p className="obClaudeMethodDesc">{t("onboarding.claudeCode.installLocalDesc")}</p>
-                        <Button className="w-full sm:w-auto" disabled={installBusy} onClick={() => { void runObClaudeInstall("local"); }}>
-                          {obClaudeInstalling === "local" ? t("onboarding.claudeCode.installingLocal") : t("onboarding.claudeCode.installLocalBundled", { version: CLAUDE_CODE_BUNDLED_VERSION })}
-                        </Button>
-                      </div>
-                      <div className="obClaudeMethodTile">
-                        <p className="obClaudeMethodDesc">{t("onboarding.claudeCode.installWingetDesc")}</p>
-                        <Button variant="secondary" className="w-full sm:w-auto" disabled={installBusy} onClick={() => { void runObClaudeInstall("winget"); }}>
-                          {obClaudeInstalling === "winget" ? t("onboarding.claudeCode.installingWingetShort") : t("onboarding.claudeCode.installWingetShort")}
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="obClaudeMethodGrid">
-                      <div className="obClaudeMethodTile">
-                        <p className="obClaudeMethodDesc">{t("onboarding.claudeCode.installScriptDesc")}</p>
-                        <Button className="w-full sm:w-auto" disabled={installBusy} onClick={() => { void runObClaudeInstall("script"); }}>
-                          {obClaudeInstalling === "script" ? t("onboarding.claudeCode.installing") : t("onboarding.claudeCode.installOneClick")}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </section>
-              )}
 
               {IS_TAURI && (
                 <section className="obClaudePanel">
