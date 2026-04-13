@@ -1,0 +1,420 @@
+import type {
+  ProdInfoWireItem,
+  ProdProcessDataPayload,
+  RdRepoInfo,
+  RepoProcessWireItem,
+} from "@/api/rdUnifiedService";
+
+/**
+ * 研发统一服务单字符状态 → 统一语义（仓库 / 文档 / 工单共用）：
+ * N=new | I=init | P=process | D=done | E/F=error
+ */
+export type UnifiedWireAnalysisState = "new" | "init" | "process" | "done" | "error";
+
+export interface Repository {
+  purpose: string;
+  url: string;
+  branch: string;
+  token: string;
+  isMain: boolean;
+  /** 与研发统一服务 repo_process 对齐后的单仓状态 */
+  wireAnalysisState?: UnifiedWireAnalysisState;
+  /** 分析完成时间（状态为 D 且服务端返回时） */
+  analysisCompletedAt?: string;
+  analysisTime?: string;
+  analysisStatus?: "analyzing" | "completed";
+}
+
+export interface ProductDocument {
+  id: string;
+  title: string;
+  type: 'markdown' | 'excalidraw' | 'mixed';
+  content: string; // Markdown content
+  excalidrawElements?: any[]; // Excalidraw mock data
+}
+
+export interface ProductKnowledge {
+  architecture: boolean;
+  solution: boolean;
+  requirements: boolean;
+  manual: boolean;
+  delivery: boolean;
+}
+
+export interface Ticket {
+  id: string;
+  title: string;
+  assignee: string;
+  status: string;
+}
+
+export interface Product {
+  id: string;
+  name: string;
+  version: string;
+  module: string;
+  icon: string;
+  description: string;
+  /** 逗号分隔，与研发统一服务 `function` 字段对应 */
+  features?: string;
+  /** 项目空间（研发统一服务 `space`） */
+  space?: string;
+  /** 创建人姓名（研发统一服务 `owner`） */
+  owner?: string;
+  /** userinfo.encryption 透传（研发统一服务 `owner_info`） */
+  ownerInfo?: string;
+  repositories: Repository[];
+  latestTickets?: Ticket[];
+  analysisStatus: {
+    code: "success" | "processing" | "pending" | "error";
+    ticket: "success" | "processing" | "pending" | "error";
+    document: "success" | "processing" | "pending" | "error";
+  };
+  /** 与研发统一服务字符状态对齐的三维语义（卡片/详情展示用） */
+  analysisUnified: {
+    code: UnifiedWireAnalysisState;
+    ticket: UnifiedWireAnalysisState;
+    document: UnifiedWireAnalysisState;
+  };
+  /** 分析完成时间（仅当对应维度为 done 且服务端返回时） */
+  analysisTimes?: {
+    ticket?: string;
+    document?: string;
+  };
+  knowledge: ProductKnowledge;
+}
+
+export const AVAILABLE_PRODUCT_NAMES = [
+  "智能搜索助手",
+  "协同设计平台",
+  "代码审计工具",
+  "自动化测试框架",
+  "CI/CD 流水线",
+  "移动端应用套件",
+  "数据可视化引擎",
+  "云原生网关"
+];
+
+const createIcon = (color: string, path: string) => `data:image/svg+xml;utf8,<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="32" height="32" rx="8" fill="${color}"/><g transform="translate(4,4)" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none">${path}</g></svg>`;
+
+export const DEFAULT_ICONS = [
+  { label: '后端服务 (Backend)', value: createIcon('%233b82f6', '<rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" x2="6.01" y1="6" y2="6"></line><line x1="6" x2="6.01" y1="18" y2="18"></line>') },
+  { label: '前端应用 (Frontend)', value: createIcon('%2310b981', '<rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M3 9h18"></path><path d="M9 21V9"></path>') },
+  { label: '移动端 (Mobile)', value: createIcon('%238b5cf6', '<rect width="14" height="20" x="5" y="2" rx="2" ry="2"></rect><path d="M12 18h.01"></path>') },
+  { label: '微服务 (Microservice)', value: createIcon('%23f97316', '<rect x="16" y="16" width="6" height="6" rx="1"></rect><rect x="2" y="16" width="6" height="6" rx="1"></rect><rect x="9" y="2" width="6" height="6" rx="1"></rect><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"></path><path d="M12 12V8"></path>') },
+  { label: '数据中心 (Database)', value: createIcon('%2306b6d4', '<ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5V19A9 3 0 0 0 21 19V5"></path><path d="M3 12A9 3 0 0 0 21 12"></path>') },
+  { label: 'AI 模型 (AI Model)', value: createIcon('%23f43f5e', '<path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path>') },
+  { label: 'API 网关 (Gateway)', value: createIcon('%236366f1', '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"></path><path d="m3.3 7 8.7 5 8.7-5"></path><path d="M12 22V12"></path>') },
+  { label: 'CI/CD 流水线 (Pipeline)', value: createIcon('%23f59e0b', '<circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><path d="M6 21V9a9 9 0 0 0 9 9"></path>') },
+  { label: '安全审计 (Security)', value: createIcon('%23ef4444', '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"></path><path d="m9 12 2 2 4-4"></path>') },
+  { label: '中间件 (Middleware)', value: createIcon('%2314b8a6', '<polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 12 12 17 22 12"></polyline><polyline points="2 17 12 22 22 17"></polyline>') },
+  { label: '云服务 (Cloud)', value: createIcon('%23334155', '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path>') },
+  { label: '算法逻辑 (Algorithm)', value: createIcon('%23ec4899', '<path d="m18 16 4-4-4-4"></path><path d="m6 8-4 4 4 4"></path><path d="m14.5 4-5 16"></path>') },
+];
+
+/** 将 prod_icon 字符串解析为界面用 data URL（优先匹配 DEFAULT_ICONS 的 label）；服务端可能返回 null */
+export function resolveProdIconString(prod_icon: string | null | undefined): string {
+  const t = (prod_icon ?? "").trim();
+  if (!t) return DEFAULT_ICONS[0].value;
+  const byLabel = DEFAULT_ICONS.find((i) => i.label === t);
+  if (byLabel) return byLabel.value;
+  return DEFAULT_ICONS[0].value;
+}
+
+function repoWireToRepository(r: RdRepoInfo): Repository {
+  return {
+    purpose: r.repo_func ?? "",
+    url: r.repo_url ?? "",
+    branch: r.repo_branch ?? "",
+    token: r.repo_token || "",
+    isMain: r.repo_master === "Y",
+  };
+}
+
+/** 界面 Repository[] → 研发统一服务 repo_info 项 */
+export function productRepositoriesToRdRepoInfo(p: Product): RdRepoInfo[] {
+  return p.repositories.map((r) => ({
+    repo_url: r.url,
+    repo_branch: r.branch,
+    repo_func: r.purpose,
+    repo_token: r.token || "",
+    repo_master: r.isMain ? "Y" : "N",
+  }));
+}
+
+/** 多路聚合：error > init > process > new > done（下标越小越「差」） */
+const UNIFIED_PRIORITY = ["error", "init", "process", "new", "done"] as const satisfies readonly UnifiedWireAnalysisState[];
+
+/** 将服务端 repo_process_state / doc_process_state / order_process 归一化为 UnifiedWireAnalysisState */
+export function normalizeWireProcessState(raw: string | undefined): UnifiedWireAnalysisState {
+  const s = String(raw ?? "").trim();
+  if (!s) return "new";
+  const c = s.charAt(0).toUpperCase();
+  if (c === "N") return "new";
+  if (c === "I") return "init";
+  if (c === "P") return "process";
+  if (c === "D") return "done";
+  if (c === "E" || c === "F") return "error";
+  const lower = s.toLowerCase();
+  if (lower === "fail" || lower === "error") return "error";
+  if (lower === "done" || lower === "success" || lower === "completed") return "done";
+  if (lower === "process" || lower === "processing") return "process";
+  if (lower === "init" || lower === "initializing") return "init";
+  if (lower === "new" || lower === "pending" || lower === "none") return "new";
+  return "new";
+}
+
+export function pickWorstUnifiedState(states: UnifiedWireAnalysisState[]): UnifiedWireAnalysisState {
+  if (states.length === 0) return "new";
+  let bestIdx: number = UNIFIED_PRIORITY.length;
+  let picked: UnifiedWireAnalysisState = "done";
+  for (const u of states) {
+    const idx = (UNIFIED_PRIORITY as readonly string[]).indexOf(u);
+    if (idx !== -1 && idx < bestIdx) {
+      bestIdx = idx;
+      picked = UNIFIED_PRIORITY[idx] as UnifiedWireAnalysisState;
+    }
+  }
+  return bestIdx === UNIFIED_PRIORITY.length ? "new" : picked;
+}
+
+function unifiedToAnalysisCode(u: UnifiedWireAnalysisState): Product["analysisStatus"]["code"] {
+  switch (u) {
+    case "done":
+      return "success";
+    case "error":
+      return "error";
+    case "init":
+    case "process":
+      return "processing";
+    case "new":
+    default:
+      return "pending";
+  }
+}
+
+function pickLatestTimeString(candidates: (string | null | undefined)[]): string | undefined {
+  const xs = candidates.filter((x): x is string => typeof x === "string" && x.trim() !== "");
+  if (xs.length === 0) return undefined;
+  return xs.slice().sort()[xs.length - 1];
+}
+
+function documentAggregatedCompletedTime(
+  doc_process?: { doc_process_state: string; doc_process_time?: string | null }[] | null,
+): string | undefined {
+  if (!doc_process?.length) return undefined;
+  const docWorst = pickWorstUnifiedState(
+    doc_process.map((d) => normalizeWireProcessState(d?.doc_process_state)),
+  );
+  if (docWorst !== "done") return undefined;
+  return pickLatestTimeString(
+    doc_process
+      .filter((d) => normalizeWireProcessState(d.doc_process_state) === "done")
+      .map((d) => d.doc_process_time),
+  );
+}
+
+function ticketCompletedTime(data: {
+  order_process?: string;
+  order_process_time?: string | null;
+}): string | undefined {
+  if (normalizeWireProcessState(data.order_process) !== "done") return undefined;
+  const t = data.order_process_time;
+  return typeof t === "string" && t.trim() !== "" ? t.trim() : undefined;
+}
+
+export type AnalysisProcessFields = {
+  analysisStatus: Product["analysisStatus"];
+  analysisUnified: Product["analysisUnified"];
+  analysisTimes: NonNullable<Product["analysisTimes"]>;
+};
+
+/** get_prod_process_info / get_prod_info 中的过程字段 → 卡片/详情用状态与时间 */
+export function buildAnalysisFieldsFromProcessPayload(
+  data: ProdProcessDataPayload | Pick<ProdInfoWireItem, "repo_process" | "order_process" | "order_process_time" | "doc_process">,
+): AnalysisProcessFields {
+  const repoWorst = data.repo_process?.length
+    ? pickWorstUnifiedState(
+        data.repo_process.map((r) => normalizeWireProcessState(r?.repo_process_state)),
+      )
+    : "new";
+  const docWorst = data.doc_process?.length
+    ? pickWorstUnifiedState(
+        data.doc_process.map((d) => normalizeWireProcessState(d?.doc_process_state)),
+      )
+    : "new";
+  const ticketUnified = normalizeWireProcessState(data.order_process);
+  return {
+    analysisUnified: {
+      code: repoWorst,
+      ticket: ticketUnified,
+      document: docWorst,
+    },
+    analysisStatus: {
+      code: unifiedToAnalysisCode(repoWorst),
+      document: unifiedToAnalysisCode(docWorst),
+      ticket: unifiedToAnalysisCode(ticketUnified),
+    },
+    analysisTimes: {
+      ticket: ticketCompletedTime(data),
+      document: documentAggregatedCompletedTime(data.doc_process),
+    },
+  };
+}
+
+/** 仅聚合为旧版四维 success/processing/pending/error（兼容调用方） */
+export function analysisStatusFromProcessPayload(
+  data: ProdProcessDataPayload | Pick<ProdInfoWireItem, "repo_process" | "order_process" | "order_process_time" | "doc_process">,
+): Product["analysisStatus"] {
+  return buildAnalysisFieldsFromProcessPayload(data).analysisStatus;
+}
+
+/** 将过程数据合并进已有 Product（刷新 / 更新仓库回调） */
+export function applyProcessPayloadToProduct(p: Product, payload: ProdProcessDataPayload): Product {
+  const fields = buildAnalysisFieldsFromProcessPayload(payload);
+  return {
+    ...p,
+    analysisStatus: fields.analysisStatus,
+    analysisUnified: fields.analysisUnified,
+    analysisTimes: fields.analysisTimes,
+    repositories: mergeRepositoriesWithProcess(p.repositories, payload.repo_process),
+  };
+}
+
+export function mergeRepositoriesWithProcess(
+  repositories: Repository[],
+  processes?: RepoProcessWireItem[] | null,
+): Repository[] {
+  if (!processes?.length) {
+    return repositories.map((r) => ({
+      ...r,
+      wireAnalysisState: r.wireAnalysisState ?? "new",
+    }));
+  }
+  const byBranch = new Map(processes.map((p) => [String(p.repo_branch ?? "").trim(), p] as const));
+  return repositories.map((r) => {
+    const p = byBranch.get(String(r.branch ?? "").trim());
+    if (!p) {
+      return { ...r, wireAnalysisState: "new" as const };
+    }
+    const wire = normalizeWireProcessState(p.repo_process_state);
+    const tRaw = p.repo_process_time;
+    const timeStr =
+      wire === "done" && typeof tRaw === "string" && tRaw.trim() !== "" ? tRaw.trim() : undefined;
+    return {
+      ...r,
+      wireAnalysisState: wire,
+      analysisCompletedAt: timeStr,
+      analysisTime: timeStr ?? r.analysisTime,
+    };
+  });
+}
+
+/** 稳定 id：同 prod+space+module+version 映射为同一键 */
+export function stableProductIdFromWire(item: ProdInfoWireItem): string {
+  const raw = `${item.prod ?? ""}\0${item.space ?? ""}\0${item.module ?? ""}\0${item.version ?? ""}`;
+  let h = 0;
+  for (let i = 0; i < raw.length; i++) h = Math.imul(31, h) + raw.charCodeAt(i);
+  return `prod-${(h >>> 0).toString(36)}`;
+}
+
+/** 研发统一服务单条产品 → 界面 Product（全量拉取、无分页） */
+export function prodInfoWireToProduct(item: ProdInfoWireItem): Product {
+  const repos = Array.isArray(item.repo_info) ? item.repo_info : [];
+  const baseRepos = repos.map(repoWireToRepository);
+  const fields = buildAnalysisFieldsFromProcessPayload(item);
+  return {
+    id: stableProductIdFromWire(item),
+    name: item.prod ?? "",
+    version: item.version ?? "",
+    module: item.module ?? "",
+    space: item.space ?? "",
+    owner: item.owner ?? "",
+    ownerInfo: item.owner_info ?? "",
+    icon: resolveProdIconString(item.prod_icon),
+    description: item.prod_desc ?? "",
+    features: item.function ?? "",
+    repositories: mergeRepositoriesWithProcess(baseRepos, item.repo_process),
+    analysisStatus: fields.analysisStatus,
+    analysisUnified: fields.analysisUnified,
+    analysisTimes: fields.analysisTimes,
+    knowledge: {
+      architecture: false,
+      solution: false,
+      requirements: false,
+      manual: false,
+      delivery: false,
+    },
+  };
+}
+
+/** 与 get_prod_info 返回 data[] 单条结构一致（演示 / 非 Tauri 列表源） */
+export const MOCK_PROD_INFO_ITEMS: ProdInfoWireItem[] = [
+  {
+    prod: "智能搜索助手",
+    version: "v2.4.1",
+    module: "核心检索模块",
+    space: "数据智能部",
+    owner: "张三",
+    function: "智能检索,语义搜索,多源索引",
+    prod_icon: "AI 模型 (AI Model)",
+    prod_desc: "基于 RAG 架构的企业级智能搜索解决方案，支持多源异构数据索引。",
+    owner_info: "<mock-userinfo-encryption>",
+    repo_info: [
+      {
+        repo_url: "https://github.com/rd-agent/search-backend",
+        repo_branch: "develop",
+        repo_func: "后端核心业务",
+        repo_token: "",
+        repo_master: "Y",
+      },
+      {
+        repo_url: "https://github.com/rd-agent/search-frontend",
+        repo_branch: "develop",
+        repo_func: "前端交互界面",
+        repo_token: "",
+        repo_master: "N",
+      },
+    ],
+    repo_process: [
+      { repo_branch: "develop", repo_process_state: "D", repo_process_time: "2025-03-01 10:00:00" },
+      { repo_branch: "feature/ui", repo_process_state: "E" },
+    ],
+    order_process: "P",
+    order_process_time: null,
+    doc_process: [
+      { doc_type: "需求", doc_process_state: "P" },
+      { doc_type: "架构", doc_process_state: "I" },
+    ],
+  },
+  {
+    prod: "代码审计工具",
+    version: "v1.2.0",
+    module: "安全规则引擎",
+    space: "基础平台部",
+    owner: "李四",
+    function: "静态分析,规则引擎,安全扫描",
+    prod_icon: "安全审计 (Security)",
+    prod_desc: "静态代码分析平台，内置多种安全规则集，支持并发分析任务。",
+    owner_info: "<mock-userinfo-encryption>",
+    repo_info: [
+      {
+        repo_url: "https://github.com/rd-agent/code-audit-core",
+        repo_branch: "master",
+        repo_func: "审计引擎",
+        repo_token: "",
+        repo_master: "Y",
+      },
+    ],
+    repo_process: [{ repo_branch: "master", repo_process_state: "D", repo_process_time: "2025-04-01 09:15:00" }],
+    order_process: "D",
+    order_process_time: "2025-04-01 18:30:00",
+    doc_process: [
+      { doc_type: "需求", doc_process_state: "D", doc_process_time: "2025-04-01 12:00:00" },
+      { doc_type: "方案", doc_process_state: "D", doc_process_time: "2025-04-01 14:20:00" },
+      { doc_type: "交付", doc_process_state: "D", doc_process_time: "2025-04-01 16:45:00" },
+    ],
+  },
+];
+
+export const MOCK_PRODUCTS: Product[] = MOCK_PROD_INFO_ITEMS.map(prodInfoWireToProduct);

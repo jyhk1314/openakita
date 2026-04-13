@@ -319,6 +319,7 @@ def create_app(
             path == "/api/health"
             or path.startswith("/api/health/")
             or path == "/api/chat/busy"
+            or path == "/api/logs/service"
         ):
             return await call_next(request)
         access_logger.info("收到请求 %s %s", request.method, path)

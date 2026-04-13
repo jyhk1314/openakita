@@ -23,7 +23,7 @@
 |------|----------|
 | `src/synapse/api/routes/yuque.py` | 语雀知识库 HTTP API |
 | `src/synapse/api/routes/gitnexus.py` | GitNexus → MCP 代理 |
-| `src/synapse/api/routes/dev_iwhalecloud.py` | 研发云（iWhaleCloud）集成 |
+| `src/synapse/api/routes/dev_iwhalecloud.py` | 研发云集成，包含登录（自动拦截 userId）、获取需求列表扩展，及新增产品公共服务（devservice）IP 探测与读写接口 |
 
 > **说明**：`src/synapse/api/routes/long_text_48B08E72-EEC8-425F-989D-7D13CE3790CA.txt` 为误置于 `api/routes/` 的无关内容，**不属于功能清单**；建议从版本库删除并加入 `.gitignore` 规则防再次提交。
 
@@ -31,7 +31,7 @@
 
 | 文件 | 功能摘要 |
 |------|----------|
-| `src/synapse/api/server.py` | 挂载 `yuque` / `gitnexus` / `dev_iwhalecloud`；`/api` 访问日志中间件；OpenAPI 分组补充 |
+| `src/synapse/api/server.py` | 挂载 `yuque` / `gitnexus` / `dev_iwhalecloud`；`/api` 访问日志中间件及新增 `/api/logs/service` 白名单拦截；OpenAPI 分组补充 |
 | `src/synapse/api/schemas.py` | `success_response` / `error_response` 统一结构 |
 | `src/synapse/api/auth.py` | base64url 与 HS256 JWT 编解码辅助（`encode_jwt` 主路径仍可能存在） |
 | `src/synapse/llm/registries/providers.json` | 增加公司内部 WhaleCloud / `iwhalecloud` 提供商配置 |
@@ -45,6 +45,9 @@
 
 | 路径 | 功能摘要 |
 |------|----------|
+| `apps/setup-center/src/api/rdUnifiedService.ts` | 研发统一服务 API 封装接口 |
+| `apps/setup-center/src/components/product/` | 产品管理视图组件群（连接研发统一服务，管理项目、仓库、自动分析状态等） |
+| `apps/setup-center/src/views/workbench/ProductManagerView.tsx` | 工作台产品管理视图入口 |
 | `apps/setup-center/src/components/rd-process/` | 研发流程 / 工单 UI |
 | `apps/setup-center/src/components/team-manage/` | 团队总览 |
 | `apps/setup-center/src/components/rd-center/` | 研发中心视图 |
@@ -78,6 +81,7 @@
 | `apps/setup-center/src/i18n/en.json` |
 | `apps/setup-center/src/i18n/zh.json` |
 | `apps/setup-center/src/platform/detect.ts` |
+| `apps/setup-center/src/platform/index.ts` |
 | `apps/setup-center/src/components/Sidebar.tsx` |
 | `apps/setup-center/src/components/CliManager.tsx` |
 | `apps/setup-center/src-tauri/Cargo.toml` |
@@ -105,4 +109,4 @@
 
 ---
 
-*比对时间：以本机工作区为准；若上游或本仓库未提交变更，合并前请再跑一轮相同脚本校验。*
+*比单次提交/合并前，建议检查本表是否需要更新。*

@@ -27,6 +27,9 @@ const PetView = lazy(() => import("./views/PetView").then(m => ({ default: m.Pet
 const WorkbenchPlaceholderView = lazy(() =>
   import("./views/workbench/WorkbenchPlaceholderView").then((m) => ({ default: m.WorkbenchPlaceholderView })),
 );
+const ProductManagerView = lazy(() =>
+  import("./views/workbench/ProductManagerView").then((m) => ({ default: m.ProductManagerView })),
+);
 
 import { FeedbackModal } from "./views/FeedbackModal";
 import { IMConfigView } from "./views/IMConfigView";
@@ -97,6 +100,9 @@ const THEME_I18N_KEYS: Record<Theme, string> = {
   system: "topbar.themeSystem",
   dark: "topbar.themeDark",
   light: "topbar.themeLight",
+  "daltonized-light": "topbar.themeDaltonizedLight",
+  "daltonized-dark": "topbar.themeDaltonizedDark",
+  "high-contrast": "topbar.themeHighContrast",
 };
 
 /** Health-check timeout for recurring monitoring (heartbeat + refreshStatus).
@@ -400,6 +406,7 @@ export function App() {
     | "ob-welcome"
     | "ob-iwhalecloud"
     | "ob-claude-code"
+    | "ob-devservices"
     | "ob-agreement"
     | "ob-llm"
     | "ob-im"
@@ -475,6 +482,17 @@ export function App() {
   const [obClaudeLlmVideoSrc, setObClaudeLlmVideoSrc] = useState<string | null>(null);
   const [obClaudeUserConfigBusy, setObClaudeUserConfigBusy] = useState(false);
   const [obClaudeUserConfigOk, setObClaudeUserConfigOk] = useState<string | null>(null);
+  /** 一键配置终态：成功后禁用按钮；失败后禁用主按钮，需点「重新尝试」或修改 Token */
+  const [obClaudeUserConfigResult, setObClaudeUserConfigResult] = useState<null | "success" | "error">(null);
+  const [obClaudeUserConfigErr, setObClaudeUserConfigErr] = useState<string | null>(null);
+
+  /** 产品公共服务 IP（`~/.synapse/devservice.ip`，Synapse 用户根目录下） */
+  const [obDevIp, setObDevIp] = useState("");
+  const [obDevProbeRows, setObDevProbeRows] = useState<{ port: number; ok: boolean; error?: string }[] | null>(null);
+  const [obDevValidating, setObDevValidating] = useState(false);
+  const [obDevValidated, setObDevValidated] = useState(false);
+  const [obDevError, setObDevError] = useState<string | null>(null);
+  const [obDevLoadHint, setObDevLoadHint] = useState<string | null>(null);
 
   /** 探测本地是否有后端服务在运行（用于 onboarding 前提示用户） */
   async function obProbeRunningService() {
@@ -575,6 +593,8 @@ export function App() {
     setObClaudeShowLlmVideo(false);
     setObClaudeLlmVideoSrc(null);
     setObClaudeUserConfigOk(null);
+    setObClaudeUserConfigResult(null);
+    setObClaudeUserConfigErr(null);
     let cancelled = false;
     if (!IS_TAURI) {
       setObDevTools(null);
@@ -1095,7 +1115,7 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentWorkspaceId, venvDir]);
 
-  // ── Global shortcut: Ctrl+Shift+A to summon window ──
+  // ── Global shortcut: Ctrl+Shift+C to summon window ──
   useEffect(() => {
     if (!IS_TAURI) return;
     let unregister: (() => void) | null = null;
@@ -1103,7 +1123,7 @@ export function App() {
       try {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
         const win = getCurrentWindow();
-        unregister = await registerGlobalShortcut("CmdOrCtrl+Shift+A", () => {
+        unregister = await registerGlobalShortcut("CmdOrCtrl+Shift+C", () => {
           win.show().catch(() => {});
           win.setFocus().catch(() => {});
         });
@@ -1655,6 +1675,114 @@ export function App() {
     if (IS_WEB || IS_CAPACITOR) return apiBaseUrl || window.location.origin;
     return dataMode === "remote" ? apiBaseUrl : "http://127.0.0.1:18900";
   }
+
+  /** 引导：产品公共服务端口探测与 devservice.ip 写入（桌面走 Tauri；Web 走后端 API） */
+  const obDevservicesRunProbe = useCallback(
+    async (ip: string) => {
+      const trimmed = ip.trim();
+      if (!trimmed) {
+        setObDevError(t("onboarding.devservices.ipRequired"));
+        setObDevProbeRows(null);
+        setObDevValidated(false);
+        return;
+      }
+      setObDevValidating(true);
+      setObDevError(null);
+      try {
+        let rows: { port: number; ok: boolean; error?: string }[];
+        if (IS_TAURI) {
+          rows = await invoke<{ port: number; ok: boolean; error?: string }[]>("probe_devservice_ports", {
+            ip: trimmed,
+          });
+        } else {
+          const base = httpApiBase();
+          const res = await fetch(`${base}/api/dev/devservice-probe`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ip: trimmed }),
+            signal: AbortSignal.timeout(60_000),
+          });
+          const j = (await res.json()) as {
+            errorcode?: number;
+            message?: string;
+            data?: { results?: { port: number; ok: boolean; error?: string | null }[] };
+          };
+          if (j?.errorcode !== 0 || !j?.data?.results) {
+            throw new Error(j?.message || "probe failed");
+          }
+          rows = j.data.results.map((r) => ({
+            port: r.port,
+            ok: r.ok,
+            error: r.error ?? undefined,
+          }));
+        }
+        setObDevProbeRows(rows);
+        const allOk = rows.every((r) => r.ok);
+        if (allOk) {
+          if (IS_TAURI) {
+            await invoke("write_devservice_ip", { ip: trimmed });
+          } else {
+            const base = httpApiBase();
+            const res = await fetch(`${base}/api/dev/devservice-ip`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ip: trimmed }),
+              signal: AbortSignal.timeout(15_000),
+            });
+            const sj = (await res.json()) as { errorcode?: number; message?: string };
+            if (sj?.errorcode !== 0) throw new Error(sj?.message || "save failed");
+          }
+          setObDevValidated(true);
+        } else {
+          setObDevValidated(false);
+        }
+      } catch (e) {
+        setObDevError(String(e));
+        setObDevProbeRows(null);
+        setObDevValidated(false);
+      } finally {
+        setObDevValidating(false);
+      }
+    },
+    [t, dataMode, apiBaseUrl],
+  );
+
+  useEffect(() => {
+    if (obStep !== "ob-devservices") return;
+    let cancelled = false;
+    setObDevLoadHint(null);
+    setObDevError(null);
+    (async () => {
+      try {
+        let ip = "";
+        if (IS_TAURI) {
+          ip = (await invoke<string | null>("read_devservice_ip")) ?? "";
+        } else {
+          const base = httpApiBase();
+          const res = await fetch(`${base}/api/dev/devservice-ip`, { signal: AbortSignal.timeout(8000) });
+          const j = (await res.json()) as { errorcode?: number; data?: { ip?: string | null } };
+          if (j?.errorcode === 0 && j?.data?.ip) ip = j.data.ip;
+        }
+        if (cancelled) return;
+        setObDevIp(ip);
+        if (ip.trim()) {
+          await obDevservicesRunProbe(ip.trim());
+        } else {
+          setObDevProbeRows(null);
+          setObDevValidated(false);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setObDevLoadHint(t("onboarding.devservices.loadHintFailed", { error: String(e) }));
+          setObDevProbeRows(null);
+          setObDevValidated(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [obStep, dataMode, apiBaseUrl, obDevservicesRunProbe]);
 
   // ── Disabled views management ──
   const fetchDisabledViews = useCallback(async () => {
@@ -4236,8 +4364,8 @@ export function App() {
     // Progress/done are transitional states and should not create extra indicator dots.
     const obStepDots = (
       IS_TAURI
-        ? ["ob-welcome", "ob-iwhalecloud", "ob-claude-code", "ob-agreement", "ob-llm", "ob-im", "ob-cli"]
-        : ["ob-welcome", "ob-iwhalecloud", "ob-agreement", "ob-llm", "ob-im", "ob-cli"]
+        ? ["ob-welcome", "ob-iwhalecloud", "ob-claude-code", "ob-devservices", "ob-agreement", "ob-llm", "ob-im", "ob-cli"]
+        : ["ob-welcome", "ob-iwhalecloud", "ob-devservices", "ob-agreement", "ob-llm", "ob-im", "ob-cli"]
     ) as OnboardingStep[];
     const obCurrentIdxRaw = obStepDots.indexOf(obStep);
     const obCurrentIdx = obCurrentIdxRaw >= 0 ? obCurrentIdxRaw : obStepDots.length - 1;
@@ -4246,10 +4374,24 @@ export function App() {
       "ob-welcome": t("onboarding.step.welcome", "欢迎"),
       "ob-iwhalecloud": t("onboarding.step.iwhalecloud", "研发云"),
       "ob-claude-code": t("onboarding.step.claudeCode", "Dev tools"),
+      "ob-devservices": t("onboarding.step.devservices", "产品公共服务"),
       "ob-agreement": t("onboarding.step.agreement", "协议"),
       "ob-llm": t("onboarding.step.llm", "模型"),
       "ob-im": t("onboarding.step.im", "通讯"),
       "ob-cli": t("onboarding.step.cli", "完成"),
+    };
+
+    const obDevPortLabelKey = (port: number) => {
+      const keys: Record<number, string> = {
+        10001: "onboarding.devservices.port10001",
+        11001: "onboarding.devservices.port11001",
+        11011: "onboarding.devservices.port11011",
+        12001: "onboarding.devservices.port12001",
+        12011: "onboarding.devservices.port12011",
+        13001: "onboarding.devservices.port13001",
+        13011: "onboarding.devservices.port13011",
+      };
+      return keys[port] || `port ${port}`;
     };
 
     const stepIndicator = (
@@ -4689,7 +4831,7 @@ export function App() {
                     disabled={obIwcLocalDetecting || !(obIwcValidated || obIwcLocalDetectPassed)}
                     title={obIwcLocalDetecting || !(obIwcValidated || obIwcLocalDetectPassed) ? t("onboarding.iwhalecloud.validateRequired") : undefined}
                     onClick={() => {
-                      if (obIwcValidated || obIwcLocalDetectPassed) setObStep(IS_TAURI ? "ob-claude-code" : "ob-agreement");
+                      if (obIwcValidated || obIwcLocalDetectPassed) setObStep(IS_TAURI ? "ob-claude-code" : "ob-devservices");
                     }}
                   >
                     {t("onboarding.iwhalecloud.proceed")}
@@ -4758,18 +4900,34 @@ export function App() {
         async function runObClaudeUserConfig() {
           const tok = obClaudeCompanyToken.trim();
           if (!tok) {
-            setObClaudeError(t("onboarding.claudeCode.tokenRequired"));
+            setObClaudeUserConfigErr(t("onboarding.claudeCode.tokenRequired"));
             setObClaudeUserConfigOk(null);
+            setObClaudeUserConfigResult(null);
             return;
           }
           setObClaudeUserConfigBusy(true);
-          setObClaudeError(null);
+          setObClaudeUserConfigErr(null);
           setObClaudeUserConfigOk(null);
+          setObClaudeUserConfigResult(null);
           try {
-            const r = await invoke<{ homeDir: string; claudeConfigDir: string; opencodeConfigPath: string }>("claude_code_apply_user_init", { companyToken: tok });
-            setObClaudeUserConfigOk(t("onboarding.claudeCode.userConfigSuccess", { claudeDir: r.claudeConfigDir, opencodePath: r.opencodeConfigPath }));
+            const r = await invoke<{
+              homeDir: string;
+              claudeConfigDir: string;
+              opencodeConfigPath: string;
+              claudeDeployed: boolean;
+              opencodeDeployed: boolean;
+            }>("claude_code_apply_user_init", { companyToken: tok });
+            const claudeLine = r.claudeDeployed
+              ? t("onboarding.claudeCode.userConfigLineClaudeDeployed")
+              : t("onboarding.claudeCode.userConfigLineClaudeSkipped");
+            const opencodeLine = r.opencodeDeployed
+              ? t("onboarding.claudeCode.userConfigLineOpencodeDeployed")
+              : t("onboarding.claudeCode.userConfigLineOpencodeSkipped");
+            setObClaudeUserConfigOk(`${claudeLine}\n${opencodeLine}`);
+            setObClaudeUserConfigResult("success");
           } catch (e) {
-            setObClaudeError(String(e));
+            setObClaudeUserConfigErr(String(e));
+            setObClaudeUserConfigResult("error");
           } finally {
             setObClaudeUserConfigBusy(false);
           }
@@ -4880,7 +5038,12 @@ export function App() {
                     <Input
                       type="password"
                       value={obClaudeCompanyToken}
-                      onChange={(e) => { setObClaudeCompanyToken(e.target.value); setObClaudeUserConfigOk(null); setObClaudeError(null); }}
+                      onChange={(e) => {
+                        setObClaudeCompanyToken(e.target.value);
+                        setObClaudeUserConfigOk(null);
+                        setObClaudeUserConfigResult(null);
+                        setObClaudeUserConfigErr(null);
+                      }}
                       placeholder={t("onboarding.claudeCode.companyTokenPlaceholder")}
                       className="font-mono text-[13px]"
                     />
@@ -4905,10 +5068,60 @@ export function App() {
                         </div>
                       )}
                     </div>
-                    <Button disabled={obClaudeUserConfigBusy || installBusy || obClaudeChecking} onClick={() => { void runObClaudeUserConfig(); }}>
-                      {obClaudeUserConfigBusy ? t("onboarding.claudeCode.applyingUserConfig") : t("onboarding.claudeCode.applyUserConfig")}
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        disabled={
+                          obClaudeUserConfigBusy ||
+                          installBusy ||
+                          obClaudeChecking ||
+                          obClaudeUserConfigResult === "success" ||
+                          obClaudeUserConfigResult === "error"
+                        }
+                        variant={obClaudeUserConfigResult === "success" ? "secondary" : obClaudeUserConfigResult === "error" ? "destructive" : "default"}
+                        className={
+                          obClaudeUserConfigResult === "success"
+                            ? "pointer-events-none border-emerald-500/50 bg-emerald-500/10 text-emerald-800 hover:bg-emerald-500/10 dark:text-emerald-300"
+                            : obClaudeUserConfigResult === "error"
+                              ? "pointer-events-none opacity-90"
+                              : undefined
+                        }
+                        onClick={() => {
+                          void runObClaudeUserConfig();
+                        }}
+                      >
+                        {obClaudeUserConfigBusy ? (
+                          <>
+                            <Loader2 className="size-4 animate-spin inline mr-2" />
+                            {t("onboarding.claudeCode.applyingUserConfig")}
+                          </>
+                        ) : obClaudeUserConfigResult === "success" ? (
+                          <>
+                            <CheckCircle2 className="size-4 inline mr-2 shrink-0" />
+                            {t("onboarding.claudeCode.userConfigBtnSuccess")}
+                          </>
+                        ) : obClaudeUserConfigResult === "error" ? (
+                          t("onboarding.claudeCode.userConfigBtnFailed")
+                        ) : (
+                          t("onboarding.claudeCode.applyUserConfig")
+                        )}
+                      </Button>
+                      {obClaudeUserConfigResult === "error" ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setObClaudeUserConfigResult(null);
+                            setObClaudeUserConfigErr(null);
+                          }}
+                        >
+                          {t("onboarding.claudeCode.userConfigRetry")}
+                        </Button>
+                      ) : null}
+                    </div>
                     {obClaudeUserConfigOk ? <p className="obClaudeUserOk">{obClaudeUserConfigOk}</p> : null}
+                    {obClaudeUserConfigErr ? <p className="text-sm text-destructive m-0 mt-1">{obClaudeUserConfigErr}</p> : null}
                   </div>
                 </section>
               )}
@@ -4921,7 +5134,7 @@ export function App() {
               <div className="obFooterBtns">
                 <Button variant="outline" onClick={() => setObStep("ob-iwhalecloud")}>{t("config.prev")}</Button>
                 <Button disabled={obClaudeChecking || installBusy || !canProceedClaude} title={!canProceedClaude ? t("onboarding.claudeCode.needInstall") : undefined} onClick={() => {
-                  if (canProceedClaude) setObStep("ob-agreement");
+                  if (canProceedClaude) setObStep("ob-devservices");
                 }}>
                   {t("onboarding.claudeCode.proceed")}
                 </Button>
@@ -4930,6 +5143,112 @@ export function App() {
           </div>
         );
       }
+
+      case "ob-devservices":
+        return (
+          <div className="obPage">
+            <div className="obContent max-w-[560px] mx-auto w-full">
+              <h2 className="obStepTitle">{t("onboarding.devservices.title")}</h2>
+              <p className="obStepDesc">{t("onboarding.devservices.subtitle")}</p>
+              {obDevLoadHint ? (
+                <p className="text-sm text-amber-700 dark:text-amber-400/95 m-0 mb-3">{obDevLoadHint}</p>
+              ) : null}
+              <Card className="text-left mt-2">
+                <CardContent className="py-5 px-5 space-y-4">
+                  <div className="space-y-2">
+                    <Label>{t("onboarding.devservices.ipLabel")}</Label>
+                    <Input
+                      className="font-mono text-[13px]"
+                      value={obDevIp}
+                      onChange={(e) => {
+                        setObDevIp(e.target.value);
+                        setObDevValidated(false);
+                        setObDevProbeRows(null);
+                        setObDevError(null);
+                      }}
+                      placeholder={t("onboarding.devservices.ipPlaceholder")}
+                      disabled={obDevValidating}
+                    />
+                    <p className="text-xs text-muted-foreground m-0">{t("onboarding.devservices.ipHint")}</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      disabled={obDevValidating || !obDevIp.trim()}
+                      onClick={() => {
+                        void obDevservicesRunProbe(obDevIp.trim());
+                      }}
+                    >
+                      {obDevValidating ? (
+                        <>
+                          <Loader2 className="size-4 animate-spin inline mr-2" />
+                          {t("onboarding.devservices.validating")}
+                        </>
+                      ) : (
+                        t("onboarding.devservices.validate")
+                      )}
+                    </Button>
+                    {obDevValidated && (
+                      <span className="text-sm text-emerald-600 flex items-center gap-1">
+                        <CheckCircle2 className="size-4" /> {t("onboarding.devservices.allOk")}
+                      </span>
+                    )}
+                  </div>
+                  {obDevProbeRows && obDevProbeRows.length > 0 && (
+                    <div className="rounded-lg border divide-y text-[13px]">
+                      {obDevProbeRows.map((row) => (
+                        <div
+                          key={row.port}
+                          className="flex items-start justify-between gap-3 px-3 py-2.5 bg-muted/20"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-mono font-semibold text-foreground">
+                              {t("onboarding.devservices.portLabel", { port: row.port })}
+                            </div>
+                            <div className="text-muted-foreground text-xs leading-snug mt-0.5">
+                              {t(obDevPortLabelKey(row.port))}
+                            </div>
+                            {row.error && !row.ok ? (
+                              <div className="text-xs text-destructive mt-1 break-all">{row.error}</div>
+                            ) : null}
+                          </div>
+                          <div className="shrink-0 pt-0.5">
+                            {row.ok ? (
+                              <CheckCircle2 className="size-5 text-emerald-600" aria-hidden />
+                            ) : (
+                              <IconXCircle className="size-5 text-destructive" aria-hidden />
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {obDevError ? <p className="text-sm text-destructive m-0">{obDevError}</p> : null}
+                </CardContent>
+              </Card>
+            </div>
+            <div className="obFooter">
+              {stepIndicator}
+              <div className="obFooterBtns">
+                <Button
+                  variant="outline"
+                  onClick={() => setObStep(IS_TAURI ? "ob-claude-code" : "ob-iwhalecloud")}
+                >
+                  {t("config.prev")}
+                </Button>
+                <Button
+                  disabled={!obDevValidated || obDevValidating}
+                  title={!obDevValidated ? t("onboarding.devservices.needValidate") : undefined}
+                  onClick={() => {
+                    if (obDevValidated) setObStep("ob-agreement");
+                  }}
+                >
+                  {t("onboarding.devservices.proceed")}
+                </Button>
+              </div>
+            </div>
+          </div>
+        );
 
       case "ob-agreement":
         return (
@@ -4970,7 +5289,7 @@ export function App() {
             <div className="obFooter">
               {stepIndicator}
               <div className="obFooterBtns">
-                <Button variant="outline" onClick={() => setObStep(IS_TAURI ? "ob-claude-code" : "ob-iwhalecloud")}>{t("config.prev")}</Button>
+                <Button variant="outline" onClick={() => setObStep("ob-devservices")}>{t("config.prev")}</Button>
                 <Button
                   onClick={() => {
                     if (obAgreementInput.trim() === t("onboarding.agreement.confirmText")) {
@@ -5438,7 +5757,7 @@ export function App() {
       );
     }
     if (view === "workbench_products") {
-      return <WorkbenchPlaceholderView titleKey="sidebar.workbenchProducts" />;
+      return <ProductManagerView synapseApiBase={httpApiBase()} />;
     }
     if (view === "workbench_tickets") {
       return <WorkbenchPlaceholderView titleKey="sidebar.workbenchTickets" />;

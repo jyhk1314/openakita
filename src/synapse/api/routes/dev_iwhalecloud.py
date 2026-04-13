@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import socket
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -78,6 +79,30 @@ def _userinfo_encryption_path() -> Path:
     return settings.project_root / "data" / "userinfo.encryption"
 
 
+def _devservice_ip_path() -> Path:
+    """产品公共服务主机地址（纯文本一行 IP 或主机名）。
+
+    固定为 Synapse 用户根目录下 `devservice.ip`（与 Tauri `synapse_root_dir()/devservice.ip` 一致，如 ~/.synapse/devservice.ip）。
+    """
+    return settings.synapse_home / "devservice.ip"
+
+
+def _devservice_ip_path_legacy() -> Path:
+    """旧版路径：project_root/data/devservice.ip（仅读取回退）。"""
+    return settings.project_root / "data" / "devservice.ip"
+
+
+DEVSERVICE_PROBE_PORTS: tuple[int, ...] = (10001, 11001, 11011, 12001, 12011, 13001, 13011)
+
+
+def _tcp_probe(host: str, port: int, timeout: float = 3.0) -> tuple[bool, str | None]:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True, None
+    except OSError as e:
+        return False, str(e)
+
+
 def _crypt_helper():
     from foundation.helper.CryptHelper import CryptHelper
 
@@ -105,7 +130,7 @@ def _load_userinfo_plain() -> dict | None:
 
 
 def _save_userinfo_encrypted(
-    *, name: str, employee_id: str, password: str, token: str
+    *, name: str, employee_id: str, password: str, token: str, user_id: int = None
 ) -> tuple[bool, str]:
     crypt_helper = _crypt_helper()
     payload = {
@@ -113,6 +138,7 @@ def _save_userinfo_encrypted(
         "employee_id": employee_id,
         "password": password,
         "token": token,
+        "userId": user_id,
     }
     raw = json.dumps(payload, ensure_ascii=False)
     enc = crypt_helper.encrypt(raw, False)
@@ -1992,8 +2018,11 @@ class GetDemandListFromProductRequest(BaseModel):
     token: str = Field(..., description="x-csrf-token")
     cookies: str = Field(..., description="Cookie 请求头字符串")
     projectId: int = Field(..., description="项目空间ID")
-    userId: int = Field(2787, description="登录用户ID（loginUserId），默认2787")
+    userId: int = Field(..., description="登录用户ID（loginUserId）")
     productVersionIdList: list[str] = Field(..., description="产品版本ID列表（字符串数组）")
+    taskFlowStageTypeList: list[str] = Field(default_factory=lambda: ["FINISH"], description="任务阶段类型列表（字符串数组）")
+    createdDateFrom: str = Field("", description="创建日期开始时间，格式：yyyy-MM-dd")
+    createdDateTo: str = Field("", description="创建日期结束时间，格式：yyyy-MM-dd")
 
 def _build_get_demand_list_from_product_headers(body: GetDemandListFromProductRequest) -> dict:
     return {
@@ -2036,7 +2065,9 @@ async def get_demand_list_from_product(body: GetDemandListFromProductRequest) ->
     payload = {
         "sort": "CREATED_DATE_LATEST",
         "tagIdList": [],
-        "taskFlowStageTypeList": ["FINISH"],
+        "taskFlowStageTypeList": body.taskFlowStageTypeList,
+        "createdDateFrom": body.createdDateFrom,
+        "createdDateTo": body.createdDateTo,
         "productVersionIdList": body.productVersionIdList,
         "taskFieldQueryDtoList": [],
         "loginUserId": body.userId,
@@ -2451,6 +2482,86 @@ def local_userinfo_exists():
     )
 
 
+class DevserviceIpBody(BaseModel):
+    ip: str = Field(..., min_length=1)
+
+
+@router.get("/api/dev/devservice-ip")
+def devservice_ip_get():
+    """读取 `synapse_home/devservice.ip`（供 Web 引导与桌面一致）；若无则回退旧路径。"""
+    primary = _devservice_ip_path()
+    legacy = _devservice_ip_path_legacy()
+    ip_val: str | None = None
+    chosen = primary
+    for path in (primary, legacy):
+        if path.is_file():
+            try:
+                raw = path.read_text(encoding="utf-8").strip()
+                if raw:
+                    ip_val = raw
+                    chosen = path
+                    break
+            except OSError:
+                pass
+    return success_response({"ip": ip_val, "path": str(chosen.resolve())})
+
+
+@router.post("/api/dev/devservice-ip")
+def devservice_ip_post(body: DevserviceIpBody):
+    """写入产品公共服务主机地址（固定为 synapse_home/devservice.ip）。"""
+    t = body.ip.strip()
+    if not t:
+        return error_response(400, "IP 不能为空")
+    path = _devservice_ip_path()
+    try:
+        settings.synapse_home.mkdir(parents=True, exist_ok=True)
+        path.write_text(t + "\n", encoding="utf-8")
+    except OSError as e:
+        return error_response(500, f"写入失败: {e}")
+    return success_response({"ok": True, "path": str(path.resolve())})
+
+
+class DevserviceProbeBody(BaseModel):
+    ip: str = Field(..., min_length=1)
+
+
+@router.post("/api/dev/devservice-probe")
+def devservice_probe(body: DevserviceProbeBody):
+    """对七个固定端口做 TCP 连通性探测（与桌面引导一致）。"""
+    host = body.ip.strip()
+    if not host:
+        return error_response(400, "IP 不能为空")
+    results = []
+    for port in DEVSERVICE_PROBE_PORTS:
+        ok, err = _tcp_probe(host, port)
+        results.append({"port": port, "ok": ok, "error": err})
+    return success_response({"results": results})
+
+
+@router.get("/api/dev/userinfo-for-unified-service")
+def userinfo_for_unified_service():
+    """
+    供前端调用研发统一服务（:10001）前准备数据：
+    - owner_info：userinfo.encryption 文件原文（密文），按接口要求原样传递；
+    - owner_name：解密后的姓名，用于 insert_prod_info 的 owner 字段。
+    """
+    path = _userinfo_encryption_path()
+    if not path.is_file():
+        return error_response(404, "未找到 userinfo.encryption，请先完成研发云引导登录")
+    try:
+        raw = path.read_text(encoding="utf-8").strip()
+    except OSError as e:
+        return error_response(500, f"读取 userinfo 失败: {e}")
+    if not raw:
+        return error_response(400, "userinfo.encryption 为空")
+    try:
+        data = _load_userinfo_plain()
+    except ValueError as e:
+        return error_response(400, str(e))
+    owner_name = (data or {}).get("name") or ""
+    return success_response({"owner_info": raw, "owner_name": owner_name})
+
+
 @router.post("/api/dev/iwhalecloud/login")
 def login(body: LoginRequest):
     """
@@ -2471,6 +2582,7 @@ def login(body: LoginRequest):
         page.set_default_navigation_timeout(DEV_IWHALECLOUD_LOGIN_PLAYWRIGHT_TIMEOUT_MS)
 
         csrf_token: dict[str, str | None] = {"value": None}
+        logged_user_id: dict[str, int | None] = {"value": None}
 
         def on_request(req) -> None:
             if csrf_token["value"]:
@@ -2480,7 +2592,27 @@ def login(body: LoginRequest):
             if t:
                 csrf_token["value"] = t
 
+        def on_response(resp) -> None:
+            # 登录后浏览器会自动触发 /portal/logged 请求，响应 JSON 中包含 userId
+            if logged_user_id["value"] is not None:
+                return
+            try:
+                url = resp.url
+            except Exception:
+                return
+            if "/portal/logged" not in (url or ""):
+                return
+            try:
+                data = resp.json()
+            except Exception:
+                return
+            if isinstance(data, dict):
+                uid = data.get("userId")
+                if isinstance(uid, int):
+                    logged_user_id["value"] = uid
+
         page.on("request", on_request)
+        page.on("response", on_response)
 
         try:
             page.goto(DEV_IWHALECLOUD_BASE_URL)
@@ -2494,6 +2626,12 @@ def login(body: LoginRequest):
 
             if "main.html" not in page.url:
                 return error_response(401, "账号或密码错误")
+
+            # 等一小会儿让 /portal/logged 响应落地（通常会自动触发）
+            for _ in range(30):
+                if logged_user_id["value"] is not None:
+                    break
+                page.wait_for_timeout(100)
 
             captured = csrf_token["value"]
             token_out = body.token or captured or (file_user or {}).get("token") or ""
@@ -2509,6 +2647,7 @@ def login(body: LoginRequest):
                 employee_id=username,
                 password=password,
                 token=token_out,
+                user_id=logged_user_id["value"]
             )
             if not ok:
                 return error_response(500, err or "保存用户信息失败")

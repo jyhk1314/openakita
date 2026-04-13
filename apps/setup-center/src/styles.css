@@ -323,8 +323,26 @@ a:hover {
 .sidebarCollapsed .navItem { justify-content: center; padding: 8px 0; gap: 0; }
 .sidebarCollapsed .configSection { padding: 0 4px; }
 .sidebarCollapsed .configHeader { justify-content: center; padding: 8px 0; }
+/* 折叠时去掉分组缩进与装饰线，否则图标会整体偏右 */
+.sidebarCollapsed .navGroupItems {
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 0;
+}
+.sidebarCollapsed .navGroupItems::before {
+  display: none;
+}
+.sidebarCollapsed .navGroupItems .navItem {
+  padding: 8px 0;
+  justify-content: center;
+}
+.sidebarCollapsed .navGroupItems .navItem::before {
+  display: none;
+}
 
 .sidebarHeader {
+  display: flex;
+  align-items: center;
   padding: 12px 14px 10px 14px;
   border-bottom: 1px solid var(--line);
 }
@@ -513,6 +531,12 @@ a:hover {
   justify-content: center;
   min-height: 38px;
   padding: 8px 0;
+}
+.sidebarCollapsed .navGroupIconCollapsed {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
 }
 
 /* ─── Config section (collapsible) ─── */
@@ -5390,6 +5414,7 @@ body > div[id*="sm-" i] {
   border-radius: 10px;
   font-size: 13px;
   line-height: 1.45;
+  white-space: pre-line;
   border: 1px solid color-mix(in srgb, var(--ok) 45%, var(--line));
   background: color-mix(in srgb, var(--ok) 10%, var(--panel));
   color: color-mix(in srgb, var(--ok) 25%, var(--text));

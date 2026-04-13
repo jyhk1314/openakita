@@ -1,0 +1,563 @@
+import React, { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import {
+  GitBranch,
+  GitMerge,
+  FileText,
+  Book,
+  ClipboardList,
+  Package,
+  ExternalLink,
+  Code2,
+  Network,
+  Share2,
+  Maximize2,
+  Layers,
+  FileArchive,
+  RefreshCw,
+  ChevronDown,
+  ChevronRight,
+  Zap,
+  Sparkles,
+} from "lucide-react";
+import { Product, type UnifiedWireAnalysisState } from "./types";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
+import "./product-workbench.css";
+
+interface ProductDetailProps {
+  product: Product | null;
+  open: boolean;
+  onClose: () => void;
+}
+
+function detailWireBadgeClass(u: UnifiedWireAnalysisState): string {
+  switch (u) {
+    case "done":
+      return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400";
+    case "error":
+      return "bg-red-500/10 text-red-700 dark:text-red-400";
+    case "init":
+    case "process":
+      return "bg-blue-500/10 text-blue-700 dark:text-blue-400";
+    case "new":
+    default:
+      return "bg-muted/30 text-muted-foreground";
+  }
+}
+
+function detailWireStateLabel(
+  t: (k: string) => string,
+  u: UnifiedWireAnalysisState,
+): string {
+  switch (u) {
+    case "new":
+      return t("workbench.products.detail.analysisNotGenerated");
+    case "init":
+    case "process":
+      return t("workbench.products.detail.analysisGenerating");
+    case "error":
+      return t("workbench.products.detail.analysisAbnormal");
+    case "done":
+      return t("workbench.products.detail.analysisDoneLabel");
+  }
+}
+
+export function ProductDetail({ product, open, onClose }: ProductDetailProps) {
+  const { t } = useTranslation();
+  const [activeTab, setActiveTab] = useState<string>("code-graph");
+  const [openDocs, setOpenDocs] = useState<{ id: string; title: string; category: string; content: string }[]>([]);
+  const [expandedKnowledge, setExpandedKnowledge] = useState<string[]>([]);
+  const [activeRepoIdx, setActiveRepoIdx] = useState<number>(0);
+
+  React.useEffect(() => {
+    if (open && product) {
+      setActiveTab("code-graph");
+      setOpenDocs([]);
+      setExpandedKnowledge([]);
+      const mainIdx = product.repositories.findIndex((r) => r.isMain);
+      setActiveRepoIdx(mainIdx >= 0 ? mainIdx : 0);
+    }
+  }, [open, product]);
+
+  const knowledgeItems = useMemo(
+    () => [
+      { key: "architecture", label: t("workbench.products.detail.knowledgeArch"), icon: <Layers size={14} /> },
+      { key: "solution", label: t("workbench.products.detail.knowledgeSolution"), icon: <Book size={14} /> },
+      {
+        key: "requirements",
+        label: t("workbench.products.detail.knowledgeRequirements"),
+        icon: <ClipboardList size={14} />,
+      },
+      { key: "manual", label: t("workbench.products.detail.knowledgeManual"), icon: <FileText size={14} /> },
+      { key: "delivery", label: t("workbench.products.detail.knowledgeDelivery"), icon: <Package size={14} /> },
+    ],
+    [t],
+  );
+
+  if (!product) return null;
+
+  const codeU = product.analysisUnified?.code ?? "new";
+  const ticketU = product.analysisUnified?.ticket ?? "new";
+  /** 仓库与工单都已脱离「未分析生成」，且五类知识文档均未创建 */
+  const knowledgeKeys = ["architecture", "solution", "requirements", "manual", "delivery"] as const;
+  const allKnowledgeNotCreated = knowledgeKeys.every((k) => !product.knowledge[k]);
+  const showAutoGenerateCta = codeU !== "new" && ticketU !== "new" && allKnowledgeNotCreated;
+
+  const getMockDocsForCategory = (categoryKey: string, productName: string) => {
+    return [
+      {
+        id: `doc-${categoryKey}-1`,
+        title: `${productName}-${categoryKey === "architecture" ? "总体设计" : "需求概要"} v1.0`,
+        content: `# ${productName} \n\n这是一篇关于 **${categoryKey}** 的技术文档。包含 Markdown 与示意图占位，以便演示混合展示效果。\n\n- 核心特点：高性能、高可用、可扩展\n- 依赖服务：Redis, PostgreSQL`,
+      },
+      {
+        id: `doc-${categoryKey}-2`,
+        title: `迭代日志与附录`,
+        content: `# 迭代日志\n目前处于 v1.0.0 版本阶段，持续完善中。`,
+      },
+    ];
+  };
+
+  const handleOpenDoc = (doc: { id: string; title: string; content: string }, category: string) => {
+    if (!openDocs.find((d) => d.id === doc.id)) {
+      setOpenDocs([...openDocs, { ...doc, category }]);
+    }
+    setActiveTab(doc.id);
+  };
+
+  const toggleKnowledge = (key: string) => {
+    setExpandedKnowledge((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+  };
+
+  return (
+    <Sheet open={open} onOpenChange={(val) => { if (!val) onClose(); }}>
+      <SheetContent side="right" className="w-[85vw] sm:max-w-[85vw] p-0 flex flex-col gap-0 border-l border-border/80 bg-background">
+        <SheetHeader className="px-6 py-4 border-b border-border/80 bg-muted/10 flex flex-row items-center justify-between space-y-0">
+          <SheetTitle className="flex items-center gap-3 font-normal">
+            <img src={product.icon} alt="" className="w-7 h-7 rounded" />
+            <div className="flex flex-col items-start gap-1">
+              <div className="text-base font-semibold text-foreground leading-none">{product.name}</div>
+              <div className="text-xs text-muted-foreground font-normal leading-none max-w-md truncate">
+                {product.description}
+              </div>
+            </div>
+          </SheetTitle>
+          <div className="flex items-center pr-14">
+            <Button variant="outline" size="sm" className="h-8">
+              <Share2 size={14} className="mr-1.5" />
+              {t("workbench.products.detail.share")}
+            </Button>
+          </div>
+        </SheetHeader>
+
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          {/* Sidebar */}
+          <div className="w-[280px] border-r border-border/80 bg-muted/5 flex flex-col gap-6 p-4 overflow-y-auto custom-scrollbar shrink-0">
+            {/* Code View */}
+            <div>
+              <h5 className="text-[13px] font-semibold text-primary uppercase tracking-wider mb-4">
+                {t("workbench.products.detail.codeViewTitle")}
+              </h5>
+              <div className="flex flex-col gap-3">
+                {product.repositories.map((repo, idx) => {
+                  const isActive = activeTab === "code-graph" && activeRepoIdx === idx;
+                  const bgClass = isActive ? "bg-primary/10" : "bg-muted/30";
+                  const borderClass = isActive ? "border-primary/30" : "border-border/50";
+                  const wireU = repo.wireAnalysisState ?? "new";
+                  const doneTime = repo.analysisCompletedAt ?? repo.analysisTime;
+                  const isRepoAnalyzing = wireU === "init" || wireU === "process";
+
+                  return (
+                    <div
+                      key={repo.url || idx}
+                      onClick={() => {
+                        setActiveTab("code-graph");
+                        setActiveRepoIdx(idx);
+                      }}
+                      className={`p-3 rounded-md border cursor-pointer transition-all relative group ${bgClass} ${borderClass} hover:border-primary/40`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-1.5">
+                          <GitBranch size={13} className="text-muted-foreground" />
+                          <span className="font-semibold text-foreground text-[13px]">{repo.branch}</span>
+                        </div>
+                        {repo.isMain && (
+                          <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-normal bg-blue-500/10 text-blue-700 dark:text-blue-400">
+                            {t("workbench.products.detail.mainRepoTag")}
+                          </Badge>
+                        )}
+                      </div>
+
+                      <div className="mb-2.5">
+                        <div className="text-xs text-muted-foreground truncate w-full" title={repo.purpose || t("workbench.products.detail.noPurpose")}>
+                          {repo.purpose || t("workbench.products.detail.noPurpose")}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+                            <Badge
+                              variant="secondary"
+                              className={`h-5 max-w-full shrink px-1.5 text-[10px] font-normal border-none ${detailWireBadgeClass(wireU)}`}
+                            >
+                              <span className="truncate">{detailWireStateLabel(t, wireU)}</span>
+                            </Badge>
+                            {wireU === "done" && doneTime && (
+                              <Badge
+                                variant="outline"
+                                className="h-5 px-1.5 text-[10px] font-normal border-none bg-background/50 text-muted-foreground"
+                              >
+                                {doneTime}
+                              </Badge>
+                            )}
+                          </div>
+                          {wireU !== "new" && (
+                            <div className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className={`h-6 w-6 ${wireU === "done" ? "text-primary" : "text-muted-foreground"}`}
+                                disabled={wireU !== "done"}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (wireU === "done") {
+                                    toast.success(t("workbench.products.detail.analysisSubmitted"));
+                                  }
+                                }}
+                                title={
+                                  wireU === "done"
+                                    ? t("workbench.products.detail.reanalyze")
+                                    : isRepoAnalyzing
+                                      ? t("workbench.products.detail.analyzing")
+                                      : detailWireStateLabel(t, wireU)
+                                }
+                              >
+                                <RefreshCw size={12} className={isRepoAnalyzing ? "animate-spin" : ""} />
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+
+                        {wireU === "new" && (
+                          <div className="mt-2.5" onClick={(e) => e.stopPropagation()}>
+                            <Button
+                              type="button"
+                              title={t("workbench.products.detail.autoAnalysisCardHint")}
+                              className="w-full h-8 gap-1.5 text-xs font-medium bg-gradient-to-r from-primary/10 to-primary/5 hover:from-primary/20 hover:to-primary/10 text-primary border border-primary/20 shadow-sm transition-all rounded-md"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toast.message(
+                                  t("workbench.products.detail.autoAnalysisRepoPending", {
+                                    branch: repo.branch || repo.url || String(idx),
+                                  }),
+                                );
+                              }}
+                            >
+                              <Zap className="size-3.5 shrink-0" strokeWidth={2.5} />
+                              {t("workbench.products.detail.autoAnalysisCta")}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Knowledge View */}
+            <div>
+              <div className="mb-4 flex items-start justify-between gap-2">
+                <h5 className="text-[13px] font-semibold text-primary uppercase tracking-wider">
+                  {t("workbench.products.detail.knowledgeViewTitle")}
+                </h5>
+                <div className="flex min-w-0 max-w-[58%] flex-col items-end gap-0.5">
+                  <Badge
+                    variant="secondary"
+                    className={`h-5 max-w-full shrink px-1.5 text-[10px] font-normal border-none ${detailWireBadgeClass(product.analysisUnified?.document ?? "new")}`}
+                  >
+                    <span className="truncate">
+                      {detailWireStateLabel(t, product.analysisUnified?.document ?? "new")}
+                    </span>
+                  </Badge>
+                  {(product.analysisUnified?.document ?? "new") === "done" && product.analysisTimes?.document && (
+                    <span className="text-[10px] text-muted-foreground tabular-nums">
+                      {product.analysisTimes.document}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {showAutoGenerateCta && (
+                <div className="mb-4" onClick={(e) => e.stopPropagation()}>
+                  <Button
+                    type="button"
+                    title={t("workbench.products.detail.autoGenerateHint")}
+                    className="w-full h-9 gap-1.5 text-sm font-semibold bg-gradient-to-r from-amber-500/10 to-orange-500/10 hover:from-amber-500/20 hover:to-orange-500/20 text-amber-600 dark:text-amber-500 border border-amber-500/20 shadow-sm transition-all rounded-md"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toast.message(t("workbench.products.detail.autoGeneratePending"));
+                    }}
+                  >
+                    <Sparkles className="size-4 shrink-0" strokeWidth={2.5} />
+                    {t("workbench.products.detail.autoGenerateCta")}
+                  </Button>
+                </div>
+              )}
+
+              <div className="flex flex-col gap-1">
+                {knowledgeItems.map((item) => {
+                  const hasKnowledge = product.knowledge[item.key as keyof typeof product.knowledge];
+                  const docs = getMockDocsForCategory(item.key, product.name);
+                  const isExpanded = expandedKnowledge.includes(item.key);
+                  
+                  return (
+                    <div key={item.key} className="flex flex-col">
+                      <div
+                        onClick={() => {
+                          if (hasKnowledge) toggleKnowledge(item.key);
+                          setActiveTab("knowledge-graph");
+                        }}
+                        className="flex items-center justify-between w-full cursor-pointer py-2 px-1 hover:bg-muted/50 rounded-md transition-colors"
+                      >
+                        <div className={`flex items-center gap-2.5 ${hasKnowledge ? "text-foreground" : "text-muted-foreground"}`}>
+                          {item.icon}
+                          <span className="text-[13px]">{item.label}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {hasKnowledge ? (
+                            <span className="text-[11px] text-emerald-600 dark:text-emerald-400">
+                              {t("workbench.products.detail.docsCount", { count: docs.length })}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-muted-foreground">
+                              {t("workbench.products.detail.notCreated")}
+                            </span>
+                          )}
+                          {hasKnowledge && (
+                            <ChevronDown size={14} className={`text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                          )}
+                        </div>
+                      </div>
+                      
+                      {hasKnowledge && isExpanded && (
+                        <div className="flex flex-col gap-1 pl-6 py-1">
+                          {docs.map((doc) => {
+                            const isDocActive = activeTab === doc.id;
+                            return (
+                              <div
+                                key={doc.id}
+                                onClick={() => handleOpenDoc(doc, item.key)}
+                                className={`px-3 py-1.5 cursor-pointer rounded-md text-xs flex items-center gap-2 transition-colors ${
+                                  isDocActive 
+                                    ? "bg-primary/10 border border-primary/20 text-primary" 
+                                    : "bg-transparent border border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                                }`}
+                              >
+                                <FileArchive size={12} className="shrink-0" />
+                                <span className="truncate">{doc.title}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Ticket View */}
+            <div>
+              <h5 className="text-[13px] font-semibold text-primary uppercase tracking-wider mb-4">
+                {t("workbench.products.detail.ticketViewTitle")}
+              </h5>
+              <div
+                onClick={() => setActiveTab("ticket-graph")}
+                className={`p-4 rounded-md border cursor-pointer transition-all ${
+                  activeTab === "ticket-graph" ? "bg-primary/10 border-primary/30" : "bg-muted/30 border-border/50 hover:border-border"
+                }`}
+              >
+                <div className="mb-3 flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <ClipboardList
+                      size={16}
+                      className={activeTab === "ticket-graph" ? "text-primary" : "text-muted-foreground"}
+                    />
+                    <span className="font-semibold text-foreground text-sm">
+                      {t("workbench.products.detail.ticketAnalysisView")}
+                    </span>
+                  </div>
+                  <div className="flex min-w-0 max-w-[55%] flex-col items-end gap-0.5">
+                    <Badge
+                      variant="secondary"
+                      className={`h-5 max-w-full shrink px-1.5 text-[10px] font-normal border-none ${detailWireBadgeClass(product.analysisUnified?.ticket ?? "new")}`}
+                    >
+                      <span className="truncate">
+                        {detailWireStateLabel(t, product.analysisUnified?.ticket ?? "new")}
+                      </span>
+                    </Badge>
+                    {(product.analysisUnified?.ticket ?? "new") === "done" && product.analysisTimes?.ticket && (
+                      <span className="text-[10px] text-muted-foreground tabular-nums">
+                        {product.analysisTimes.ticket}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {ticketU === "new" && (
+                  <div className="mb-3" onClick={(e) => e.stopPropagation()}>
+                    <Button
+                      type="button"
+                      title={t("workbench.products.detail.autoAnalysisTicketCardHint")}
+                      className="w-full h-8 gap-1.5 text-xs font-medium bg-gradient-to-r from-primary/10 to-primary/5 hover:from-primary/20 hover:to-primary/10 text-primary border border-primary/20 shadow-sm transition-all rounded-md"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toast.message(t("workbench.products.detail.autoAnalysisTicketPending"));
+                      }}
+                    >
+                      <Zap className="size-3.5 shrink-0" strokeWidth={2.5} />
+                      {t("workbench.products.detail.autoAnalysisCta")}
+                    </Button>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-background/50 p-2 rounded text-center border border-border/40">
+                    <div className="text-[11px] text-muted-foreground mb-1">
+                      {t("workbench.products.detail.reqTickets")}
+                    </div>
+                    <div className="text-base text-foreground font-semibold">
+                      {product.latestTickets?.filter((tick) => tick.title.includes("需求")).length || 0}
+                    </div>
+                  </div>
+                  <div className="bg-background/50 p-2 rounded text-center border border-border/40">
+                    <div className="text-[11px] text-muted-foreground mb-1">
+                      {t("workbench.products.detail.devTickets")}
+                    </div>
+                    <div className="text-base text-foreground font-semibold">
+                      {product.latestTickets?.filter((tick) => !tick.title.includes("需求")).length || 0}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Main Content Area */}
+          <div className="flex-1 flex flex-col min-w-0 bg-background relative overflow-y-auto custom-scrollbar">
+            {activeTab === "code-graph" && (
+              <div className="p-6 h-full flex flex-col gap-4">
+                <div className="flex-1 rounded-xl border border-border bg-muted/5 relative overflow-hidden flex items-center justify-center min-h-[400px]">
+                  <div className="absolute inset-0 bg-[radial-gradient(var(--primary)_1px,transparent_1px)] [background-size:30px_30px] opacity-10"></div>
+                  <div className="relative z-10 flex flex-col items-center text-center max-w-md">
+                    <Code2 size={48} className="text-primary opacity-50 mb-4" strokeWidth={1} />
+                    <h4 className="text-lg font-semibold text-foreground mb-2">
+                      {t("workbench.products.detail.codeGraphTitle")}
+                    </h4>
+                    <p className="text-sm text-muted-foreground">
+                      {t("workbench.products.detail.codeGraphHint")}
+                    </p>
+                    <div className="mt-6 flex items-center justify-center gap-3 flex-wrap">
+                      <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">Nodes: 1,248</Badge>
+                      <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">Edges: 5,692</Badge>
+                    </div>
+                  </div>
+                  
+                  <div className="absolute bottom-5 right-5 bg-background border border-border shadow-sm rounded-md p-1 flex items-center gap-1 z-10">
+                    <Button variant="ghost" size="sm" className="h-7 text-xs px-2" title={t("workbench.products.detail.zoom")}>
+                      {t("workbench.products.detail.zoom")}
+                    </Button>
+                    <div className="w-px h-4 bg-border"></div>
+                    <Button variant="ghost" size="sm" className="h-7 text-xs px-2" title={t("workbench.products.detail.filters")}>
+                      {t("workbench.products.detail.filters")}
+                    </Button>
+                    <div className="w-px h-4 bg-border"></div>
+                    <Button variant="ghost" size="sm" className="h-7 text-xs px-2" title={t("workbench.products.detail.centric")}>
+                      {t("workbench.products.detail.centric")}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "ticket-graph" && (
+              <div className="p-6 h-full flex flex-col gap-4">
+                <div className="flex-1 rounded-xl border border-border bg-muted/5 relative overflow-hidden flex items-center justify-center min-h-[400px]">
+                  <div className="absolute inset-0 bg-[radial-gradient(theme(colors.emerald.500)_1px,transparent_1px)] [background-size:30px_30px] opacity-10"></div>
+                  <div className="relative z-10 flex flex-col items-center text-center max-w-md">
+                    <ClipboardList size={48} className="text-emerald-500 opacity-50 mb-4" strokeWidth={1} />
+                    <h4 className="text-lg font-semibold text-foreground mb-2">
+                      {t("workbench.products.detail.ticketGraphTitle")}
+                    </h4>
+                    <p className="text-sm text-muted-foreground">
+                      {t("workbench.products.detail.ticketGraphHint")}
+                    </p>
+                    <div className="mt-6 flex items-center justify-center gap-3 flex-wrap">
+                      <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">需求流转: 128</Badge>
+                      <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">缺陷修复: 45</Badge>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "knowledge-graph" && (
+              <div className="p-6 h-full flex flex-col gap-4">
+                <div className="flex-1 rounded-xl border border-border bg-muted/5 relative overflow-hidden flex items-center justify-center min-h-[400px]">
+                  <div className="absolute inset-0 bg-[radial-gradient(theme(colors.emerald.500)_1px,transparent_1px)] [background-size:30px_30px] opacity-10"></div>
+                  <div className="relative z-10 flex flex-col items-center text-center max-w-md">
+                    <Network size={48} className="text-emerald-500 opacity-50 mb-4" strokeWidth={1} />
+                    <h4 className="text-lg font-semibold text-foreground mb-2">
+                      {t("workbench.products.detail.knowledgeGraphTitle")}
+                    </h4>
+                    <p className="text-sm text-muted-foreground">
+                      {t("workbench.products.detail.knowledgeGraphHint")}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {openDocs.map((doc) => {
+              if (activeTab !== doc.id) return null;
+              return (
+                <div key={doc.id} className="flex flex-col h-full bg-background">
+                  <div className="px-8 py-6 border-b border-border/60">
+                    <h4 className="text-lg font-semibold text-foreground m-0">{doc.title}</h4>
+                    <div className="flex items-center gap-4 mt-3">
+                      <Badge variant="secondary" className="bg-blue-500/10 text-blue-700 dark:text-blue-400 font-normal">
+                        {doc.category}
+                      </Badge>
+                      <span className="text-sm text-muted-foreground">{t("workbench.products.detail.docFooter")}</span>
+                    </div>
+                  </div>
+                  <div className="px-8 py-6 text-foreground/80 leading-relaxed text-sm">
+                    {doc.content.split("\n").map((lineStr, idx) => {
+                      if (lineStr.startsWith("# ")) {
+                        return <h1 key={idx} className="text-2xl font-semibold text-foreground mb-4 mt-2">{lineStr.replace(/#/g, "").trim()}</h1>;
+                      } else if (lineStr.startsWith("## ")) {
+                        return <h2 key={idx} className="text-xl font-semibold text-foreground mb-3 mt-2">{lineStr.replace(/#/g, "").trim()}</h2>;
+                      } else {
+                        return <p key={idx} className="mb-2 min-h-[1em]">{lineStr}</p>;
+                      }
+                    })}
+                  </div>
+                  <div className="min-h-[320px] relative border-t border-border/60 bg-muted/10 flex items-center justify-center text-sm text-muted-foreground p-6">
+                    {t("workbench.products.sketchPlaceholder")}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}

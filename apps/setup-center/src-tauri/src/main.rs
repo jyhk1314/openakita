@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -280,6 +281,106 @@ fn append_onboarding_log_lines(log_path: String, lines: Vec<String>) -> Result<(
     }
     f.flush().map_err(|e| format!("flush failed: {e}"))?;
     Ok(())
+}
+
+// ── 产品公共服务：固定写在 Synapse 用户根下 `devservice.ip`（与 `synapse_root_dir()` 一致，如 ~/.synapse/devservice.ip） ──
+
+const DEVSERVICE_PROBE_PORTS: &[u16] = &[10001, 11001, 11011, 12001, 12011, 13001, 13011];
+
+fn devservice_ip_file_path() -> PathBuf {
+    synapse_root_dir().join("devservice.ip")
+}
+
+/// 旧版路径（曾放在 `data/devservice.ip`），仅用于读取回退。
+fn devservice_ip_legacy_file_path() -> PathBuf {
+    synapse_root_dir().join("data").join("devservice.ip")
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DevServiceProbeRow {
+    port: u16,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+fn read_devservice_ip_from_path(path: &Path) -> Option<String> {
+    let s = fs::read_to_string(path).ok()?;
+    let t = s.trim();
+    if t.is_empty() {
+        return None;
+    }
+    Some(t.to_string())
+}
+
+/// 读取已保存的产品公共服务主机地址（纯文本一行 IP 或主机名）。
+/// 优先 `~/.synapse/devservice.ip`，不存在则回退旧路径 `~/.synapse/data/devservice.ip`。
+#[tauri::command]
+fn read_devservice_ip() -> Option<String> {
+    let primary = devservice_ip_file_path();
+    if let Some(v) = read_devservice_ip_from_path(&primary) {
+        return Some(v);
+    }
+    read_devservice_ip_from_path(&devservice_ip_legacy_file_path())
+}
+
+/// 校验通过后写入 Synapse 用户根目录下的 `devservice.ip`。
+#[tauri::command]
+fn write_devservice_ip(ip: String) -> Result<(), String> {
+    let t = ip.trim();
+    if t.is_empty() {
+        return Err("IP cannot be empty".into());
+    }
+    let root = synapse_root_dir();
+    fs::create_dir_all(&root).map_err(|e| format!("create synapse root failed: {e}"))?;
+    let path = devservice_ip_file_path();
+    fs::write(&path, format!("{t}\n")).map_err(|e| format!("write devservice.ip failed: {e}"))
+}
+
+/// 对七个固定端口做 TCP 连通性探测（与引导「产品公共服务」一致）。
+#[tauri::command]
+fn probe_devservice_ports(ip: String) -> Result<Vec<DevServiceProbeRow>, String> {
+    let host = ip.trim();
+    if host.is_empty() {
+        return Err("IP is required".into());
+    }
+    let timeout = Duration::from_secs(3);
+    let mut out = Vec::with_capacity(DEVSERVICE_PROBE_PORTS.len());
+    for &port in DEVSERVICE_PROBE_PORTS {
+        let addr_str = format!("{host}:{port}");
+        let row = match addr_str.to_socket_addrs() {
+            Ok(mut iter) => {
+                if let Some(addr) = iter.next() {
+                    match TcpStream::connect_timeout(&addr, timeout) {
+                        Ok(_) => DevServiceProbeRow {
+                            port,
+                            ok: true,
+                            error: None,
+                        },
+                        Err(e) => DevServiceProbeRow {
+                            port,
+                            ok: false,
+                            error: Some(e.to_string()),
+                        },
+                    }
+                } else {
+                    DevServiceProbeRow {
+                        port,
+                        ok: false,
+                        error: Some("no addresses resolved".into()),
+                    }
+                }
+            }
+            Err(e) => DevServiceProbeRow {
+                port,
+                ok: false,
+                error: Some(e.to_string()),
+            },
+        };
+        out.push(row);
+    }
+    Ok(out)
 }
 
 // ── 前端日志持久化 ──
@@ -3042,6 +3143,9 @@ fn main() {
             start_onboarding_log,
             append_onboarding_log,
             append_onboarding_log_lines,
+            read_devservice_ip,
+            write_devservice_ip,
+            probe_devservice_ports,
             append_frontend_log,
             save_log_export,
             register_cli,
@@ -7107,6 +7211,10 @@ struct ClaudeCodeUserInitResult {
     home_dir: String,
     claude_config_dir: String,
     opencode_config_path: String,
+    /// `true` 当本机原无 `~/.claude/settings.json`，已从安装包拷贝并写入 Token。
+    claude_deployed: bool,
+    /// `true` 当本机原无 `opencode.json`，已从安装包写入；`false` 表示文件已存在，未覆盖。
+    opencode_deployed: bool,
 }
 
 
@@ -7293,7 +7401,8 @@ fn claude_code_apply_user_init_sync(company_token: String) -> Result<ClaudeCodeU
     let home = home_dir().ok_or_else(|| "无法解析用户主目录".to_string())?;
 
     let claude_settings = home.join(".claude").join("settings.json");
-    if !claude_settings.is_file() {
+    let claude_deployed = !claude_settings.is_file();
+    if claude_deployed {
         let src = bundled_claude_code_init_dir();
         if !src.is_dir() {
             return Err(format!(
@@ -7328,21 +7437,25 @@ fn claude_code_apply_user_init_sync(company_token: String) -> Result<ClaudeCodeU
     }
 
     let opencode_json = home.join(".config").join("opencode").join("opencode.json");
-    let opencode_config_path = if opencode_json.is_file() {
+    let opencode_existed = opencode_json.is_file();
+    let opencode_config_path = if opencode_existed {
         opencode_json
     } else {
         apply_opencode_config_from_bundle(&home, token)?
     };
+    let opencode_deployed = !opencode_existed;
 
     Ok(ClaudeCodeUserInitResult {
         home_dir: home.to_string_lossy().to_string(),
         claude_config_dir: home.join(".claude").to_string_lossy().to_string(),
         opencode_config_path: opencode_config_path.to_string_lossy().to_string(),
+        claude_deployed,
+        opencode_deployed,
     })
 }
 
-/// 将打包内的 `claude-code-init` 同步到用户主目录并写入 Token；同时将 `opencode-init/opencode.json` 写入 `~/.config/opencode/` 并填入 apiKey。
-/// 若已存在 `~/.claude/settings.json` 或 `~/.config/opencode/opencode.json`，则对应侧跳过写入，不覆盖已有配置。
+/// 将打包内的 `claude-code-init` **整包拷贝**到用户主目录并写入 Token（仅当 `~/.claude/settings.json` 尚不存在）；不是“过滤字段”，而是无该文件则部署、有则 Claude 侧整段跳过。
+/// OpenCode：仅当 `~/.config/opencode/opencode.json` 不存在时从 `opencode-init/opencode.json` 写入并填 apiKey；已存在则**不覆盖**。
 #[tauri::command]
 async fn claude_code_apply_user_init(company_token: String) -> Result<ClaudeCodeUserInitResult, String> {
     spawn_blocking_result(move || claude_code_apply_user_init_sync(company_token)).await
