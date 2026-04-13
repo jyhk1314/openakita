@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -77,6 +78,39 @@ def _load_dev_iwhalecloud_authorization() -> str:
 def _userinfo_encryption_path() -> Path:
     """浩鲸研发云本地用户信息（姓名、工号、密码、token），CryptHelper 加密存储。"""
     return settings.project_root / "data" / "userinfo.encryption"
+
+def _dev_iwhalecloud_session_path() -> Path:
+    """独立的研发云 token 和 cookies 缓存文件。"""
+    return settings.project_root / "data" / "iwhalecloud_session.json"
+
+def _load_iwhalecloud_session() -> dict | None:
+    path = _dev_iwhalecloud_session_path()
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+def _save_iwhalecloud_session(token: str, cookies: str) -> None:
+    path = _dev_iwhalecloud_session_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"token": token, "cookies": cookies}, ensure_ascii=False), encoding="utf-8")
+
+
+def _clear_iwhalecloud_session() -> None:
+    """删除门户会话缓存（x-csrf-token + Cookie）；过期或鉴权失败时调用。"""
+    path = _dev_iwhalecloud_session_path()
+    try:
+        if path.is_file():
+            path.unlink()
+    except OSError as e:
+        logger.warning("清理 iwhalecloud_session 失败: %s", e)
+
+
+def _portal_response_needs_session_refresh(resp: httpx.Response) -> bool:
+    """HTTP 层判定门户 Cookie/CSRF 失效，需删缓存并重拉。"""
+    return resp.status_code in (401, 403)
 
 
 def _devservice_ip_path() -> Path:
@@ -186,10 +220,10 @@ def _log_httpx_response(operation: str, resp: httpx.Response) -> None:
 
 class GetProjectListRequest(BaseModel):
     keyword: str = Field("", description="项目关键字，可选；非空时作为查询参数 keyword")
-    token: str = Field(..., description="x-csrf-token")
-    cookies: str = Field(..., description="Cookie 请求头字符串")
+    # x-csrf-token / Cookie 从服务端 data/iwhalecloud_session.json 读取，勿在请求体传递
 
-def _build_get_project_list_headers(body: GetProjectListRequest) -> dict:
+
+def _build_get_project_list_headers(body: GetProjectListRequest, csrf: str, cookies: str) -> dict:
     return {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
@@ -203,9 +237,9 @@ def _build_get_project_list_headers(body: GetProjectListRequest) -> dict:
         "sec-fetch-dest": "empty",
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
-        "x-csrf-token": body.token,
+        "x-csrf-token": csrf,
         "x-requested-with": "XMLHttpRequest",
-        "cookie": body.cookies,
+        "cookie": cookies,
     }
 
 @router.post("/api/dev/iwhalecloud/get_project_list")
@@ -217,26 +251,32 @@ async def get_project_list(body: GetProjectListRequest) -> dict:
     return await _get_project_list(body)
 
 async def _get_project_list(body: GetProjectListRequest) -> dict:
-    if not body.token:
-        return error_response(400, "token 不能为空")
-    if not body.cookies:
-        return error_response(400, "cookies 不能为空")
-
     url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-cmdb/v1/projects/all"
     params: dict[str, str | int] = {"_": int(datetime.now().timestamp() * 1000)}
     kw = (body.keyword or "").strip()
     if kw:
         params["keyword"] = kw
 
-    headers = _build_get_project_list_headers(body)
     logger.debug("get_project_list url:%s params:%s", url, params)
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(url, headers=headers, params=params)
-            _log_httpx_response("get_project_list", resp)
-    except httpx.RequestError as exc:
-        logger.exception("调用研发云获取项目列表接口异常: %s", exc)
-        return error_response(503, f"调用研发云接口异常: {exc}")
+    resp: httpx.Response | None = None
+    for attempt in range(2):
+        try:
+            csrf, cookies = await _ensure_valid_creds_async(force_refresh=(attempt > 0))
+        except ValueError as e:
+            return error_response(400, str(e))
+        headers = _build_get_project_list_headers(body, csrf, cookies)
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.get(url, headers=headers, params=params)
+                _log_httpx_response("get_project_list", resp)
+        except httpx.RequestError as exc:
+            logger.exception("调用研发云获取项目列表接口异常: %s", exc)
+            return error_response(503, f"调用研发云接口异常: {exc}")
+        if attempt == 0 and _portal_response_needs_session_refresh(resp):
+            _clear_iwhalecloud_session()
+            continue
+        break
+    assert resp is not None
 
     try:
         raw = resp.json()
@@ -293,13 +333,11 @@ async def _get_product_list(body: GetProductListRequest) -> dict:
 class GetProductVersionListRequest(BaseModel):
     """产品版本筛选列表（上游返回数组）；入参均可省略，使用默认值。"""
 
-    token: str = Field("", description="x-csrf-token")
-    cookies: str = Field("", description="Cookie 请求头字符串")
     keyWord: str = Field("_", description="关键字（上游字段名 keyWord），默认 '_'")
     limit: int = Field(200000, ge=1, le=500000, description="返回条数上限（query 参数 limit）")
     ignoreState: bool = Field(True, description="是否忽略状态（query 参数 ignoreState）")
 
-def _build_get_product_version_list_headers(body: GetProductVersionListRequest) -> dict:
+def _build_get_product_version_list_headers(body: GetProductVersionListRequest, csrf: str, cookies: str) -> dict:
     return {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
@@ -314,9 +352,9 @@ def _build_get_product_version_list_headers(body: GetProductVersionListRequest) 
         "sec-fetch-dest": "empty",
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
-        "x-csrf-token": body.token,
+        "x-csrf-token": csrf,
         "x-requested-with": "XMLHttpRequest",
-        "cookie": body.cookies,
+        "cookie": cookies,
     }
 
 def _build_get_product_version_list_payload(body: GetProductVersionListRequest) -> dict:
@@ -333,14 +371,14 @@ async def get_product_version_list(
     return await _get_product_version_list(body)
 
 async def _get_product_version_list(body: GetProductVersionListRequest) -> dict:
-    if not body.token:
-        return error_response(400, "token 不能为空")
-    if not body.cookies:
-        return error_response(400, "cookies 不能为空")
+    try:
+        csrf, cookies = await _ensure_valid_creds_async()
+    except ValueError as e:
+        return error_response(400, str(e))
 
     url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-cicd/rpc/product/product-version-filter"
     params = {"limit": body.limit, "ignoreState": "true" if body.ignoreState else "false"}
-    headers = _build_get_product_version_list_headers(body)
+    headers = _build_get_product_version_list_headers(body, csrf, cookies)
     payload = _build_get_product_version_list_payload(body)
 
     logger.debug("get_product_version_list url:%s params:%s payload:%s", url, params, payload)
@@ -376,8 +414,6 @@ async def _get_product_version_list(body: GetProductVersionListRequest) -> dict:
 
 
 class GetRepoDetailRequest(BaseModel):
-    token: str = Field(..., description="x-csrf-token")
-    cookies: str = Field(..., description="Cookie 请求头字符串")
     userId: int = Field(2787, description="用户ID，默认2787")
     isSuper: bool = Field(False, description="是否超管，默认false")
     projectId: int = Field(..., description="项目空间ID")
@@ -390,7 +426,7 @@ class GetRepoDetailRequest(BaseModel):
     typeIdList: list[int] = Field(default_factory=list, description="类型ID列表（可选）")
 
 
-def _build_get_repo_detail_headers(body: GetRepoDetailRequest) -> dict:
+def _build_get_repo_detail_headers(body: GetRepoDetailRequest, csrf: str, cookies: str) -> dict:
     return {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
@@ -405,9 +441,9 @@ def _build_get_repo_detail_headers(body: GetRepoDetailRequest) -> dict:
         "sec-fetch-dest": "empty",
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
-        "x-csrf-token": body.token,
+        "x-csrf-token": csrf,
         "x-requested-with": "XMLHttpRequest",
-        "cookie": body.cookies,
+        "cookie": cookies,
     }
 
 def _build_get_repo_detail_payload(body: GetRepoDetailRequest) -> dict:
@@ -429,10 +465,10 @@ async def get_repo_detail(body: GetRepoDetailRequest) -> dict:
     return await _get_repo_detail(body)
 
 async def _get_repo_detail(body: GetRepoDetailRequest) -> dict:
-    if not body.token:
-        return error_response(400, "token 不能为空")
-    if not body.cookies:
-        return error_response(400, "cookies 不能为空")
+    try:
+        csrf, cookies = await _ensure_valid_creds_async()
+    except ValueError as e:
+        return error_response(400, str(e))
     if not body.moduleId:
         return error_response(400, "moduleId 不能为空")
 
@@ -443,7 +479,7 @@ async def _get_repo_detail(body: GetRepoDetailRequest) -> dict:
         "projectId": body.projectId,
         "isRecursion": "true" if body.isRecursion else "false",
     }
-    headers = _build_get_repo_detail_headers(body)
+    headers = _build_get_repo_detail_headers(body, csrf, cookies)
     payload = _build_get_repo_detail_payload(body)
 
     logger.debug("get_repo_detail url:%s params:%s payload:%s", url, params, payload)
@@ -486,6 +522,170 @@ async def _get_repo_detail(body: GetRepoDetailRequest) -> dict:
     return success_response(simplified)
 
 
+def _repo_ids_equal(a: object, b: object) -> bool:
+    try:
+        return int(a) == int(b)
+    except (TypeError, ValueError):
+        return a == b
+
+
+def _dest_branch_name_from_git_rows(
+    second_data: list,
+    repository_id: object,
+    branch_name: object,
+) -> object:
+    """在第二接口 data 中按 productModuleDto.repoId 对齐，再在 adBranchVersionGitList 中按 sourceBranchName 取 destBranchName。"""
+    for row2 in second_data:
+        if not isinstance(row2, dict):
+            continue
+        pmd = row2.get("productModuleDto")
+        if not isinstance(pmd, dict):
+            continue
+        if not _repo_ids_equal(pmd.get("repoId"), repository_id):
+            continue
+        git_list = row2.get("adBranchVersionGitList")
+        if not isinstance(git_list, list):
+            return branch_name
+        for g in git_list:
+            if not isinstance(g, dict):
+                continue
+            if g.get("sourceBranchName") != branch_name:
+                continue
+            dest = g.get("destBranchName")
+            return dest if dest is not None else branch_name
+        return branch_name
+    return branch_name
+
+
+class GetRepoDetailByProdBranchRequest(BaseModel):
+    prod_branch: int = Field(..., description="产品分支版本 ID（对应上游路径中的分支 ID）")
+    projectId: int = Field(..., description="项目空间 ID")
+
+
+def _build_get_repo_detail_by_prod_branch_headers(
+    _body: GetRepoDetailByProdBranchRequest, csrf: str, cookies: str
+) -> dict:
+    return {
+        "accept": "application/json, text/javascript, */*; q=0.01",
+        "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
+        "app-nonce": "A0AilsWu42pf",
+        "app-signature": "c50bf7baa5299c97945c8b018e6f857b333b3cd490432acbc9b8e3a8bab02a1c",
+        "app-timestamp": "1773919980126",
+        "menu-id": "auto-5e9475286a215757",
+        "sec-ch-ua": '"Chromium";v="146", "Not-A.Brand";v="24", "Microsoft Edge";v="146"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+        "x-csrf-token": csrf,
+        "x-requested-with": "XMLHttpRequest",
+        "cookie": cookies,
+    }
+
+
+@router.post("/api/dev/iwhalecloud/get_repo_detail_by_prod_branch")
+async def get_repo_detail_by_prod_branch(body: GetRepoDetailByProdBranchRequest) -> dict:
+    """按分支版本 ID 聚合模块仓库与 Git 映射，返回 repositoryId、repoUrl、branchName、destBranchName。"""
+    return await _get_repo_detail_by_prod_branch(body)
+
+
+async def _get_repo_detail_by_prod_branch(body: GetRepoDetailByProdBranchRequest) -> dict:
+    try:
+        csrf, cookies = await _ensure_valid_creds_async()
+    except ValueError as e:
+        return error_response(400, str(e))
+
+    headers = _build_get_repo_detail_by_prod_branch_headers(body, csrf, cookies)
+    branch_id = body.prod_branch
+    ts = str(int(time.time() * 1000))
+
+    url1 = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-devspace/module/branch-version/{branch_id}"
+    params1: dict[str, str | int] = {
+        "projectId": body.projectId,
+        "catalogIdList": "",
+        "typeIdList": "",
+        "_": ts,
+    }
+    url2 = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-devspace/rpc/task/branch-versions/{branch_id}"
+    params2: dict[str, str] = {"_": str(int(time.time() * 1000))}
+
+    logger.debug(
+        "get_repo_detail_by_prod_branch url1:%s params1:%s url2:%s params2:%s",
+        url1,
+        params1,
+        url2,
+        params2,
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp1 = await client.get(url1, headers=headers, params=params1)
+            _log_httpx_response("get_repo_detail_by_prod_branch_module", resp1)
+            resp2 = await client.get(url2, headers=headers, params=params2)
+            _log_httpx_response("get_repo_detail_by_prod_branch_task", resp2)
+    except httpx.RequestError as exc:
+        logger.exception("调用研发云分支仓库接口异常: %s", exc)
+        return error_response(503, f"调用研发云接口异常: {exc}")
+
+    if resp1.status_code >= 400:
+        return error_response(resp1.status_code, f"研发云 branch-version 失败：{resp1.text}")
+    try:
+        payload1 = resp1.json()
+    except ValueError:
+        return error_response(502, f"研发云 branch-version 返回非 JSON：{resp1.text}")
+    if payload1.get("code") != "9999":
+        msg = (
+            payload1.get("finalMessage")
+            or payload1.get("msg")
+            or payload1.get("message")
+            or "研发云 branch-version 失败"
+        )
+        return error_response(502, msg, error=str(payload1))
+
+    first_rows = payload1.get("data")
+    if not isinstance(first_rows, list):
+        first_rows = []
+
+    if resp2.status_code >= 400:
+        return error_response(resp2.status_code, f"研发云 branch-versions task 失败：{resp2.text}")
+    try:
+        payload2 = resp2.json()
+    except ValueError:
+        return error_response(502, f"研发云 branch-versions task 返回非 JSON：{resp2.text}")
+    if payload2.get("code") != "9999":
+        msg = (
+            payload2.get("finalMessage")
+            or payload2.get("msg")
+            or payload2.get("message")
+            or "研发云 branch-versions task 失败"
+        )
+        return error_response(502, msg, error=str(payload2))
+
+    second_rows = payload2.get("data")
+    if not isinstance(second_rows, list):
+        second_rows = []
+
+    out: list[dict] = []
+    for row in first_rows:
+        if not isinstance(row, dict):
+            continue
+        rid = row.get("repositoryId")
+        repo_url = row.get("repoUrl")
+        bname = row.get("branchName")
+        dest = _dest_branch_name_from_git_rows(second_rows, rid, bname)
+        out.append(
+            {
+                "repositoryId": rid,
+                "repoUrl": repo_url,
+                "branchName": bname,
+                "destBranchName": dest,
+            }
+        )
+
+    return success_response(out)
+
+
 class GetProductVersionIdRequest(BaseModel):
     keyword: str = Field(..., description="产品版本/发布包名称关键字（模糊匹配）")
     minMatchLength: int = Field(0, description="名称最小匹配长度，默认0")
@@ -518,13 +718,11 @@ async def get_product_version_id(body: GetProductVersionIdRequest) -> dict:
 
 
 class GetModuleNameListRequest(BaseModel):
-    token: str = Field(..., description="x-csrf-token")
-    cookies: str = Field(..., description="Cookie 请求头字符串")
-    projectId: int = Field(-1, description="项目空间ID，可选，默认-1")
-    productVersionId: int = Field(-1, description="产品版本ID，可选，默认-1")
+    projectId: int = Field(-1, description="项目空间ID，可选，默认-1；建议前端必选项目空间后传入")
+    productVersionId: int = Field(-1, description="产品版本ID，可选，默认-1；前端必选产品版本后传入以过滤模块")
 
 
-def _build_get_module_name_list_headers(body: GetModuleNameListRequest) -> dict:
+def _build_get_module_name_list_headers(body: GetModuleNameListRequest, csrf: str, cookies: str) -> dict:
     return {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
@@ -538,22 +736,22 @@ def _build_get_module_name_list_headers(body: GetModuleNameListRequest) -> dict:
         "sec-fetch-dest": "empty",
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
-        "x-csrf-token": body.token,
+        "x-csrf-token": csrf,
         "x-requested-with": "XMLHttpRequest",
-        "cookie": body.cookies,
+        "cookie": cookies,
     }
 
 @router.post("/api/dev/iwhalecloud/get_module_name_list")
 async def get_module_name_list(body: GetModuleNameListRequest) -> dict:
-    """对外路由：根据产品版本ID获取模块列表（内部复用 _get_module_name_list）。"""
+    """对外路由：获取应用模块列表（内部复用 _get_module_name_list）。"""
     return await _get_module_name_list(body)
 
 async def _get_module_name_list(body: GetModuleNameListRequest) -> dict:
-    """根据产品版本ID获取模块列表（最多50000条）。"""
-    if not body.token:
-        return error_response(400, "token 不能为空")
-    if not body.cookies:
-        return error_response(400, "cookies 不能为空")
+    """按项目空间与产品版本从研发云拉取模块列表（最多 50000 条）。"""
+    try:
+        csrf, cookies = await _ensure_valid_creds_async()
+    except ValueError as e:
+        return error_response(400, str(e))
 
     url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-cicd/module/getModuleList"
     params: dict[str, str | int] = {
@@ -565,7 +763,7 @@ async def _get_module_name_list(body: GetModuleNameListRequest) -> dict:
     if body.productVersionId != -1:
         params["productVersionId"] = body.productVersionId
 
-    headers = _build_get_module_name_list_headers(body)
+    headers = _build_get_module_name_list_headers(body, csrf, cookies)
     logger.debug("get_module_name_list url:%s, headers:%s, params:%s", url, headers, params)
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -602,15 +800,207 @@ async def _get_module_name_list(body: GetModuleNameListRequest) -> dict:
     return success_response({"total": page_data.get("total", 0), "list": formatted})
 
 
+class GetProductBranchListRequest(BaseModel):
+    productVersionId: int = Field(..., description="产品版本 ID（必传）")
+    projectId: int | None = Field(
+        default=None,
+        description="项目空间 ID，可选；不传时与门户一致 query 中 projectId 为空",
+    )
+
+
+def _build_get_product_branch_list_headers(
+    body: GetProductBranchListRequest, csrf: str, cookies: str
+) -> dict:
+    return {
+        "accept": "application/json, text/javascript, */*; q=0.01",
+        "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
+        "app-nonce": "A0AilsWu42pf",
+        "app-signature": "c50bf7baa5299c97945c8b018e6f857b333b3cd490432acbc9b8e3a8bab02a1c",
+        "app-timestamp": "1773919980126",
+        "menu-id": "auto-5e9475286a215757",
+        "sec-ch-ua": '"Chromium";v="146", "Not-A.Brand";v="24", "Microsoft Edge";v="146"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+        "x-csrf-token": csrf,
+        "x-requested-with": "XMLHttpRequest",
+        "cookie": cookies,
+    }
+
+
+@router.post("/api/dev/iwhalecloud/get_product_branch_list")
+async def get_product_branch_list(body: GetProductBranchListRequest) -> dict:
+    """对外路由：按产品版本查询分支列表（内部复用 _get_product_branch_list）。"""
+    return await _get_product_branch_list(body)
+
+
+async def _get_product_branch_list(body: GetProductBranchListRequest) -> dict:
+    """
+    转调：GET /portal/zcm-cicd/product/branch/qryByConditionWithMain
+    （productVersionId 必传；isValid=true；size=2000；page=1；_ 为时间戳）。
+    从 data.list 精简为 branchVersionId、branchName。
+    """
+    try:
+        csrf, cookies = await _ensure_valid_creds_async()
+    except ValueError as e:
+        return error_response(400, str(e))
+
+    url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-cicd/product/branch/qryByConditionWithMain"
+    params: dict[str, str | int] = {
+        "productVersionId": body.productVersionId,
+        "isValid": "true",
+        "size": 2000,
+        "page": 1,
+        "_": str(int(time.time() * 1000)),
+    }
+    headers = _build_get_product_branch_list_headers(body, csrf, cookies)
+    logger.debug("get_product_branch_list url:%s, headers:%s, params:%s", url, headers, params)
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.get(url, headers=headers, params=params)
+            _log_httpx_response("get_product_branch_list", resp)
+    except httpx.RequestError as exc:
+        logger.exception("调用研发云产品分支列表接口异常: %s", exc)
+        return error_response(503, f"调用研发云接口异常: {exc}")
+
+    if resp.status_code >= 400:
+        return error_response(resp.status_code, f"研发云获取产品分支列表失败：{resp.text}")
+    try:
+        data = resp.json()
+    except ValueError:
+        return error_response(502, f"研发云获取产品分支列表返回非 JSON：{resp.text}")
+    if data.get("code") != "9999":
+        msg = data.get("finalMessage") or data.get("msg") or data.get("message") or "研发云获取产品分支列表失败"
+        return error_response(502, msg, error=str(data))
+
+    page_data = data.get("data") or {}
+    if not isinstance(page_data, dict):
+        page_data = {}
+    branch_list = page_data.get("list") or []
+    if not isinstance(branch_list, list):
+        branch_list = []
+
+    formatted: list[dict] = []
+    for item in branch_list:
+        if not isinstance(item, dict):
+            continue
+        formatted.append(
+            {
+                "branchVersionId": item.get("branchVersionId"),
+                "branchName": item.get("branchName"),
+            }
+        )
+    return success_response({"total": page_data.get("total", 0), "list": formatted})
+
+
+class GetZcmProductListRequest(BaseModel):
+    """请求体可为空；兼容旧客户端多传的字段一律忽略。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+
+def _build_get_zcm_product_list_headers(_body: GetZcmProductListRequest, csrf: str, cookies: str) -> dict:
+    """与门户 GET /zcmDomain/getZcmProductList 抓包风格一致（同 get_module_name_list）。"""
+    return {
+        "accept": "application/json, text/javascript, */*; q=0.01",
+        "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
+        "app-nonce": "A0AilsWu42pf",
+        "app-signature": "c50bf7baa5299c97945c8b018e6f857b333b3cd490432acbc9b8e3a8bab02a1c",
+        "app-timestamp": "1773919980126",
+        "menu-id": "auto-5e9475286a215757",
+        "sec-ch-ua": '"Chromium";v="146", "Not-A.Brand";v="24", "Microsoft Edge";v="146"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+        "x-csrf-token": csrf,
+        "x-requested-with": "XMLHttpRequest",
+        "cookie": cookies,
+    }
+
+
+@router.post("/api/dev/iwhalecloud/get_zcm_product_list")
+async def get_zcm_product_list(body: GetZcmProductListRequest) -> dict:
+    """对外路由：获取 ZCM 产品版本列表（内部复用 _get_zcm_product_list）。"""
+    return await _get_zcm_product_list(body)
+
+
+async def _get_zcm_product_list(body: GetZcmProductListRequest) -> dict:
+    """
+    转调：GET /portal/zcm-cicd/zcmDomain/getZcmProductList?_=timestamp（上游不传 projectId，拉全量）。
+
+    解析上游 data.content；对外每条仅保留 productVersionId、productVersionCode；data.size 为条数。
+    """
+    try:
+        csrf, cookies = await _ensure_valid_creds_async()
+    except ValueError as e:
+        return error_response(400, str(e))
+
+    url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-cicd/zcmDomain/getZcmProductList"
+    params: dict[str, str] = {"_": str(int(time.time() * 1000))}
+    headers = _build_get_zcm_product_list_headers(body, csrf, cookies)
+    logger.debug("get_zcm_product_list url:%s, headers:%s, params:%s", url, headers, params)
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.get(url, headers=headers, params=params)
+            _log_httpx_response("get_zcm_product_list", resp)
+    except httpx.RequestError as exc:
+        logger.exception("调用研发云 getZcmProductList 接口异常: %s", exc)
+        return error_response(503, f"调用研发云接口异常: {exc}")
+
+    if resp.status_code >= 400:
+        return error_response(resp.status_code, f"研发云 getZcmProductList 失败：{resp.text}")
+    try:
+        payload = resp.json()
+    except ValueError:
+        return error_response(502, f"研发云 getZcmProductList 返回非 JSON：{resp.text}")
+    if payload.get("code") != "9999":
+        msg = (
+            payload.get("finalMessage")
+            or payload.get("msg")
+            or payload.get("message")
+            or "研发云 getZcmProductList 失败"
+        )
+        return error_response(502, msg, error=str(payload))
+
+    page_data = payload.get("data")
+    if not isinstance(page_data, dict):
+        page_data = {}
+
+    raw_list = page_data.get("content")
+    if not isinstance(raw_list, list):
+        raw_list = []
+
+    logger.debug(
+        "get_zcm_product_list parsed content_len=%s page_data_keys=%s",
+        len(raw_list),
+        list(page_data.keys()) if page_data else [],
+    )
+
+    out: list[dict] = []
+    for item in raw_list:
+        if not isinstance(item, dict):
+            continue
+        out.append(
+            {
+                "productVersionId": item.get("productVersionId"),
+                "productVersionCode": item.get("productVersionCode"),
+            }
+        )
+
+    return success_response({"content": out, "size": len(out)})
+
+
 class GetPatchVersionRequest(BaseModel):
-    token: str = Field(..., description="x-csrf-token")
-    cookies: str = Field(..., description="Cookie 请求头字符串")
     userId: int = Field(2787, description="用户ID，默认2787")
     projectId: int = Field(-1, description="项目空间ID，默认-1")
     stateList: list[str] = Field(default_factory=lambda: ["PENDING"], description="版本状态列表，默认PENDING")
     branchVersionIdList: list[str] = Field(..., description="产品分支ID列表，必传")
 
-def _build_get_patch_version_headers(body: GetPatchVersionRequest) -> dict:
+def _build_get_patch_version_headers(body: GetPatchVersionRequest, csrf: str, cookies: str) -> dict:
     return {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
@@ -625,9 +1015,9 @@ def _build_get_patch_version_headers(body: GetPatchVersionRequest) -> dict:
         "sec-fetch-dest": "empty",
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
-        "x-csrf-token": body.token,
+        "x-csrf-token": csrf,
         "x-requested-with": "XMLHttpRequest",
-        "cookie": body.cookies,
+        "cookie": cookies,
     }
 
 def _build_get_patch_version_payload(body: GetPatchVersionRequest) -> dict:
@@ -659,16 +1049,16 @@ async def _get_patch_version(body: GetPatchVersionRequest) -> dict:
     根据产品分支版本ID获取模块版本（补丁计划）。
     转调：POST /portal/zcm-devspace/patch/page/list/{userId}?page=1&limit=1000
     """
-    if not body.token:
-        return error_response(400, "token 不能为空")
-    if not body.cookies:
-        return error_response(400, "cookies 不能为空")
+    try:
+        csrf, cookies = await _ensure_valid_creds_async()
+    except ValueError as e:
+        return error_response(400, str(e))
     if not body.branchVersionIdList:
         return error_response(400, "branchVersionIdList 不能为空")
 
     url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-devspace/patch/page/list/{body.userId}"
     params = {"page": 1, "limit": 1000}
-    headers = _build_get_patch_version_headers(body)
+    headers = _build_get_patch_version_headers(body, csrf, cookies)
     payload = _build_get_patch_version_payload(body)
 
     logger.debug("get_patch_version url:%s, params:%s, payload:%s", url, params, payload)
@@ -790,10 +1180,8 @@ async def _get_ci_flow_report(body: GetCiFlowReportRequest) -> dict:
 
 class GetTaskBuildHistoryRequest(BaseModel):
     taskId: int = Field(..., description="任务ID")
-    token: str = Field(..., description="x-csrf-token")
-    cookies: str = Field(..., description="Cookie 请求头字符串")
 
-def _build_get_task_build_history_headers(body: GetTaskBuildHistoryRequest) -> dict:
+def _build_get_task_build_history_headers(body: GetTaskBuildHistoryRequest, csrf: str, cookies: str) -> dict:
     return {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "accept-language": "zh-CN,zh;q=0.9,en;q=0.9,en-GB;q=0.7,en-US;q=0.6",
@@ -807,9 +1195,9 @@ def _build_get_task_build_history_headers(body: GetTaskBuildHistoryRequest) -> d
         "sec-fetch-dest": "empty",
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
-        "x-csrf-token": body.token,
+        "x-csrf-token": csrf,
         "x-requested-with": "XMLHttpRequest",
-        "cookie": body.cookies,
+        "cookie": cookies,
     }
 
 @router.post("/api/dev/iwhalecloud/get_task_build_history")
@@ -822,14 +1210,14 @@ async def _get_task_build_history(body: GetTaskBuildHistoryRequest) -> dict:
     内部调用：根据任务ID获取任务构建历史。
     转调：GET /portal/zcm-devspace/task/{taskId}/build-history
     """
-    if not body.token:
-        return error_response(400, "token 不能为空")
-    if not body.cookies:
-        return error_response(400, "cookies 不能为空")
+    try:
+        csrf, cookies = await _ensure_valid_creds_async()
+    except ValueError as e:
+        return error_response(400, str(e))
 
     url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-devspace/task/{body.taskId}/build-history"
     params = {"_": int(datetime.now().timestamp() * 1000)}
-    headers = _build_get_task_build_history_headers(body)
+    headers = _build_get_task_build_history_headers(body, csrf, cookies)
     logger.debug("get_task_build_history url:%s, params:%s", url, params)
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -845,10 +1233,8 @@ async def _get_task_build_history(body: GetTaskBuildHistoryRequest) -> dict:
 
 class GetCiFlowBuildResultRequest(BaseModel):
     ciFlowInstId: str = Field(..., description="构建实例ID（ciFlowInstId）")
-    token: str = Field(..., description="x-csrf-token")
-    cookies: str = Field(..., description="Cookie 请求头字符串")
 
-def _build_get_ci_flow_build_result_headers(body: GetCiFlowBuildResultRequest) -> dict:
+def _build_get_ci_flow_build_result_headers(body: GetCiFlowBuildResultRequest, csrf: str, cookies: str) -> dict:
     return {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
@@ -862,9 +1248,9 @@ def _build_get_ci_flow_build_result_headers(body: GetCiFlowBuildResultRequest) -
         "sec-fetch-dest": "empty",
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
-        "x-csrf-token": body.token,
+        "x-csrf-token": csrf,
         "x-requested-with": "XMLHttpRequest",
-        "cookie": body.cookies,
+        "cookie": cookies,
     }
 
 @router.post("/api/dev/iwhalecloud/get_ci_flow_build_result")
@@ -877,16 +1263,16 @@ async def _get_ci_flow_build_result(body: GetCiFlowBuildResultRequest) -> dict:
     内部调用：根据 ciFlowInstId 获取本次构建各环节结果。
     转调：GET /portal/zcm-cicd/ci/flow/history/qryFlowNodeInstanceDetail/{ciFlowInstId}
     """
-    if not body.token:
-        return error_response(400, "token 不能为空")
-    if not body.cookies:
-        return error_response(400, "cookies 不能为空")
+    try:
+        csrf, cookies = await _ensure_valid_creds_async()
+    except ValueError as e:
+        return error_response(400, str(e))
     if not body.ciFlowInstId:
         return error_response(400, "ciFlowInstId 不能为空")
 
     url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-cicd/ci/flow/history/qryFlowNodeInstanceDetail/{body.ciFlowInstId}"
     params = {"_": int(datetime.now().timestamp() * 1000)}
-    headers = _build_get_ci_flow_build_result_headers(body)
+    headers = _build_get_ci_flow_build_result_headers(body, csrf, cookies)
     logger.debug("get_ci_flow_build_result url:%s, params:%s", url, params)
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -901,8 +1287,6 @@ async def _get_ci_flow_build_result(body: GetCiFlowBuildResultRequest) -> dict:
 
 class GetCiFlowBuildStatusRequest(BaseModel):
     taskId: int = Field(..., description="任务ID")
-    token: str = Field(..., description="x-csrf-token")
-    cookies: str = Field(..., description="Cookie 请求头字符串")
 
 def _parse_dt_for_sort(v: object) -> datetime:
     if not isinstance(v, str) or not v.strip():
@@ -936,9 +1320,7 @@ async def get_ci_flow_build_status(body: GetCiFlowBuildStatusRequest) -> dict:
     """
     try:
         # 1) 先拿到“任务维度”的构建历史（里面包含 featureBuildHisList）
-        history_resp = await _get_task_build_history(
-            GetTaskBuildHistoryRequest(taskId=body.taskId, token=body.token, cookies=body.cookies)
-        )
+        history_resp = await _get_task_build_history(GetTaskBuildHistoryRequest(taskId=body.taskId))
         # 上游失败则直接透传错误
         if not isinstance(history_resp, dict) or history_resp.get("errorcode") != 0:
             return history_resp if isinstance(history_resp, dict) else error_response(502, "获取构建历史失败")
@@ -984,11 +1366,7 @@ async def get_ci_flow_build_status(body: GetCiFlowBuildStatusRequest) -> dict:
                 else:
                     # 未命中缓存：调用上游获取该构建实例的“各节点执行结果”
                     build_result_resp = await _get_ci_flow_build_result(
-                        GetCiFlowBuildResultRequest(
-                            ciFlowInstId=inst_id_str,
-                            token=body.token,
-                            cookies=body.cookies,
-                        )
+                        GetCiFlowBuildResultRequest(ciFlowInstId=inst_id_str),
                     )
                     # 上游成功：只抽取前端关心的字段，保持数组结构不变
                     if isinstance(build_result_resp, dict) and build_result_resp.get("errorcode") == 0:
@@ -1047,8 +1425,6 @@ class CreateTaskRequest(BaseModel):
     taskClassification: str | None = Field(None, description="领域:TECH-技术,FUNCTION-功能,SECURITY-安全,PERFORMANCE-性能,USE_OPTIMIZATION-体验,示例值(FUNCTION)")
     taskPri: int | None = Field(None, description="优先级:5-较低,6-普通,7-紧急,8-非常紧急,示例值(5)")
     patchName: str = Field(..., description="补丁计划名称")
-    x_csrf_token: str = Field(..., alias="x-csrf-token", description="CSRF Token")
-    cookie: str = Field(..., description="Cookie 头内容")
     userId: int = Field(..., description="用户ID")
     taskImpactList: list[CreateTaskImpactItem] = Field(..., description="任务影响点（创建后将自动新增并确认）")
     performanceImpact: str = Field(..., description="性能影响")
@@ -1096,8 +1472,10 @@ async def create_task(body: CreateTaskRequest) -> dict:
         return error_response(400, "taskImpactList 为空，请传入任务影响点")
     if not body.performanceImpact or not body.functionalImpact or not body.cfgChangeDescription or not body.upgradeRisk or not body.securityImpact or not body.compatibilityImpact:
         return error_response(400, "performanceImpact、functionalImpact、cfgChangeDescription、upgradeRisk、securityImpact、compatibilityImpact 不能为空")
-    if not body.x_csrf_token or not body.cookie:
-        return error_response(400, "x-csrf-token 与 cookie 不能为空")
+    try:
+        await _ensure_valid_creds_async()
+    except ValueError as e:
+        return error_response(400, str(e))
 
     # 步骤1：调用创建任务单接口
     url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/ai-gateway/devspace/rpc/v3/user-story/{body.taskNo}/work-item/inner"
@@ -1141,12 +1519,7 @@ async def create_task(body: CreateTaskRequest) -> dict:
 
     # 步骤6：新增任务影响点（必须）
     impact_items = [AddTaskImpactItem(taskImpactId=it.taskImpactId, taskId=created_task_id, taskImpactDesc=it.taskImpactDesc) for it in body.taskImpactList]
-    add_impact_body = AddTaskImpactRequest(
-        userId=body.userId,
-        x_csrf_token=body.x_csrf_token,
-        cookie=body.cookie,
-        taskImpactList=impact_items,
-    )
+    add_impact_body = AddTaskImpactRequest(userId=body.userId, taskImpactList=impact_items)
     add_impact_result = await _add_task_impact(add_impact_body)
     if isinstance(add_impact_result, dict) and add_impact_result.get("errorcode") not in (None, 0):
         return error_response(502, "任务已创建，但新增任务影响点失败", error=str(add_impact_result))
@@ -1156,12 +1529,7 @@ async def create_task(body: CreateTaskRequest) -> dict:
         TaskImpactConfirmItem(taskImpactId=it.taskImpactId, taskId=created_task_id, confirmResult="Y", confirmRole="DEV")
         for it in impact_items
     ]
-    confirm_body = TaskImpactConfirmRequest(
-        userId=body.userId,
-        x_csrf_token=body.x_csrf_token,
-        cookie=body.cookie,
-        taskImpactList=confirm_items,
-    )
+    confirm_body = TaskImpactConfirmRequest(userId=body.userId, taskImpactList=confirm_items)
     confirm_result = await _task_impact_confirm(confirm_body)
     if isinstance(confirm_result, dict) and confirm_result.get("errorcode") not in (None, 0):
         return error_response(502, "任务已创建，但影响点确认失败", error=str(confirm_result))
@@ -1175,13 +1543,7 @@ async def create_task(body: CreateTaskRequest) -> dict:
         "securityImpact": body.securityImpact,
         "compatibilityImpact": body.compatibilityImpact,
     }
-    update_eval_body = UpdateTaskImpactEvaluationRequest(
-        taskId=created_task_id,
-        token=body.x_csrf_token,
-        cookie=body.cookie,
-        userId=body.userId,
-        **auto_eval,
-    )
+    update_eval_body = UpdateTaskImpactEvaluationRequest(taskId=created_task_id, userId=body.userId, **auto_eval)
     eval_result = await _update_task_impact_evaluation(update_eval_body)
     if isinstance(eval_result, dict) and eval_result.get("errorcode") not in (None, 0):
         return error_response(502, "任务已创建，但研发单影响评估编辑失败", error=str(eval_result))
@@ -1246,8 +1608,6 @@ class AddTaskImpactItem(BaseModel):
 
 class AddTaskImpactRequest(BaseModel):
     userId: int = Field(..., description="用户 ID")
-    x_csrf_token: str = Field(..., alias="x-csrf-token", description="CSRF Token")
-    cookie: str = Field(..., description="Cookie 头内容")
     taskImpactList: list[AddTaskImpactItem] = Field(..., description="任务影响点列表")
 
 def _build_add_task_impact_headers(x_csrf_token: str, cookie_header: str | None) -> dict:
@@ -1296,7 +1656,11 @@ async def _add_task_impact(body: AddTaskImpactRequest) -> dict:
 
     url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-devspace/task/{task_id}/impact/detail"
     params = {"userId": body.userId}
-    headers = _build_add_task_impact_headers(body.x_csrf_token, body.cookie)
+    try:
+        csrf, ck = await _ensure_valid_creds_async()
+    except ValueError as e:
+        return error_response(400, str(e))
+    headers = _build_add_task_impact_headers(csrf, ck)
     payload = [it.model_dump() for it in items]
     logger.debug("add_task_impact url:%s params:%s payload:%s", url, params, payload)
     try:
@@ -1316,10 +1680,8 @@ class TaskImpactConfirmItem(BaseModel):
     confirmRole: str = Field("DEV", description="确认角色，例如 DEV")
 
 class TaskImpactConfirmRequest(BaseModel):
-    """任务影响确认：token/cookie/userId 与 taskImpactList 一并放在请求体。"""
+    """任务影响确认：userId 与 taskImpactList。"""
     userId: int = Field(..., description="用户ID")
-    x_csrf_token: str = Field(..., alias="x-csrf-token", description="CSRF Token")
-    cookie: str = Field(..., description="Cookie 头内容")
     taskImpactList: list[TaskImpactConfirmItem] = Field(
         ...,
         description="影响确认项列表",
@@ -1374,7 +1736,11 @@ async def _task_impact_confirm(body: TaskImpactConfirmRequest) -> dict:
         f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-devspace/task/{task_id}/"
         f"impact/detail/confirm?userId={user_id}"
     )
-    headers = _build_task_impact_confirm_headers(body.x_csrf_token, body.cookie)
+    try:
+        csrf, ck = await _ensure_valid_creds_async()
+    except ValueError as e:
+        return error_response(400, str(e))
+    headers = _build_task_impact_confirm_headers(csrf, ck)
     payload = [it.model_dump() for it in items]
 
     logger.debug("task_impact_confirm url:%s payload:%s", url, payload)
@@ -1391,8 +1757,6 @@ async def _task_impact_confirm(body: TaskImpactConfirmRequest) -> dict:
 
 class UpdateTaskImpactEvaluationRequest(BaseModel):
     taskId: int = Field(..., description="任务单ID")
-    token: str = Field(..., description="x-csrf-token")
-    cookie: str | None = Field(None, description="Cookie 请求头字符串")
     performanceImpact: str = Field(..., description="性能影响")
     functionalImpact: str = Field(..., description="功能影响")
     cfgChangeDescription: str = Field(..., description="配置变更说明")
@@ -1401,7 +1765,7 @@ class UpdateTaskImpactEvaluationRequest(BaseModel):
     compatibilityImpact: str = Field(..., description="兼容性影响")
     userId: int = Field(..., description="用户ID")
 
-def _build_update_task_impact_evaluation_headers(body: UpdateTaskImpactEvaluationRequest) -> dict:
+def _build_update_task_impact_evaluation_headers(body: UpdateTaskImpactEvaluationRequest, csrf: str, cookies: str) -> dict:
     headers = {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
@@ -1416,9 +1780,9 @@ def _build_update_task_impact_evaluation_headers(body: UpdateTaskImpactEvaluatio
         "sec-fetch-dest": "empty",
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
-        "x-csrf-token": body.token,
+        "x-csrf-token": csrf,
         "x-requested-with": "XMLHttpRequest",
-        "cookie": body.cookie,
+        "cookie": cookies,
     }
     return headers
 
@@ -1445,13 +1809,13 @@ async def _update_task_impact_evaluation(body: UpdateTaskImpactEvaluationRequest
     """
     if not body.taskId:
         return error_response(400, "taskId 不能为空")
-    if not body.token:
-        return error_response(400, "token 不能为空")
-    if not body.cookie:
-        return error_response(400, "cookie 不能为空")
+    try:
+        csrf, cookies = await _ensure_valid_creds_async()
+    except ValueError as e:
+        return error_response(400, str(e))
 
     url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-devspace/task/{body.taskId}/project-fields/batch-modify"
-    headers = _build_update_task_impact_evaluation_headers(body)
+    headers = _build_update_task_impact_evaluation_headers(body, csrf, cookies)
     payload = _build_update_task_impact_evaluation_payload(body)
     logger.debug("update_task_impact_evaluation url:%s, headers:%s, payload:%s", url, headers, payload)
     try:
@@ -1644,8 +2008,6 @@ async def create_comment(body: CreateCommentRequest):
 
 class GetImpactListFromDemandRequest(BaseModel):
     demandId: int = Field(..., description="需求ID")
-    token: str = Field(..., description="x-csrf-token")
-    cookies: str = Field(..., description="Cookies 头内容")
 
 def _build_get_impact_list_from_demand_headers(x_csrf_token: str, cookie: str) -> dict:
     return {
@@ -1701,12 +2063,14 @@ async def _get_impact_list_from_demand(body: GetImpactListFromDemandRequest) -> 
     返回 data 中为 evaluateResult=Y 的 adTaskImpact 子集，字段：
     taskImpactId, impactName, impactDesc, createUserId
     """
-    if not body.cookies:
-        return error_response(400, "cookies 不能为空")
+    try:
+        csrf, ck = await _ensure_valid_creds_async()
+    except ValueError as e:
+        return error_response(400, str(e))
 
     url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-devspace/task/{body.demandId}/impact"
     params = {"_": str(int(datetime.now().timestamp() * 1000))}
-    headers = _build_get_impact_list_from_demand_headers(body.token, body.cookies)
+    headers = _build_get_impact_list_from_demand_headers(csrf, ck)
     logger.debug("get_impact_list_from_demand demandId=%s url:%s params:%s headers:%s", body.demandId, url, params, headers)
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -1738,8 +2102,6 @@ async def _get_impact_list_from_demand(body: GetImpactListFromDemandRequest) -> 
 
 class GetImpactListFromTaskRequest(BaseModel):
     taskId: int = Field(..., description="任务ID（研发单）")
-    token: str = Field(..., description="x-csrf-token")
-    cookies: str = Field(..., description="Cookie 头内容")
 
 def _build_get_impact_list_from_task_headers(x_csrf_token: str, cookie: str) -> dict:
     """与浏览器 GET /task/{id}/impact/detail 抓包一致。"""
@@ -1793,12 +2155,14 @@ async def _get_impact_list_from_task(body: GetImpactListFromTaskRequest) -> dict
     转调：GET /portal/zcm-devspace/task/{taskId}/impact/detail?_=timestamp
     返回 data 中每条 adTaskImpactDetail 的 taskImpactId、impactDesc 组成的数组。
     """
-    if not body.cookies:
-        return error_response(400, "cookies 不能为空")
+    try:
+        csrf, ck = await _ensure_valid_creds_async()
+    except ValueError as e:
+        return error_response(400, str(e))
 
     url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-devspace/task/{body.taskId}/impact/detail"
     params = {"_": str(int(datetime.now().timestamp() * 1000))}
-    headers = _build_get_impact_list_from_task_headers(body.token, body.cookies)
+    headers = _build_get_impact_list_from_task_headers(csrf, ck)
     logger.debug("get_impact_list_from_task taskId=%s url:%s params:%s headers:%s", body.taskId, url, params, headers)
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -1857,10 +2221,8 @@ async def _get_task_list_from_demand(body: GetTaskListFromDemandRequest) -> dict
 
 class GetTaskPatchRequest(BaseModel):
     taskId: int = Field(..., description="任务ID")
-    token: str = Field(..., description="x-csrf-token")
-    cookies: str = Field(..., description="Cookie 请求头字符串")
 
-def _build_get_task_patch_headers(body: GetTaskPatchRequest) -> dict:
+def _build_get_task_patch_headers(body: GetTaskPatchRequest, csrf: str, cookies: str) -> dict:
     return {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
@@ -1875,9 +2237,9 @@ def _build_get_task_patch_headers(body: GetTaskPatchRequest) -> dict:
         "sec-fetch-dest": "empty",
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
-        "x-csrf-token": body.token,
+        "x-csrf-token": csrf,
         "x-requested-with": "XMLHttpRequest",
-        "cookie": body.cookies,
+        "cookie": cookies,
     }
 
 @router.post("/api/dev/iwhalecloud/get_task_patch")
@@ -1889,13 +2251,13 @@ async def _get_task_patch(body: GetTaskPatchRequest) -> dict:
     """内部调用：根据任务ID获取任务版本信息。"""
     if not body.taskId:
         return error_response(400, "taskId 不能为空")
-    if not body.token:
-        return error_response(400, "token 不能为空")
-    if not body.cookies:
-        return error_response(400, "cookie 不能为空")
+    try:
+        csrf, cookies = await _ensure_valid_creds_async()
+    except ValueError as e:
+        return error_response(400, str(e))
 
     url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-devspace/task/{body.taskId}/detail"
-    headers = _build_get_task_patch_headers(body)
+    headers = _build_get_task_patch_headers(body, csrf, cookies)
     payload = {
         "withAttach": True,
         "withBranchVersion": True,
@@ -1933,12 +2295,10 @@ async def _get_task_patch(body: GetTaskPatchRequest) -> dict:
 
 
 class GetFlowIdByModuleRequest(BaseModel):
-    token: str = Field(..., description="x-csrf-token")
-    cookies: str = Field(..., description="Cookie 请求头字符串")
     projectId: int = Field(..., description="项目ID")
     productModuleId: int = Field(..., description="应用模块ID")
 
-def _build_get_flow_id_by_module_headers(body: GetFlowIdByModuleRequest) -> dict:
+def _build_get_flow_id_by_module_headers(body: GetFlowIdByModuleRequest, csrf: str, cookies: str) -> dict:
     return {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
@@ -1953,22 +2313,22 @@ def _build_get_flow_id_by_module_headers(body: GetFlowIdByModuleRequest) -> dict
         "sec-fetch-dest": "empty",
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
-        "x-csrf-token": body.token,
+        "x-csrf-token": csrf,
         "x-requested-with": "XMLHttpRequest",
-        "cookie": body.cookies,
+        "cookie": cookies,
     }
 # 
 @router.post("/api/dev/iwhalecloud/get_flow_id_by_module")
 async def get_flow_id_by_module(body: GetFlowIdByModuleRequest) -> dict:
     """根据应用模块ID查询 CI 流程ID列表。"""
-    if not body.token:
-        return error_response(400, "token 不能为空")
-    if not body.cookies:
-        return error_response(400, "cookies 不能为空")
+    try:
+        csrf, cookies = await _ensure_valid_creds_async()
+    except ValueError as e:
+        return error_response(400, str(e))
 
     url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-cicd/ciFlowController/getCiFlowListByFlowIdOrFlowName"
     params = {"page": 1, "limit": 20}
-    headers = _build_get_flow_id_by_module_headers(body)
+    headers = _build_get_flow_id_by_module_headers(body, csrf, cookies)
     payload = {
         "async": False,
         "showMask": True,
@@ -2015,8 +2375,6 @@ async def get_task_branch_changes_content(body: GetTaskBranchChangesContentReque
 
 
 class GetDemandListFromProductRequest(BaseModel):
-    token: str = Field(..., description="x-csrf-token")
-    cookies: str = Field(..., description="Cookie 请求头字符串")
     projectId: int = Field(..., description="项目空间ID")
     userId: int = Field(..., description="登录用户ID（loginUserId）")
     productVersionIdList: list[str] = Field(..., description="产品版本ID列表（字符串数组）")
@@ -2024,7 +2382,7 @@ class GetDemandListFromProductRequest(BaseModel):
     createdDateFrom: str = Field("", description="创建日期开始时间，格式：yyyy-MM-dd")
     createdDateTo: str = Field("", description="创建日期结束时间，格式：yyyy-MM-dd")
 
-def _build_get_demand_list_from_product_headers(body: GetDemandListFromProductRequest) -> dict:
+def _build_get_demand_list_from_product_headers(body: GetDemandListFromProductRequest, csrf: str, cookies: str) -> dict:
     return {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
@@ -2039,9 +2397,9 @@ def _build_get_demand_list_from_product_headers(body: GetDemandListFromProductRe
         "sec-fetch-dest": "empty",
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
-        "x-csrf-token": body.token,
+        "x-csrf-token": csrf,
         "x-requested-with": "XMLHttpRequest",
-        "cookie": body.cookies,
+        "cookie": cookies,
     }
 
 @router.post("/api/dev/iwhalecloud/get_demand_list_from_product")
@@ -2050,10 +2408,10 @@ async def get_demand_list_from_product(body: GetDemandListFromProductRequest) ->
     根据产品版本ID列表查询需求列表。
     转调：POST /portal/zcm-devspace/task/page-list?page=1&limit=100
     """
-    if not body.token:
-        return error_response(400, "token 不能为空")
-    if not body.cookies:
-        return error_response(400, "cookies 不能为空")
+    try:
+        csrf, cookies = await _ensure_valid_creds_async()
+    except ValueError as e:
+        return error_response(400, str(e))
     if not body.projectId:
         return error_response(400, "projectId 不能为空")
     if not body.productVersionIdList:
@@ -2061,7 +2419,7 @@ async def get_demand_list_from_product(body: GetDemandListFromProductRequest) ->
 
     url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-devspace/task/page-list"
     params = {"page": 1, "limit": 100000}
-    headers = _build_get_demand_list_from_product_headers(body)
+    headers = _build_get_demand_list_from_product_headers(body, csrf, cookies)
     payload = {
         "sort": "CREATED_DATE_LATEST",
         "tagIdList": [],
@@ -2685,42 +3043,20 @@ def _cookies_to_header(cookies: list[dict]) -> str:
         parts.append(f"{name}={value}")
     return "; ".join(parts)
 
-class GetTokenAndCookiesRequest(BaseModel):
-    purpose: Literal["normal", "guide", "password_change"] = Field(
-        "normal",
-        description="normal=从 userinfo.encryption 读工号/密码；guide/password_change=使用请求体",
-    )
-    username: str | None = Field(None, description="工号；引导或改密时必填")
-    password: str | None = Field(None, description="密码；引导或改密时必填")
 
-    @model_validator(mode="after")
-    def _require_creds_when_guide(self) -> GetTokenAndCookiesRequest:
-        if self.purpose in ("guide", "password_change"):
-            if not (self.username and self.password):
-                raise ValueError("引导验证或密码修改时 username（工号）、password 必填")
-        return self
+_iwhalecloud_session_lock = asyncio.Lock()
 
 
-def _resolve_get_token_cookies_creds(body: GetTokenAndCookiesRequest) -> tuple[str, str]:
-    if body.purpose in ("guide", "password_change"):
-        return (body.username or "").strip(), body.password or ""
-    data = _load_userinfo_plain()
-    if not data:
-        raise ValueError("未找到本地凭据，请先使用 purpose=guide 完成引导验证")
-    u = (data.get("employee_id") or data.get("username") or "").strip()
-    p = data.get("password") or ""
-    if not u or not p:
-        raise ValueError("userinfo.encryption 中缺少工号或密码，请使用 purpose=guide 重新引导")
-    return u, p
-
-
-@router.post("/api/dev/iwhalecloud/get_token_and_cookies")
-def get_token_and_cookies(body: GetTokenAndCookiesRequest):
-    """使用 Playwright 登录研发云，获取 x-csrf-token 与 Cookie 字符串。"""
-    try:
-        username, password = _resolve_get_token_cookies_creds(body)
-    except ValueError as e:
-        return error_response(400, str(e))
+def _fetch_token_and_cookies_sync(username: str, password: str) -> tuple[str, str]:
+    """
+    同步：用 Playwright 登录研发云，抓取 **x-csrf-token**（请求头）与 Cookie 串。
+    与 userinfo.encryption 里的 API Authorization token 无关，勿混用。
+    仅由 _ensure_valid_creds_async 在持有 asyncio.Lock 时经 asyncio.to_thread 调用，故全局已串行；
+    进入后若会话文件已写入则直接返回（双检）。
+    """
+    sess = _load_iwhalecloud_session()
+    if sess and (sess.get("token") or "").strip() and (sess.get("cookies") or "").strip():
+        return str(sess["token"]), str(sess["cookies"])
     with sync_playwright() as p:
         # 启动 Chromium 浏览器实例。
         # headless=False: 有界面模式，便于本地观察登录过程；如改为 True 则后台无界面运行。
@@ -2729,9 +3065,12 @@ def get_token_and_cookies(body: GetTokenAndCookiesRequest):
         context = browser.new_context()
         # 在当前上下文中打开一个新页面（Tab）。
         page = context.new_page()
+        # 设置默认超时时间为 5 分钟，覆盖 Playwright 默认的 30s
+        page.set_default_timeout(DEV_IWHALECLOUD_LOGIN_PLAYWRIGHT_TIMEOUT_MS)
+        page.set_default_navigation_timeout(DEV_IWHALECLOUD_LOGIN_PLAYWRIGHT_TIMEOUT_MS)
 
         try:
-            # 用可变容器保存 token，便于在内部回调 on_request 中写入。
+            # 用可变容器保存 x-csrf-token，便于在内部回调 on_request 中写入。
             csrf_token = {"value": None}
 
             def on_request(req):
@@ -2745,7 +3084,7 @@ def get_token_and_cookies(body: GetTokenAndCookiesRequest):
                 # 命中后立即缓存 token，供后续接口调用。
                 if t:
                     csrf_token["value"] = t
-                    
+
             # 监听页面发出的每个请求，request 事件触发时执行 on_request 回调。
             page.on("request", on_request)
 
@@ -2771,30 +3110,54 @@ def get_token_and_cookies(body: GetTokenAndCookiesRequest):
             # 关闭“研发平台”标签页上的关闭按钮，避免遮挡或影响后续页面状态。
             # li:has-text("研发平台"): 文本匹配到对应标签项。
             # button.ui-tabs-close.close: 该标签项内的关闭按钮。
-            page.locator('li:has-text("研发平台")').locator("button.ui-tabs-close.close").click()
-            # 读取在 request 回调中捕获到的 csrf token。
+            try:
+                page.locator('li:has-text("研发平台")').locator("button.ui-tabs-close.close").click()
+            except PlaywrightTimeoutError:
+                # 未出现该标签时跳过（部分环境可能无此 Tab）
+                pass
+
+            # 读取在 request 回调中捕获到的 x-csrf-token（非 API Bearer）。
             token = csrf_token["value"]
+            if not token:
+                raise ValueError("未获取到 x-csrf-token")
 
             # 读取当前上下文下全部 cookie（列表结构，每项含 name/value/domain/path 等）。
             all_cookies = context.cookies()
             # 将 cookie 列表拼成标准 Cookie 请求头字符串（name=value; name2=value2）。
             cookies = _cookies_to_header(all_cookies)
-
             logger.debug("获取研发云x-csrf-token和cookies成功: token=[%s], cookies=[%s]", token, cookies)
-        except Exception as e:
-            logger.exception("获取研发云x-csrf-token和cookies出错: %s", e)
-            return error_response(500, f"获取研发云x-csrf-token和cookies出错: {str(e)}")
+            _save_iwhalecloud_session(token, cookies)
+            return token, cookies
         finally:
             context.close()
             browser.close()
 
-    return success_response(
-        {
-            "token": token,
-            "cookies": cookies,
-        },
-        "获取研发云x-csrf-token和cookies成功",
-    )
+
+async def _ensure_valid_creds_async(force_refresh: bool = False) -> tuple[str, str]:
+    """
+    确保拥有有效的 x-csrf-token 和 cookies（存于 data/iwhalecloud_session.json）。
+    缺失或 force_refresh 时走 _fetch_token_and_cookies_sync（asyncio 锁串行 + to_thread 写文件）。
+    """
+    async with _iwhalecloud_session_lock:
+        if force_refresh:
+            _clear_iwhalecloud_session()
+        else:
+            sess = _load_iwhalecloud_session()
+            if sess and (sess.get("token") or "").strip() and (sess.get("cookies") or "").strip():
+                return str(sess["token"]), str(sess["cookies"])
+
+        data = _load_userinfo_plain()
+        if not data:
+            raise ValueError("未找到本地凭据（userinfo.encryption），请先完成引导验证")
+        username = (data.get("employee_id") or data.get("username") or "").strip()
+        password = data.get("password") or ""
+        if not username or not password:
+            raise ValueError("userinfo.encryption 中缺少工号或密码，请重新引导")
+
+        logger.info("正在使用 Playwright 自动获取研发云 x-csrf-token 与 cookies...")
+        token, cookies = await asyncio.to_thread(_fetch_token_and_cookies_sync, username, password)
+        return token, cookies
+
 
 class ProductInitializeRequest(BaseModel):
     product_id: int = Field(..., description="产品ID")

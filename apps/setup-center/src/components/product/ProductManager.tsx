@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus, Package, Loader2 } from "lucide-react";
 import { ProductCard } from "./ProductCard";
-import { ProductModal, type ProductModalFinishValues } from "./ProductModal";
+import { ProductModal, formatProjectSpaceOption, type ProductModalFinishValues } from "./ProductModal";
 import { RepoUpdateDialog } from "./RepoUpdateDialog";
 import { ProductDetail } from "./ProductDetail";
 import {
@@ -14,6 +14,7 @@ import {
   applyProcessPayloadToProduct,
   mergeRepositoriesWithProcess,
   buildAnalysisFieldsFromProcessPayload,
+  repositoriesToRdRepoInfo,
 } from "./types";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
@@ -24,6 +25,7 @@ import {
   insertProdInfo,
   updateProdInfo,
   getProdProcessInfo,
+  fetchProjectList,
 } from "@/api/rdUnifiedService";
 import type { ProdProcessDataPayload } from "@/api/rdUnifiedService";
 import "./product-workbench.css";
@@ -32,6 +34,29 @@ export function ProductManager({ synapseApiBase = "http://127.0.0.1:18900" }: { 
   const { t } = useTranslation();
   const [products, setProducts] = useState<Product[]>(() => (IS_TAURI ? [] : MOCK_PRODUCTS));
   const [listLoading, setListLoading] = useState(IS_TAURI);
+  const [projectSpaces, setProjectSpaces] = useState<{label: string, value: string}[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await fetchProjectList(synapseApiBase);
+        if (cancelled) return;
+        setProjectSpaces(
+          resp.map((p) => {
+            const v = formatProjectSpaceOption(p.projectId, p.projectName);
+            return { label: v, value: v };
+          }),
+        );
+      } catch (e) {
+        console.error("Failed to load project list", e);
+        if (!cancelled) setProjectSpaces([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [synapseApiBase]);
 
   useEffect(() => {
     if (!IS_TAURI) return;
@@ -40,7 +65,8 @@ export function ProductManager({ synapseApiBase = "http://127.0.0.1:18900" }: { 
       try {
         const resp = await getProdInfo(synapseApiBase);
         if (cancelled) return;
-        const rows = Array.isArray(resp.data) ? resp.data : [];
+        const raw = Array.isArray(resp.data) ? resp.data : [];
+        const rows = raw.filter((row): row is NonNullable<typeof row> => row != null);
         const mapped = rows.map(prodInfoWireToProduct);
         if (resp.total !== rows.length) {
           console.warn("[get_prod_info] total != data.length", resp.total, rows.length);
@@ -223,19 +249,13 @@ export function ProductManager({ synapseApiBase = "http://127.0.0.1:18900" }: { 
       try {
         await insertProdInfo(synapseApiBase, {
           prod: values.name || "",
-          version: (values.versionCode || values.version || "").trim(),
+          version: (values.version || "").trim(),
           module: (values.module || "").trim(),
           space: (values.spaceLabel || "").trim(),
           function: values.features || "",
           prod_icon: (values.iconLabel || "").trim(),
           prod_desc: (values.description || "").trim(),
-          repo_info: (values.repositories || []).map((r) => ({
-            repo_url: r.url,
-            repo_branch: r.branch,
-            repo_func: r.purpose,
-            repo_token: r.token || "",
-            repo_master: r.isMain ? "Y" : "N",
-          })),
+          repo_info: repositoriesToRdRepoInfo(values.repositories || []),
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -353,6 +373,8 @@ export function ProductManager({ synapseApiBase = "http://127.0.0.1:18900" }: { 
           onCancel={() => setIsModalOpen(false)}
           onFinish={handleFinish}
           initialValues={editingProduct}
+          projectSpaces={projectSpaces}
+          synapseApiBase={synapseApiBase}
         />
 
         {/* 更新仓库：内部调用 changeRepoInfo → :10001/dev/iwhalecloud/synapse/change_repo_info */}

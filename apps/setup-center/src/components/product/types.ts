@@ -1,9 +1,11 @@
 import type {
   ProdInfoWireItem,
   ProdProcessDataPayload,
+  RdRepoDetailRow,
   RdRepoInfo,
   RepoProcessWireItem,
 } from "@/api/rdUnifiedService";
+import type { SearchableOption } from "./SearchableVirtualSelect";
 
 /**
  * 研发统一服务单字符状态 → 统一语义（仓库 / 文档 / 工单共用）：
@@ -14,7 +16,10 @@ export type UnifiedWireAnalysisState = "new" | "init" | "process" | "done" | "er
 export interface Repository {
   purpose: string;
   url: string;
+  /** 仓库分支：repositoryId|destBranchName，对应 RdRepoInfo.repo_branch */
   branch: string;
+  /** 产品分支 branchVersionId|branchName，对应 RdRepoInfo.prod_branch */
+  prodBranch?: string;
   token: string;
   isMain: boolean;
   /** 与研发统一服务 repo_process 对齐后的单仓状态 */
@@ -51,7 +56,9 @@ export interface Ticket {
 export interface Product {
   id: string;
   name: string;
+  /** 产品版本：productVersionId|productVersionCode，与研发统一服务 `version` 一致 */
   version: string;
+  /** 应用模块；创建时与研发统一服务一致为 productModuleId|moduleChName */
   module: string;
   icon: string;
   description: string;
@@ -113,6 +120,77 @@ export const DEFAULT_ICONS = [
 ];
 
 /** 将 prod_icon 字符串解析为界面用 data URL（优先匹配 DEFAULT_ICONS 的 label）；服务端可能返回 null */
+/** 展示用：存为 id|name 时只显示 name 段（卡片/标签） */
+export function displayIdPipeName(value: string | undefined): string {
+  const v = (value ?? "").trim();
+  if (!v) return "";
+  const i = v.indexOf("|");
+  if (i > 0) return v.slice(i + 1).trim() || v;
+  return v;
+}
+
+/** 多仓库时产品分支下拉：排除其它行已选的 `value`（当前行已选保留可选） */
+export function filterProdBranchOptionsForRow(
+  options: SearchableOption[],
+  repos: { prodBranch?: string }[],
+  rowIndex: number,
+  currentProdBranch: string,
+): SearchableOption[] {
+  const cur = currentProdBranch.trim();
+  const taken = new Set(
+    repos
+      .map((r, j) => (j !== rowIndex && r.prodBranch?.trim() ? r.prodBranch.trim() : null))
+      .filter((x): x is string => !!x),
+  );
+  return options.filter((o) => !taken.has(o.value) || o.value === cur);
+}
+
+/** 多仓库时仓库分支下拉：排除其它行已选的 `value`（当前行已选保留可选） */
+export function filterRepoBranchOptionsForRow(
+  options: SearchableOption[],
+  repos: { branch?: string }[],
+  rowIndex: number,
+  currentBranch: string,
+): SearchableOption[] {
+  const cur = currentBranch.trim();
+  const taken = new Set(
+    repos
+      .map((r, j) => (j !== rowIndex && r.branch?.trim() ? r.branch.trim() : null))
+      .filter((x): x is string => !!x),
+  );
+  return options.filter((o) => !taken.has(o.value) || o.value === cur);
+}
+
+/** 展示/入库格式 repositoryId|destBranchName */
+export function repoDetailRowToOption(row: RdRepoDetailRow): SearchableOption {
+  const rid = String(row.repositoryId ?? "").trim();
+  const dest =
+    String(row.destBranchName ?? "").trim() || String(row.branchName ?? "").trim() || rid;
+  const value = `${rid}|${dest}`;
+  return { label: value, value };
+}
+
+export function findRepoUrlForDetailComposite(rows: RdRepoDetailRow[], composite: string): string {
+  const t = composite.trim();
+  if (!t) return "";
+  for (const row of rows) {
+    if (repoDetailRowToOption(row).value === t) {
+      return String(row.repoUrl ?? "").trim();
+    }
+  }
+  return "";
+}
+
+/** 校验仓库分支是否为 repositoryId|destBranchName（两段均非空） */
+export function isValidRepoBranchComposite(v: string | undefined): boolean {
+  const s = (v ?? "").trim();
+  const i = s.indexOf("|");
+  if (i <= 0) return false;
+  const left = s.slice(0, i).trim();
+  const right = s.slice(i + 1).trim();
+  return left.length > 0 && right.length > 0;
+}
+
 export function resolveProdIconString(prod_icon: string | null | undefined): string {
   const t = (prod_icon ?? "").trim();
   if (!t) return DEFAULT_ICONS[0].value;
@@ -126,20 +204,27 @@ function repoWireToRepository(r: RdRepoInfo): Repository {
     purpose: r.repo_func ?? "",
     url: r.repo_url ?? "",
     branch: r.repo_branch ?? "",
+    prodBranch: r.prod_branch?.trim() || undefined,
     token: r.repo_token || "",
     isMain: r.repo_master === "Y",
   };
 }
 
-/** 界面 Repository[] → 研发统一服务 repo_info 项 */
-export function productRepositoriesToRdRepoInfo(p: Product): RdRepoInfo[] {
-  return p.repositories.map((r) => ({
+/** 界面 Repository[] → 研发统一服务 repo_info（含 prod_branch） */
+export function repositoriesToRdRepoInfo(repositories: Repository[]): RdRepoInfo[] {
+  return repositories.map((r) => ({
     repo_url: r.url,
     repo_branch: r.branch,
+    prod_branch: (r.prodBranch ?? "").trim(),
     repo_func: r.purpose,
     repo_token: r.token || "",
     repo_master: r.isMain ? "Y" : "N",
   }));
+}
+
+/** 界面 Product → 研发统一服务 repo_info 项 */
+export function productRepositoriesToRdRepoInfo(p: Product): RdRepoInfo[] {
+  return repositoriesToRdRepoInfo(p.repositories);
 }
 
 /** 多路聚合：error > init > process > new > done（下标越小越「差」） */
@@ -281,6 +366,10 @@ export function applyProcessPayloadToProduct(p: Product, payload: ProdProcessDat
   };
 }
 
+function repoProcessMatchKey(repoBranch: string, prodBranch?: string): string {
+  return `${String(repoBranch ?? "").trim()}\0${String(prodBranch ?? "").trim()}`;
+}
+
 export function mergeRepositoriesWithProcess(
   repositories: Repository[],
   processes?: RepoProcessWireItem[] | null,
@@ -291,9 +380,17 @@ export function mergeRepositoriesWithProcess(
       wireAnalysisState: r.wireAnalysisState ?? "new",
     }));
   }
-  const byBranch = new Map(processes.map((p) => [String(p.repo_branch ?? "").trim(), p] as const));
+  const byKey = new Map(
+    processes.map((p) => [
+      repoProcessMatchKey(p.repo_branch, p.prod_branch),
+      p,
+    ] as const),
+  );
+  const byBranchOnly = new Map(processes.map((p) => [String(p.repo_branch ?? "").trim(), p] as const));
   return repositories.map((r) => {
-    const p = byBranch.get(String(r.branch ?? "").trim());
+    const p =
+      byKey.get(repoProcessMatchKey(r.branch, r.prodBranch)) ??
+      byBranchOnly.get(String(r.branch ?? "").trim());
     if (!p) {
       return { ...r, wireAnalysisState: "new" as const };
     }
@@ -310,9 +407,9 @@ export function mergeRepositoriesWithProcess(
   });
 }
 
-/** 稳定 id：同 prod+space+module+version 映射为同一键 */
+/** 稳定 id：同 prod+space+version+module 映射为同一键 */
 export function stableProductIdFromWire(item: ProdInfoWireItem): string {
-  const raw = `${item.prod ?? ""}\0${item.space ?? ""}\0${item.module ?? ""}\0${item.version ?? ""}`;
+  const raw = `${item.prod ?? ""}\0${item.space ?? ""}\0${item.version ?? ""}\0${item.module ?? ""}`;
   let h = 0;
   for (let i = 0; i < raw.length; i++) h = Math.imul(31, h) + raw.charCodeAt(i);
   return `prod-${(h >>> 0).toString(36)}`;
@@ -320,7 +417,7 @@ export function stableProductIdFromWire(item: ProdInfoWireItem): string {
 
 /** 研发统一服务单条产品 → 界面 Product（全量拉取、无分页） */
 export function prodInfoWireToProduct(item: ProdInfoWireItem): Product {
-  const repos = Array.isArray(item.repo_info) ? item.repo_info : [];
+  const repos = Array.isArray(item.repo_info) ? item.repo_info.filter((r): r is RdRepoInfo => r != null) : [];
   const baseRepos = repos.map(repoWireToRepository);
   const fields = buildAnalysisFieldsFromProcessPayload(item);
   return {

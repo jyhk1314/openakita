@@ -22,6 +22,8 @@ export const RD_UNIFIED_PATHS = {
 export type RdRepoInfo = {
   repo_url: string;
   repo_branch: string;
+  /** 产品分支：branchVersionId|branchName（与仓库条目绑定） */
+  prod_branch?: string;
   repo_func: string;
   repo_token: string;
   repo_master: "Y" | "N";
@@ -30,6 +32,8 @@ export type RdRepoInfo = {
 /** 仓库分析进度（多仓库按优先级聚合展示）；repo_process_state 单字符 N/I/P/D/E/F（见 normalizeWireProcessState） */
 export type RepoProcessWireItem = {
   repo_branch: string;
+  /** 产品分支：branchVersionId|branchName */
+  prod_branch?: string;
   repo_process_state: string;
   /** 分析完成时间（状态为 D 时由服务端返回，可选） */
   repo_process_time?: string | null;
@@ -149,7 +153,7 @@ function rdUnifiedOrigin(host: string): string {
   return `http://${hostPart}:${RD_UNIFIED_PORT}`;
 }
 
-async function fetchSynapseJson<T>(
+export async function fetchSynapseJson<T>(
   synapseApiBase: string,
   path: string,
   init?: RequestInit,
@@ -324,7 +328,7 @@ export async function getProdProcessInfo(
  *
  * **请求体**：
  * - `prod`：产品名称
- * - `repo_info`：`{ repo_url, repo_branch, repo_func, repo_token, repo_master: "Y"|"N" }[]`
+ * - `repo_info`：`{ repo_url, repo_branch, prod_branch?, repo_func, repo_token, repo_master: "Y"|"N" }[]`
  *
  * 成功后可由调用方再调 {@link getProdProcessInfo} 刷新过程状态。
  */
@@ -348,4 +352,171 @@ export async function changeRepoInfo(
     throw new Error(resp.message || "change_repo_failed");
   }
   return resp;
+}
+
+export type RdProjectItem = {
+  projectId: string;
+  projectName: string;
+  projectCode: string;
+};
+
+/**
+ * 从 Synapse 后端获取研发云的项目空间列表。
+ * 门户 x-csrf-token / Cookie 由后端从 data/iwhalecloud_session.json 读取并在缺失时自动拉取。
+ * 任意能访问 Synapse API 的客户端（含浏览器 dev + `synapse serve`）均可调用。
+ */
+export async function fetchProjectList(synapseApiBase: string): Promise<RdProjectItem[]> {
+  return fetchSynapseJson<RdProjectItem[]>(synapseApiBase, "/api/dev/iwhalecloud/get_project_list", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+}
+
+/** get_module_name_list 单条模块（研发云精简字段） */
+export type RdModuleNameItem = {
+  productModuleId?: number | string | null;
+  moduleChName?: string | null;
+  productVersionId?: number | string | null;
+  branchVersionId?: number | string | null;
+  productVersionCode?: string | null;
+  branchName?: string | null;
+};
+
+export type GetModuleNameListData = {
+  total: number;
+  list: RdModuleNameItem[];
+};
+
+/** get_zcm_product_list 单条（全量列表中的项） */
+export type RdZcmProductItem = {
+  productVersionId?: number | string | null;
+  productVersionCode?: string | null;
+};
+
+export type GetZcmProductListData = {
+  content: RdZcmProductItem[];
+  size: number;
+};
+
+/**
+ * ZCM 产品版本全量列表（POST /api/dev/iwhalecloud/get_zcm_product_list，body 可为 `{}`）。
+ * 经 Synapse 转发研发云；非 Tauri 环境同样走 HTTP，与 Tauri 一致。
+ */
+export async function fetchZcmProductList(synapseApiBase: string): Promise<RdZcmProductItem[]> {
+  const data = await fetchSynapseJson<GetZcmProductListData>(
+    synapseApiBase,
+    "/api/dev/iwhalecloud/get_zcm_product_list",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    },
+  );
+  const content = data?.content;
+  return Array.isArray(content) ? content : [];
+}
+
+/**
+ * 按项目空间与产品版本拉取应用模块列表（POST /api/dev/iwhalecloud/get_module_name_list）。
+ * 经 Synapse 转发研发云；非 Tauri 环境同样走 HTTP。
+ */
+export async function fetchModuleNameList(
+  synapseApiBase: string,
+  projectId: number,
+  productVersionId: number,
+): Promise<RdModuleNameItem[]> {
+  const data = await fetchSynapseJson<GetModuleNameListData>(
+    synapseApiBase,
+    "/api/dev/iwhalecloud/get_module_name_list",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectId, productVersionId }),
+    },
+  );
+  const list = data?.list;
+  return Array.isArray(list) ? list : [];
+}
+
+/** get_product_branch_list 单条 */
+export type RdProductBranchItem = {
+  branchVersionId?: number | string | null;
+  branchName?: string | null;
+};
+
+export type GetProductBranchListData = {
+  total: number;
+  list: RdProductBranchItem[];
+};
+
+/**
+ * 按产品版本查询产品分支（POST /api/dev/iwhalecloud/get_product_branch_list）。
+ * 仅传 productVersionId，入库格式 branchVersionId|branchName。
+ */
+export async function fetchProductBranchList(
+  synapseApiBase: string,
+  productVersionId: number,
+): Promise<RdProductBranchItem[]> {
+  const data = await fetchSynapseJson<GetProductBranchListData>(
+    synapseApiBase,
+    "/api/dev/iwhalecloud/get_product_branch_list",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productVersionId }),
+    },
+  );
+  const list = data?.list;
+  return Array.isArray(list) ? list : [];
+}
+
+/** get_repo_detail_by_prod_branch 单条；入库仓库分支为 repositoryId|destBranchName */
+export type RdRepoDetailRow = {
+  repositoryId?: number | string | null;
+  repoUrl?: string | null;
+  branchName?: string | null;
+  destBranchName?: string | null;
+};
+
+/**
+ * 按产品分支版本 ID 拉取模块仓库与 Git 映射（POST /api/dev/iwhalecloud/get_repo_detail_by_prod_branch）。
+ * 与 Synapse 本地路由对接，非 Tauri 亦可走 HTTP。
+ */
+export async function fetchRepoDetailByProdBranch(
+  synapseApiBase: string,
+  prodBranchVersionId: number,
+  projectId: number,
+): Promise<RdRepoDetailRow[]> {
+  const data = await fetchSynapseJson<RdRepoDetailRow[]>(
+    synapseApiBase,
+    "/api/dev/iwhalecloud/get_repo_detail_by_prod_branch",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prod_branch: prodBranchVersionId, projectId }),
+    },
+  );
+  return Array.isArray(data) ? data : [];
+}
+
+/**
+ * 研发云门户会话保活（`whalecloud_heart`）：仅作语义包装，内部仍为
+ * `POST /api/dev/iwhalecloud/get_project_list`，触发后端读 `iwhalecloud_session.json` 并维持门户会话。
+ * 失败静默，适合定时器调用。
+ */
+export async function whalecloudHeart(synapseApiBase: string): Promise<void> {
+  if (!IS_TAURI) {
+    return;
+  }
+  try {
+    await fetchSynapseJson<RdProjectItem[]>(synapseApiBase, "/api/dev/iwhalecloud/get_project_list", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(120_000),
+    });
+  } catch {
+    /* 保活失败忽略 */
+  }
 }

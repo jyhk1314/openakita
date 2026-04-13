@@ -64,6 +64,7 @@ import {
   IWHALECLOUD_ONBOARDING_VALIDATION_MOCK,
 } from "./constants";
 import { safeFetch } from "./providers";
+import { whalecloudHeart } from "./api/rdUnifiedService";
 import {
   slugify, joinPath, toFileUrl,
   envGet, envSet,
@@ -1808,6 +1809,58 @@ export function App() {
   }, [serviceStatus?.running, dataMode, apiBaseUrl]);
 
   useEffect(() => { fetchAgentMode(); }, [fetchAgentMode]);
+
+  // 桌面：离开引导后主界面需具备 userinfo.encryption 与 devservice.ip；缺失则回到对应引导步
+  useEffect(() => {
+    if (!IS_TAURI || appInitializing) return;
+    if (!shouldUseHttpApi()) return;
+    if (view === "onboarding" || view === "wizard") return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const base = httpApiBase();
+        const [uiRes, devRes] = await Promise.all([
+          fetch(`${base}/api/dev/iwhalecloud/local-userinfo-exists`, { signal: AbortSignal.timeout(8000) }),
+          fetch(`${base}/api/dev/devservice-ip`, { signal: AbortSignal.timeout(8000) }),
+        ]);
+        if (cancelled) return;
+        const uiJ = uiRes.ok ? ((await uiRes.json()) as { errorcode?: number; data?: { exists?: boolean } }) : null;
+        const devJ = devRes.ok ? ((await devRes.json()) as { errorcode?: number; data?: { ip?: string | null } }) : null;
+        const hasUserinfo = uiJ?.errorcode === 0 && uiJ?.data?.exists === true;
+        const hasDevservice = !!(devJ?.errorcode === 0 && devJ?.data?.ip && String(devJ.data.ip).trim());
+        if (!hasUserinfo) {
+          setObStep("ob-iwhalecloud");
+          setView("onboarding");
+          return;
+        }
+        if (!hasDevservice) {
+          setObStep("ob-devservices");
+          setView("onboarding");
+        }
+      } catch {
+        /* 忽略瞬断 */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在进入非引导视图时校验一次依赖集合
+  }, [view, appInitializing, dataMode, apiBaseUrl, serviceStatus?.running]);
+
+  // 研发云门户会话保活：定时触发 whalecloudHeart（内部 POST get_project_list）
+  useEffect(() => {
+    if (!IS_TAURI || appInitializing) return;
+    if (!shouldUseHttpApi()) return;
+    if (view === "onboarding" || view === "wizard") return;
+
+    const base = httpApiBase();
+    const id = window.setInterval(() => {
+      void whalecloudHeart(base);
+    }, 5 * 60 * 1000);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, appInitializing, dataMode, apiBaseUrl, serviceStatus?.running]);
 
   const toggleMultiAgent = useCallback(async () => {
     const next = !multiAgentEnabled;

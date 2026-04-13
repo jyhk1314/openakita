@@ -23,7 +23,7 @@
 |------|----------|
 | `src/synapse/api/routes/yuque.py` | 语雀知识库 HTTP API |
 | `src/synapse/api/routes/gitnexus.py` | GitNexus → MCP 代理 |
-| `src/synapse/api/routes/dev_iwhalecloud.py` | 研发云集成，包含登录（自动拦截 userId）、获取需求列表扩展，及新增产品公共服务（devservice）IP 探测与读写接口 |
+| `src/synapse/api/routes/dev_iwhalecloud.py` | 研发云集成：登录（Playwright、`/portal/logged` 截获 `userId`）、需求列表扩展、产品公共服务（devservice）IP 探测与读写；**门户 REST** 使用 `data/iwhalecloud_session.json` 缓存 `x-csrf-token`+Cookie，`_ensure_valid_creds_async` 串行刷新，401/403 时清会话并重试；多数路由 **不再** 要求 body 传 token/cookies；含 `get_repo_detail_by_prod_branch`、`get_module_name_list`、`get_product_branch_list`、`get_zcm_product_list`、`get_product_version_id` 等转发与聚合 |
 
 > **说明**：`src/synapse/api/routes/long_text_48B08E72-EEC8-425F-989D-7D13CE3790CA.txt` 为误置于 `api/routes/` 的无关内容，**不属于功能清单**；建议从版本库删除并加入 `.gitignore` 规则防再次提交。
 
@@ -45,8 +45,8 @@
 
 | 路径 | 功能摘要 |
 |------|----------|
-| `apps/setup-center/src/api/rdUnifiedService.ts` | 研发统一服务 API 封装接口 |
-| `apps/setup-center/src/components/product/` | 产品管理视图组件群（连接研发统一服务，管理项目、仓库、自动分析状态等） |
+| `apps/setup-center/src/api/rdUnifiedService.ts` | 研发统一服务 API 封装；`fetchSynapseJson` 导出；`prod_branch` 与过程线类型；`fetchProjectList` / ZCM 与模块、产品分支、`fetchRepoDetailByProdBranch`；**Tauri** 下 `whalecloudHeart`（定时 `get_project_list` 保活） |
+| `apps/setup-center/src/components/product/` | 产品管理视图组件群（连接研发统一服务，管理项目、仓库、自动分析状态等）；含 **`SearchableVirtualSelect`**（搜索+虚拟列表）、`ProductModal`/`RepoUpdateDialog` 级联与 **产品分支**/`prod_branch` 管线、`displayIdPipeName` 等复合字段工具 |
 | `apps/setup-center/src/views/workbench/ProductManagerView.tsx` | 工作台产品管理视图入口 |
 | `apps/setup-center/src/components/rd-process/` | 研发流程 / 工单 UI |
 | `apps/setup-center/src/components/team-manage/` | 团队总览 |
@@ -99,13 +99,25 @@
 
 除 Android Java 包目录名（`com.openakita.mobile` ↔ `com.synapse.mobile`）外，**未发现**「整棵子目录仅在上游存在、本仓库完全缺失」的附加结构；此前若存在「上游独有大量视图/组件」的表述，**与当前本机两棵树不一致**，已不以表格形式维护。
 
+### 2.4 当前工作区待提交增量（快照：2026-04-13）
+
+以下为相对**已提交版本**仍在本工作区、且属功能语义向的改动摘要（详细方案见 `docs/localization/` 与 `docs/product-manager-scheme.md`）。
+
+| 路径 | 功能摘要 |
+|------|----------|
+| `apps/setup-center/src/App.tsx` | Tauri + HTTP：离开引导后主界面校验 `local-userinfo-exists` 与 `devservice-ip`，缺失则回到 `ob-iwhalecloud` / `ob-devservices`；定时 `whalecloudHeart` 保活门户会话 |
+| `apps/setup-center/src-tauri/src/main.rs` | `dev_tools_prereq_satisfied`：汇总 CLI 是否安装及 Claude/OpenCode 配置文件或 Cursor PATH 是否满足「可连接已有服务」语义 |
+| `apps/setup-center/src/components/ui/tooltip.tsx` | `TooltipContent` 增加 `showArrow`，供产品卡片等场景无箭头气泡 |
+| `tests/integration/test_dev_iwhalecloud_api.py` | 随 `dev_iwhalecloud` 契约与路由扩展的集成用例 |
+
 ---
 
 ## 三、维护约定
 
 1. **上游同步**：使用 `git fetch upstream` 与明确 **tag/commit 范围**；变更文件与本表求交后做增量合并。  
 2. **更新本表**：新增/删除本地化能力时增删行；品牌与注释类差异**不**写入本表，按 SKILL 归并到品牌化流程或非审计项。  
-3. **重新生成方法**：对齐本机 `openakita` 与 `openakita_jyhk` 路径，Python 侧辅以 `ast.dump(parse(...))` 过滤注释噪声；前端侧以品牌归一化后的文本 diff 为准。
+3. **重新生成方法**：对齐本机 `openakita` 与 `openakita_jyhk` 路径，Python 侧辅以 `ast.dump(parse(...))` 过滤注释噪声；前端侧以品牌归一化后的文本 diff 为准。  
+4. **方案文档**：门户会话与桌面产品工作台拆分说明见 `docs/localization/dev-iwhalecloud-portal-session.md`、`docs/localization/setup-center-product-rd-workbench.md`。
 
 ---
 

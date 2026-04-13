@@ -3154,6 +3154,7 @@ fn main() {
 	        start_dragging,
             claude_code_check,
             dev_tools_check,
+            dev_tools_prereq_satisfied,
             claude_code_install,
             claude_code_apply_user_init,
             get_llm_token_guide_video_path,
@@ -7205,6 +7206,16 @@ struct DevToolsCheckResult {
     opencode: ClaudeCodeCheckResult,
 }
 
+/// 主界面 /「连接已有服务」门禁：至少一种 CLI 可用，且满足该工具对应的「配置已导入」语义。
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct DevToolsPrereqResult {
+    any_cli_installed: bool,
+    /// Claude/OpenCode 需存在已写入的配置文件；Cursor 以 CLI 在 PATH 为准。
+    config_import_ok: bool,
+    satisfied: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct ClaudeCodeUserInitResult {
@@ -7700,7 +7711,7 @@ fn opencode_cli_check() -> ClaudeCodeCheckResult {
     }
 }
 
-/// 汇总检测 Claude Code、Cursor CLI、OpenCode（三者任装其一即可继续引导）。
+/// 汇总检测 Claude Code、Cursor CLI、OpenCode（任装其一即可继续引导）。
 #[tauri::command]
 fn dev_tools_check() -> DevToolsCheckResult {
     DevToolsCheckResult {
@@ -7708,6 +7719,38 @@ fn dev_tools_check() -> DevToolsCheckResult {
         cursor: generic_cli_check("cursor"),
         opencode: opencode_cli_check(),
     }
+}
+
+fn dev_tools_prereq_satisfied_sync() -> DevToolsPrereqResult {
+    let d = dev_tools_check();
+    let Some(home) = home_dir() else {
+        return DevToolsPrereqResult {
+            any_cli_installed: false,
+            config_import_ok: false,
+            satisfied: false,
+        };
+    };
+    let claude_ready =
+        d.claude.installed && home.join(".claude").join("settings.json").is_file();
+    let opencode_ready = d.opencode.installed
+        && home
+            .join(".config")
+            .join("opencode")
+            .join("opencode.json")
+            .is_file();
+    let cursor_ready = d.cursor.installed;
+    let any_cli = d.claude.installed || d.cursor.installed || d.opencode.installed;
+    let config_import_ok = claude_ready || opencode_ready || cursor_ready;
+    DevToolsPrereqResult {
+        any_cli_installed: any_cli,
+        config_import_ok,
+        satisfied: any_cli && config_import_ok,
+    }
+}
+
+#[tauri::command]
+fn dev_tools_prereq_satisfied() -> DevToolsPrereqResult {
+    dev_tools_prereq_satisfied_sync()
 }
 
 /// 从安装包内置目录复制 Claude Code 到工作区并写 `bin/claude.cmd`、追加 PATH（无网络）。

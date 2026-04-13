@@ -1,10 +1,11 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { Edit2, Trash2, Ticket, Code, FileText, Check, Loader2, X, RefreshCw, GitBranch, Circle } from "lucide-react";
-import { Product, type UnifiedWireAnalysisState } from "./types";
+import { Product, displayIdPipeName, type UnifiedWireAnalysisState } from "./types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface ProductCardProps {
   product: Product;
@@ -147,7 +148,7 @@ export function ProductCard({
           title={t("workbench.products.cardSpaceTooltip", { space: product.space })}
         >
           <span className="block max-w-[12rem] truncate text-[11px] font-semibold tracking-wide text-amber-700 dark:text-amber-300">
-            {product.space}
+            {displayIdPipeName(product.space)}
           </span>
         </div>
       )}
@@ -206,26 +207,60 @@ export function ProductCard({
       </div>
 
       <CardContent className="flex h-full flex-col px-5 pb-5 pt-9">
-        <div className="mb-4 flex items-start gap-4 pr-24">
+        <div className="mb-4 flex items-start gap-3">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/5">
             <img src={product.icon} alt={product.name} className="h-8 w-8 rounded-md object-contain" />
           </div>
-          <div className="flex min-w-0 flex-1 flex-col">
-            <h3 className="truncate text-base font-semibold text-foreground tracking-tight mb-1" title={product.name}>
-              {product.name}
-            </h3>
-            <div className="flex flex-wrap gap-1.5">
-              {product.version && (
-                <Badge variant="secondary" className="font-normal text-[10px] px-1.5 py-0 bg-blue-500/10 text-blue-700 dark:text-blue-400">
-                  {product.version}
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <div className="flex min-w-0 items-center gap-2">
+              <h3
+                className="min-w-0 flex-1 basis-0 truncate text-base font-semibold tracking-tight text-foreground"
+                title={product.name}
+              >
+                {product.name}
+              </h3>
+              {product.module ? (
+                <Badge
+                  variant="secondary"
+                  className="max-w-[5.5rem] shrink-0 truncate font-normal text-[10px] px-1.5 py-0 sm:max-w-[7rem] bg-purple-500/10 text-purple-700 dark:text-purple-400"
+                  title={displayIdPipeName(product.module)}
+                >
+                  {displayIdPipeName(product.module)}
                 </Badge>
-              )}
-              {product.module && (
-                <Badge variant="secondary" className="font-normal text-[10px] px-1.5 py-0 bg-purple-500/10 text-purple-700 dark:text-purple-400">
-                  {product.module}
+              ) : null}
+              {product.version ? (
+                <Badge
+                  variant="outline"
+                  className="max-w-[6rem] shrink-0 truncate whitespace-nowrap border-teal-500/35 bg-teal-500/10 font-normal text-[10px] text-teal-800 dark:text-teal-300 sm:max-w-[8rem]"
+                  title={displayIdPipeName(product.version)}
+                >
+                  {displayIdPipeName(product.version)}
                 </Badge>
-              )}
+              ) : null}
             </div>
+            {product.description?.trim() ? (
+              <Tooltip delayDuration={400}>
+                <TooltipTrigger asChild>
+                  <p
+                    className="cursor-default truncate text-[13px] leading-5 text-muted-foreground"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {product.description}
+                  </p>
+                </TooltipTrigger>
+                <TooltipContent
+                  showArrow={false}
+                  side="bottom"
+                  align="start"
+                  sideOffset={6}
+                  className="max-w-md whitespace-pre-wrap border border-white/25 bg-background/75 px-3 py-2 text-xs leading-relaxed text-foreground shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-background/65"
+                >
+                  {product.description}
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <p className="truncate text-[13px] leading-5 text-muted-foreground/40">—</p>
+            )}
           </div>
         </div>
 
@@ -247,15 +282,11 @@ export function ProductCard({
           />
         </div>
 
-        <p className="mb-4 h-10 shrink-0 text-[13px] leading-5 text-muted-foreground line-clamp-2" title={product.description}>
-          {product.description}
-        </p>
-
         <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-border/60 bg-muted/10 p-3">
           <div className="mb-3 flex shrink-0 items-center justify-between">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
               <Ticket size={14} className="text-blue-500" />
-              {t("workbench.products.recentTickets", { count: product.latestTickets?.length || 0 }) || `近期工单 (${product.latestTickets?.length || 0})`}
+              {t("workbench.products.recentTickets", { count: product.latestTickets?.length || 0 }) || `近30日改造工单 (${product.latestTickets?.length || 0})`}
             </div>
           </div>
 
