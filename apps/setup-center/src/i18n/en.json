@@ -54,6 +54,7 @@
       "createMissingUserinfo": "Local userinfo not found. Complete the Dev cloud login step first.",
       "createRemoteFailed": "R&D unified service error: {{message}}",
       "updateRemoteFailed": "Failed to update product on R&D unified service: {{message}}",
+      "deleteRemoteFailed": "Failed to delete product on R&D unified service: {{message}}",
       "loadingList": "Loading products…",
       "loadListFailed": "Failed to load products: {{message}}",
       "statusDone": "Done",

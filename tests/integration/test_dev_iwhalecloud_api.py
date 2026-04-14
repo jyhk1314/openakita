@@ -156,19 +156,6 @@ class TestCreateTaskValidation:
         assert data.get("message")
 
 
-class TestGetProductVersionList:
-    async def test_without_userinfo_returns_business_error(self, client):
-        with patch.object(
-            dev_iwhalecloud,
-            "_ensure_valid_creds_async",
-            new_callable=AsyncMock,
-            side_effect=ValueError("未找到本地凭据（userinfo.encryption），请先完成引导验证"),
-        ):
-            resp = await client.post("/api/dev/iwhalecloud/get_product_version_list", json={})
-        assert resp.status_code == 200
-        assert resp.json().get("errorcode") == 400
-
-
 class TestGetModuleNameList:
     async def test_upstream_params_include_project_and_product_version_id(self, client):
         """研发云 getModuleList 传入 projectId 与 productVersionId。"""

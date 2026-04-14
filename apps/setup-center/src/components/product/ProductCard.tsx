@@ -14,7 +14,7 @@ interface ProductCardProps {
   onView: (product: Product) => void;
   onRefreshProcess?: (product: Product) => void | Promise<void>;
   onChangeRepos?: (product: Product) => void | Promise<void>;
-  cardActionBusy?: { productId: string; kind: "refresh" | "repo" } | null;
+  cardActionBusy?: { productId: string; kind: "refresh" | "repo" | "delete" } | null;
 }
 
 type AnalysisKey = "code" | "ticket" | "document";
@@ -134,6 +134,7 @@ export function ProductCard({
   const { t } = useTranslation();
   const busyRefresh = cardActionBusy?.productId === product.id && cardActionBusy.kind === "refresh";
   const busyRepo = cardActionBusy?.productId === product.id && cardActionBusy.kind === "repo";
+  const busyDelete = cardActionBusy?.productId === product.id && cardActionBusy.kind === "delete";
 
   return (
     <Card 
@@ -157,6 +158,7 @@ export function ProductCard({
         <Button
           variant="ghost"
           className="h-7 w-7 p-0 text-muted-foreground hover:bg-background/90 hover:text-foreground shadow-sm border border-border/50 bg-background/50 backdrop-blur"
+          disabled={busyRefresh || busyRepo || busyDelete}
           onClick={(e) => {
             e.stopPropagation();
             onEdit(product);
@@ -169,7 +171,7 @@ export function ProductCard({
           <Button
             variant="ghost"
             className="h-7 w-7 p-0 text-muted-foreground hover:bg-background/90 hover:text-foreground shadow-sm border border-border/50 bg-background/50 backdrop-blur"
-            disabled={busyRefresh || busyRepo}
+            disabled={busyRefresh || busyRepo || busyDelete}
             onClick={(e) => {
               e.stopPropagation();
               void onRefreshProcess(product);
@@ -183,7 +185,7 @@ export function ProductCard({
           <Button
             variant="ghost"
             className="h-7 w-7 p-0 text-muted-foreground hover:bg-background/90 hover:text-foreground shadow-sm border border-border/50 bg-background/50 backdrop-blur"
-            disabled={busyRefresh || busyRepo}
+            disabled={busyRefresh || busyRepo || busyDelete}
             onClick={(e) => {
               e.stopPropagation();
               void onChangeRepos(product);
@@ -196,13 +198,14 @@ export function ProductCard({
         <Button
           variant="ghost"
           className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive shadow-sm border border-destructive/20 bg-background/50 backdrop-blur"
+          disabled={busyRefresh || busyRepo || busyDelete}
           onClick={(e) => {
             e.stopPropagation();
             onDelete(product.id);
           }}
           title={t("workbench.products.tooltipDelete") || "删除"}
         >
-          <Trash2 size={13} />
+          {busyDelete ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
         </Button>
       </div>
 

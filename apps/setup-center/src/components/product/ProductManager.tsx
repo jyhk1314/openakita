@@ -26,6 +26,7 @@ import {
   updateProdInfo,
   getProdProcessInfo,
   fetchProjectList,
+  destroyProd,
 } from "@/api/rdUnifiedService";
 import type { ProdProcessDataPayload } from "@/api/rdUnifiedService";
 import "./product-workbench.css";
@@ -95,7 +96,7 @@ export function ProductManager({ synapseApiBase = "http://127.0.0.1:18900" }: { 
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [cardActionBusy, setCardActionBusy] = useState<{
     productId: string;
-    kind: "refresh" | "repo";
+    kind: "refresh" | "repo" | "delete";
   } | null>(null);
 
   const filteredProducts = products;
@@ -194,9 +195,48 @@ export function ProductManager({ synapseApiBase = "http://127.0.0.1:18900" }: { 
     setIsModalOpen(true);
   };
 
-  const handleDelete = (id: string) => {
-    setProducts(products.filter((p) => p.id !== id));
-    toast.success(t("workbench.products.deleted") || "已删除");
+  const handleDelete = async (id: string) => {
+    const product = products.find((p) => p.id === id);
+    if (!product) return;
+    const detailWasThisProduct = selectedProduct?.id === id;
+
+    const clearDetailIfNeeded = () => {
+      if (detailWasThisProduct) {
+        setSelectedProduct(null);
+        setIsDetailOpen(false);
+      }
+    };
+
+    if (!IS_TAURI) {
+      setProducts((prev) => prev.filter((p) => p.id !== id));
+      clearDetailIfNeeded();
+      toast.success(t("workbench.products.deleted") || "已删除");
+      return;
+    }
+
+    const prodKey = product.name.trim();
+    if (!prodKey) {
+      toast.error(t("workbench.products.deleteRemoteFailed", { message: "empty prod" }));
+      return;
+    }
+
+    setCardActionBusy({ productId: id, kind: "delete" });
+    try {
+      const resp = await destroyProd(synapseApiBase, { prod: prodKey });
+      setProducts((prev) => prev.filter((p) => p.id !== id));
+      clearDetailIfNeeded();
+      const okMsg = typeof resp.message === "string" && resp.message.trim() !== "" ? resp.message.trim() : "";
+      toast.success(okMsg || t("workbench.products.deleted"));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === "missing_devservice_ip") {
+        toast.error(t("workbench.products.createMissingDevservice"));
+      } else {
+        toast.error(t("workbench.products.deleteRemoteFailed", { message: msg }));
+      }
+    } finally {
+      setCardActionBusy(null);
+    }
   };
 
   const handleView = (product: Product) => {

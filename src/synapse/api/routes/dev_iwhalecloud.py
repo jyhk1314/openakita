@@ -371,98 +371,6 @@ async def _get_product_list(body: GetProductListRequest) -> dict:
     return success_response(simplified)
 
 
-class GetProductVersionListRequest(BaseModel):
-    """产品版本筛选列表（上游返回数组）；入参均可省略，使用默认值。"""
-    keyWord: str = Field("_", description="关键字（上游字段名 keyWord），默认 '_'")
-    limit: int = Field(200000, ge=1, le=500000, description="返回条数上限（query 参数 limit）")
-    ignoreState: bool = Field(True, description="是否忽略状态（query 参数 ignoreState）")
-
-def _build_get_product_version_list_headers(csrf: str, cookies: str) -> dict:
-    return {
-        "accept": "application/json, text/javascript, */*; q=0.01",
-        "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
-        "app-nonce": "y7ATcsxsiStu",
-        "app-signature": "0fac7aba41b08a5a5f9b060e7a65bd9be16c2c21991c41d0884b709314c7c8df",
-        "app-timestamp": "1775724063904",
-        "content-type": "application/json",
-        "menu-id": "auto-97006c427ba17406",
-        "sec-ch-ua": '"Chromium";v="146", "Not-A.Brand";v="24", "Microsoft Edge";v="146"',
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"Windows"',
-        "sec-fetch-dest": "empty",
-        "sec-fetch-mode": "cors",
-        "sec-fetch-site": "same-origin",
-        "x-csrf-token": csrf,
-        "x-requested-with": "XMLHttpRequest",
-        "cookie": cookies,
-    }
-
-def _build_get_product_version_list_payload(body: GetProductVersionListRequest) -> dict:
-    return {"keyWord": body.keyWord}
-
-@router.post("/api/dev/iwhalecloud/get_product_version_list")
-async def get_product_version_list(
-    body: GetProductVersionListRequest = Body(default_factory=GetProductVersionListRequest),
-) -> dict:
-    """
-    功能：获取产品版本列表。
-    用法：传入产品版本关键字keyWord，进行模糊匹配，获取产品版本列表。
-    接口类型：研发云界面抓取请求（研发平台 --> 需求管理 --> 产品版本筛选）
-    返回数据格式：[
-        {
-            "productVersionId": 123,
-            "productId": 123,
-            "productVersionCode": "产品版本编码",
-        }
-    ]
-    转调：POST /portal/zcm-cicd/rpc/product/product-version-filter?limit=&ignoreState=，无返回码，直接返回数据
-    """
-    return await _get_product_version_list(body)
-
-async def _get_product_version_list(body: GetProductVersionListRequest) -> dict:
-    try:
-        csrf, cookies = await _ensure_valid_creds_async()
-    except ValueError as e:
-        return error_response(400, str(e))
-
-    url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-cicd/rpc/product/product-version-filter"
-    params = {"limit": body.limit, "ignoreState": "true" if body.ignoreState else "false"}
-    headers = _build_get_product_version_list_headers(csrf, cookies)
-    payload = _build_get_product_version_list_payload(body)
-
-    logger.debug("get_product_version_list url:%s params:%s payload:%s", url, params, payload)
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(url, headers=headers, params=params, json=payload)
-            _log_httpx_response("get_product_version_list", resp)
-    except httpx.RequestError as exc:
-        logger.exception("调用研发云获取产品版本筛选列表接口异常: %s", exc)
-        return error_response(503, f"调用研发云接口异常: {exc}")
-
-    if resp.status_code >= 400:
-        return error_response(resp.status_code, f"研发云获取产品版本筛选列表失败：{resp.text}")
-
-    # 检查数据格式
-    try:
-        raw = resp.json()
-        if not isinstance(raw, list):
-            return error_response(502, f"研发云返回数据非列表：{resp.text}")
-    except ValueError:
-        return error_response(502, f"研发云返回非 JSON：{resp.text}")
-
-    # 提取数据
-    simplified = [
-        {
-            "productVersionId": it.get("productVersionId"),
-            "productId": it.get("productId"),
-            "productVersionCode": it.get("productVersionCode")
-        }
-        for it in raw
-    ]
-
-    return success_response(simplified)
-
-
 class GetRepoDetailRequest(BaseModel):
     userId: int = Field(..., description="用户ID")
     isSuper: bool = Field(False, description="是否超管，默认false")
@@ -906,7 +814,7 @@ async def _get_module_name_list(body: GetModuleNameListRequest) -> dict:
         for it in raw.get("data").get("list")
     ]
 
-    return success_response(simplified)
+    return success_response({"total": len(simplified), "list": simplified})
 
 
 class GetProductBranchListRequest(BaseModel):
@@ -937,9 +845,9 @@ def _build_get_product_branch_list_headers(csrf: str, cookies: str) -> dict:
 
 @router.post("/api/dev/iwhalecloud/get_product_branch_list")
 async def get_product_branch_list(body: GetProductBranchListRequest) -> dict:
-    f"""对外路由：按产品版本查询分支列表（内部复用 _get_product_branch_list）。
+    """对外路由：按产品版本查询分支列表（内部复用 _get_product_branch_list）。
     功能：按产品版本查询分支列表。
-    用法：传入产品版本ID、项目空间ID，获取产品分支列表。
+    用法：传入产品版本ID，获取产品分支列表。
     接口类型：研发云界面抓取请求（研发平台 --> 需求管理 --> 产品版本筛选）
     返回数据格式：{
         "total": 100,

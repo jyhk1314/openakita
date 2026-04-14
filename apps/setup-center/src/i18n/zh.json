@@ -54,6 +54,7 @@
       "createMissingUserinfo": "未找到本地 userinfo，请先完成研发云登录引导。",
       "createRemoteFailed": "同步到研发统一服务失败：{{message}}",
       "updateRemoteFailed": "更新研发统一服务产品信息失败：{{message}}",
+      "deleteRemoteFailed": "删除研发统一服务产品失败：{{message}}",
       "loadingList": "正在加载产品列表…",
       "loadListFailed": "加载产品列表失败：{{message}}",
       "statusDone": "已完成",

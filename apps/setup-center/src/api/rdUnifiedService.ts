@@ -17,6 +17,7 @@ export const RD_UNIFIED_PATHS = {
   getProdInfo: "/dev/iwhalecloud/synapse/get_prod_info",
   getProdProcessInfo: "/dev/iwhalecloud/synapse/get_prod_process_info",
   changeRepoInfo: "/dev/iwhalecloud/synapse/change_repo_info",
+  destroyProd: "/dev/iwhalecloud/synapse/destroy_prod",
 } as const;
 
 export type RdRepoInfo = {
@@ -75,6 +76,11 @@ export type UpdateProdInfoBody = {
   prod_icon: string;
   /** 产品描述 */
   prod_desc: string;
+};
+
+/** destroy_prod：按产品标识删除 */
+export type DestroyProdBody = {
+  prod: string;
 };
 
 /** 研发统一服务 get_prod_info 单条记录（与 insert 字段对齐）；部分字段服务端可能为 null */
@@ -350,6 +356,32 @@ export async function changeRepoInfo(
   );
   if (resp.code !== 0) {
     throw new Error(resp.message || "change_repo_failed");
+  }
+  return resp;
+}
+
+/**
+ * 删除产品：研发统一服务 destroy_prod，body `{ prod }`。
+ * 仅应在 Tauri 下调用。
+ */
+export async function destroyProd(
+  _synapseApiBase: string,
+  body: DestroyProdBody,
+): Promise<DevServiceResponse> {
+  if (!IS_TAURI) {
+    throw new Error("rd_unified_tauri_only");
+  }
+  const host = await getDevserviceHost();
+  if (!host) {
+    throw new Error("missing_devservice_ip");
+  }
+  const resp = await postRdUnifiedJson<DevServiceResponse>(
+    host,
+    RD_UNIFIED_PATHS.destroyProd,
+    body,
+  );
+  if (resp.code !== 0) {
+    throw new Error(resp.message || "destroy_prod_failed");
   }
   return resp;
 }
