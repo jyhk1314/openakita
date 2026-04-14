@@ -223,7 +223,7 @@ class GetProjectListRequest(BaseModel):
     # x-csrf-token / Cookie 从服务端 data/iwhalecloud_session.json 读取，勿在请求体传递
 
 
-def _build_get_project_list_headers(body: GetProjectListRequest, csrf: str, cookies: str) -> dict:
+def _build_get_project_list_headers(csrf: str, cookies: str) -> dict:
     return {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
@@ -245,8 +245,17 @@ def _build_get_project_list_headers(body: GetProjectListRequest, csrf: str, cook
 @router.post("/api/dev/iwhalecloud/get_project_list")
 async def get_project_list(body: GetProjectListRequest) -> dict:
     """
-    对外路由：获取 CMDB 项目列表（精简字段）。
-    转调：GET /portal/zcm-cmdb/v1/projects/all
+    功能：获取项目空间列表。
+    用法：传入关键字keyword，进行全局检索，获取项目空间列表。
+    接口类型：研发云界面抓取请求（项目 --> 项目检索）
+    返回数据格式：[
+        {
+            "projectId": 123,
+            "projectName": "项目空间名称",
+            "projectCode": "项目空间编码",
+        }
+    ]
+    转调：GET /portal/zcm-cmdb/v1/projects/all，无返回码，直接返回数据
     """
     return await _get_project_list(body)
 
@@ -264,7 +273,7 @@ async def _get_project_list(body: GetProjectListRequest) -> dict:
             csrf, cookies = await _ensure_valid_creds_async(force_refresh=(attempt > 0))
         except ValueError as e:
             return error_response(400, str(e))
-        headers = _build_get_project_list_headers(body, csrf, cookies)
+        headers = _build_get_project_list_headers(csrf, cookies)
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.get(url, headers=headers, params=params)
@@ -278,11 +287,15 @@ async def _get_project_list(body: GetProjectListRequest) -> dict:
         break
     assert resp is not None
 
+    # 检查数据格式
     try:
         raw = resp.json()
+        if not isinstance(raw, list):
+            return error_response(502, f"研发云返回数据非列表：{resp.text}")
     except ValueError:
         return error_response(502, f"研发云返回非 JSON：{resp.text}")
 
+    # 提取数据
     simplified = [
         {
             "projectId": it.get("projectId"),
@@ -299,7 +312,19 @@ class GetProductListRequest(BaseModel):
 
 @router.post("/api/dev/iwhalecloud/get_product_list")
 async def get_product_list(body: GetProductListRequest) -> dict:
-    """对外路由：获取产品列表，支持传入产品名模糊匹配，默认获取全量列表（内部复用 _get_product_list）。"""
+    """对外路由：获取产品列表，支持传入产品名模糊匹配，默认获取全量列表（内部复用 _get_product_list）。
+    功能：获取产品列表。
+    用法：传入产品名称productNameSearch，进行模糊匹配，获取产品列表。
+    接口类型：研发云提供标准API接口
+    返回数据格式：[
+        {
+            "productId": 123,
+            "productName": "产品名称",
+            "productCode": "产品编码",
+        }
+    ]
+    转调：POST /portal/ai-gateway/devspace/rpc/v3/master-data/product-list，返回码code为“9999”表示成功
+    """
     return await _get_product_list(body)
     
 async def _get_product_list(body: GetProductListRequest) -> dict: 
@@ -321,23 +346,38 @@ async def _get_product_list(body: GetProductListRequest) -> dict:
         logger.exception("调用研发云获取产品列表接口异常: %s", exc)
         return error_response(503, f"调用研发云接口异常: {exc}")
     
-    # 数据格式
-    # {
-    #   "productId": 375,
-    #   "productName": "分式布内存数据库/ZMDB",
-    #   "classType": "P"
-    # }
-    return _forward_response(resp)
+    # 检查数据格式
+    try:
+        raw = resp.json()
+        if not isinstance(raw.get("data"), list):
+            return error_response(502, f"研发云返回数据data非列表：{resp.text}")
+    except ValueError:
+        return error_response(502, f"研发云返回非 JSON：{resp.text}")
+
+    # 检查返回码
+    if raw.get("code") != "9999":
+        msg = raw.get("finalMessage") or raw.get("msg") or raw.get("message") or "研发云执行失败"
+        return error_response(502, f"研发云获取产品列表失败：{msg}")
+
+    # 提取数据
+    simplified = [
+        {
+            "productId": it.get("productId"),
+            "productName": it.get("productName")
+        }
+        for it in raw.get("data")
+    ]
+
+    return success_response(simplified)
 
 
 class GetProductVersionListRequest(BaseModel):
     """产品版本筛选列表（上游返回数组）；入参均可省略，使用默认值。"""
-
     keyWord: str = Field("_", description="关键字（上游字段名 keyWord），默认 '_'")
     limit: int = Field(200000, ge=1, le=500000, description="返回条数上限（query 参数 limit）")
     ignoreState: bool = Field(True, description="是否忽略状态（query 参数 ignoreState）")
 
-def _build_get_product_version_list_headers(body: GetProductVersionListRequest, csrf: str, cookies: str) -> dict:
+def _build_get_product_version_list_headers(csrf: str, cookies: str) -> dict:
     return {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
@@ -365,8 +405,17 @@ async def get_product_version_list(
     body: GetProductVersionListRequest = Body(default_factory=GetProductVersionListRequest),
 ) -> dict:
     """
-    对外路由：产品版本筛选列表（精简字段）。
-    转调：POST /portal/zcm-cicd/rpc/product/product-version-filter?limit=&ignoreState=
+    功能：获取产品版本列表。
+    用法：传入产品版本关键字keyWord，进行模糊匹配，获取产品版本列表。
+    接口类型：研发云界面抓取请求（研发平台 --> 需求管理 --> 产品版本筛选）
+    返回数据格式：[
+        {
+            "productVersionId": 123,
+            "productId": 123,
+            "productVersionCode": "产品版本编码",
+        }
+    ]
+    转调：POST /portal/zcm-cicd/rpc/product/product-version-filter?limit=&ignoreState=，无返回码，直接返回数据
     """
     return await _get_product_version_list(body)
 
@@ -378,7 +427,7 @@ async def _get_product_version_list(body: GetProductVersionListRequest) -> dict:
 
     url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-cicd/rpc/product/product-version-filter"
     params = {"limit": body.limit, "ignoreState": "true" if body.ignoreState else "false"}
-    headers = _build_get_product_version_list_headers(body, csrf, cookies)
+    headers = _build_get_product_version_list_headers(csrf, cookies)
     payload = _build_get_product_version_list_payload(body)
 
     logger.debug("get_product_version_list url:%s params:%s payload:%s", url, params, payload)
@@ -392,29 +441,30 @@ async def _get_product_version_list(body: GetProductVersionListRequest) -> dict:
 
     if resp.status_code >= 400:
         return error_response(resp.status_code, f"研发云获取产品版本筛选列表失败：{resp.text}")
+
+    # 检查数据格式
     try:
         raw = resp.json()
+        if not isinstance(raw, list):
+            return error_response(502, f"研发云返回数据非列表：{resp.text}")
     except ValueError:
         return error_response(502, f"研发云返回非 JSON：{resp.text}")
 
-    # 上游正常为数组
-    raw_list = raw if isinstance(raw, list) else []
-    simplified: list[dict] = []
-    for row in raw_list:
-        if not isinstance(row, dict):
-            continue
-        simplified.append(
-            {
-                "productVersionId": row.get("productVersionId"),
-                "productId": row.get("productId"),
-                "productVersionCode": row.get("productVersionCode"),
-            }
-        )
+    # 提取数据
+    simplified = [
+        {
+            "productVersionId": it.get("productVersionId"),
+            "productId": it.get("productId"),
+            "productVersionCode": it.get("productVersionCode")
+        }
+        for it in raw
+    ]
+
     return success_response(simplified)
 
 
 class GetRepoDetailRequest(BaseModel):
-    userId: int = Field(2787, description="用户ID，默认2787")
+    userId: int = Field(..., description="用户ID")
     isSuper: bool = Field(False, description="是否超管，默认false")
     projectId: int = Field(..., description="项目空间ID")
     isRecursion: bool = Field(True, description="是否递归，默认true")
@@ -426,7 +476,7 @@ class GetRepoDetailRequest(BaseModel):
     typeIdList: list[int] = Field(default_factory=list, description="类型ID列表（可选）")
 
 
-def _build_get_repo_detail_headers(body: GetRepoDetailRequest, csrf: str, cookies: str) -> dict:
+def _build_get_repo_detail_headers(csrf: str, cookies: str) -> dict:
     return {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
@@ -459,8 +509,17 @@ def _build_get_repo_detail_payload(body: GetRepoDetailRequest) -> dict:
 @router.post("/api/dev/iwhalecloud/get_repo_detail")
 async def get_repo_detail(body: GetRepoDetailRequest) -> dict:
     """
-    对外路由：获取代码仓库信息（按应用模块ID筛选）。
-    转调：POST /portal/zcm-devspace/gitea-repo/catalog/-1/repos
+    功能：获取代码仓库信息。
+    用法：传入项目空间ID、应用模块ID、仓库名称关键字、状态筛选、分支版本ID列表、产品版本ID列表、类型ID列表，获取代码仓库信息。
+    接口类型：研发云界面抓取请求（研发平台 --> 仓库管理）
+    返回数据格式：[
+        {
+            "repoName": "仓库名称",
+            "repoUrl": "仓库URL",
+            "defaultBranch": "默认分支",
+        }
+    ]
+    转调：POST /portal/zcm-devspace/gitea-repo/catalog/-1/repos，返回码code为“9999”表示成功
     """
     return await _get_repo_detail(body)
 
@@ -479,7 +538,7 @@ async def _get_repo_detail(body: GetRepoDetailRequest) -> dict:
         "projectId": body.projectId,
         "isRecursion": "true" if body.isRecursion else "false",
     }
-    headers = _build_get_repo_detail_headers(body, csrf, cookies)
+    headers = _build_get_repo_detail_headers(csrf, cookies)
     payload = _build_get_repo_detail_payload(body)
 
     logger.debug("get_repo_detail url:%s params:%s payload:%s", url, params, payload)
@@ -493,32 +552,30 @@ async def _get_repo_detail(body: GetRepoDetailRequest) -> dict:
 
     if resp.status_code >= 400:
         return error_response(resp.status_code, f"研发云获取代码仓库信息失败：{resp.text}")
+    
+    # 检查数据格式
     try:
-        data = resp.json()
+        raw = resp.json()
+        if not isinstance(raw.get("data"), list):
+            return error_response(502, f"研发云返回数据data非列表：{resp.text}")
     except ValueError:
         return error_response(502, f"研发云获取代码仓库信息返回非 JSON：{resp.text}")
-    if data.get("code") != "9999":
-        msg = data.get("finalMessage") or data.get("msg") or data.get("message") or "研发云获取代码仓库信息失败"
-        return error_response(502, msg, error=str(data))
 
-    items = data.get("data") or []
-    if not isinstance(items, list):
-        items = []
+    # 检查返回码
+    if raw.get("code") != "9999":
+        msg = raw.get("finalMessage") or raw.get("msg") or raw.get("message") or "研发云获取代码仓库信息失败"
+        return error_response(502, msg, error=str(raw))
 
-    simplified: list[dict] = []
-    for one in items:
-        if not isinstance(one, dict):
-            continue
-        repo = one.get("gitRepoDto") or {}
-        if not isinstance(repo, dict):
-            continue
-        simplified.append(
-            {
-                "repoName": repo.get("repoName"),
-                "repoUrl": repo.get("repoUrl"),
-                "defaultBranch": repo.get("defaultBranch"),
-            }
-        )
+    # 提取数据
+    simplified = [
+        {
+            "repoName": it.get("gitRepoDto").get("repoName"),
+            "repoUrl": it.get("gitRepoDto").get("repoUrl"),
+            "defaultBranch": it.get("gitRepoDto").get("defaultBranch"),
+        }
+        for it in raw.get("data")
+    ]
+
     return success_response(simplified)
 
 
@@ -693,8 +750,16 @@ class GetProductVersionIdRequest(BaseModel):
 @router.post("/api/dev/iwhalecloud/get_product_version_id")
 async def get_product_version_id(body: GetProductVersionIdRequest) -> dict:
     """
-    对外路由：根据产品版本名称获取产品版本ID。
-    参考：POST /portal/ai-gateway/devspace/rpc/v3/master-data/product-version-list
+    功能：根据产品版本获取产品版本ID。
+    用法：传入产品版本/发布包名称关键字keyword，进行模糊匹配，获取产品版本ID。
+    接口类型：研发云提供标准API接口
+    返回数据格式：[
+        {
+            "productVersionId": 123,
+            "productVersionCode": "产品版本编码",
+        }
+    ]
+    转调：POST /portal/ai-gateway/devspace/rpc/v3/master-data/product-version-list，返回码code为“9999”表示成功
     """
     if not body.keyword or not str(body.keyword).strip():
         return error_response(400, "keyword 不能为空")
@@ -714,15 +779,39 @@ async def get_product_version_id(body: GetProductVersionIdRequest) -> dict:
         logger.exception("调用研发云获取产品版本列表接口异常: %s", exc)
         return error_response(503, f"调用研发云接口异常: {exc}")
 
-    return _forward_response(resp)
+    if resp.status_code >= 400:
+        return error_response(resp.status_code, f"研发云获取产品版本ID失败：{resp.text}")
+
+    # 检查数据格式
+    try:
+        raw = resp.json()
+        if not isinstance(raw.get("data"), list):
+            return error_response(502, f"研发云返回数据data非列表：{resp.text}")
+    except ValueError:
+        return error_response(502, f"研发云获取产品版本ID返回非 JSON：{resp.text}")
+
+    # 检查返回码
+    if raw.get("code") != "9999":
+        msg = raw.get("finalMessage") or raw.get("msg") or raw.get("message") or "研发云获取产品版本ID失败"
+        return error_response(502, msg, error=str(raw))
+
+    # 提取数据
+    simplified = [
+        {
+            "productVersionId": it.get("productVersionId"),
+            "productVersionCode": it.get("productVersionCode")
+        }
+        for it in raw.get("data")
+    ]
+
+    return success_response(simplified)
 
 
 class GetModuleNameListRequest(BaseModel):
     projectId: int = Field(-1, description="项目空间ID，可选，默认-1；建议前端必选项目空间后传入")
     productVersionId: int = Field(-1, description="产品版本ID，可选，默认-1；前端必选产品版本后传入以过滤模块")
 
-
-def _build_get_module_name_list_headers(body: GetModuleNameListRequest, csrf: str, cookies: str) -> dict:
+def _build_get_module_name_list_headers(csrf: str, cookies: str) -> dict:
     return {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
@@ -743,7 +832,22 @@ def _build_get_module_name_list_headers(body: GetModuleNameListRequest, csrf: st
 
 @router.post("/api/dev/iwhalecloud/get_module_name_list")
 async def get_module_name_list(body: GetModuleNameListRequest) -> dict:
-    """对外路由：获取应用模块列表（内部复用 _get_module_name_list）。"""
+    """对外路由：获取应用模块列表（内部复用 _get_module_name_list）。
+    功能：获取应用模块列表。
+    用法：传入项目空间ID、产品版本ID，获取应用模块列表。
+    接口类型：研发云界面抓取请求（研发平台 -->应用模块 --> 搜索）
+    返回数据格式：[
+        {
+            "productModuleId": 123,
+            "moduleChName": "应用模块名称",
+            "productVersionId": 123,
+            "branchVersionId": 123,
+            "productVersionCode": "产品版本编码",
+            "branchName": "分支名称",
+        }
+    ]
+    转调：GET /portal/zcm-cicd/module/getModuleList，返回码code为“9999”表示成功
+    """
     return await _get_module_name_list(body)
 
 async def _get_module_name_list(body: GetModuleNameListRequest) -> dict:
@@ -763,7 +867,7 @@ async def _get_module_name_list(body: GetModuleNameListRequest) -> dict:
     if body.productVersionId != -1:
         params["productVersionId"] = body.productVersionId
 
-    headers = _build_get_module_name_list_headers(body, csrf, cookies)
+    headers = _build_get_module_name_list_headers(csrf, cookies)
     logger.debug("get_module_name_list url:%s, headers:%s, params:%s", url, headers, params)
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -775,29 +879,34 @@ async def _get_module_name_list(body: GetModuleNameListRequest) -> dict:
 
     if resp.status_code >= 400:
         return error_response(resp.status_code, f"研发云获取模块列表失败：{resp.text}")
+    
+    # 检查数据格式
     try:
-        data = resp.json()
+        raw = resp.json()
+        if not isinstance(raw.get("data"), dict):
+            return error_response(502, f"研发云返回数据data非字典：{resp.text}")
     except ValueError:
         return error_response(502, f"研发云获取模块列表返回非 JSON：{resp.text}")
-    if data.get("code") != "9999":
-        msg = data.get("finalMessage") or data.get("msg") or data.get("message") or "研发云获取模块列表失败"
-        return error_response(502, msg, error=str(data))
 
-    page_data = data.get("data") or {}
-    module_list = page_data.get("list") or []
-    formatted = []
-    for item in module_list:
-        formatted.append(
-            {
-                "productModuleId": item.get("productModuleId"),
-                "moduleChName": item.get("moduleChName"),
-                "productVersionId": item.get("productVersionId"),
-                "branchVersionId": item.get("branchVersionId"),
-                "productVersionCode": item.get("productVersionCode"),
-                "branchName": item.get("branchName"),
-            }
-        )
-    return success_response({"total": page_data.get("total", 0), "list": formatted})
+    # 检查返回码    
+    if raw.get("code") != "9999":
+        msg = raw.get("finalMessage") or raw.get("msg") or raw.get("message") or "研发云获取模块列表失败"
+        return error_response(502, msg, error=str(raw))
+
+    # 提取数据
+    simplified = [
+        {
+            "productModuleId": it.get("productModuleId"),
+            "moduleChName": it.get("moduleChName"),
+            "productVersionId": it.get("productVersionId"),
+            "branchVersionId": it.get("branchVersionId"),
+            "productVersionCode": it.get("productVersionCode"),
+            "branchName": it.get("branchName"),
+        }
+        for it in raw.get("data").get("list")
+    ]
+
+    return success_response(simplified)
 
 
 class GetProductBranchListRequest(BaseModel):
@@ -807,10 +916,7 @@ class GetProductBranchListRequest(BaseModel):
         description="项目空间 ID，可选；不传时与门户一致 query 中 projectId 为空",
     )
 
-
-def _build_get_product_branch_list_headers(
-    body: GetProductBranchListRequest, csrf: str, cookies: str
-) -> dict:
+def _build_get_product_branch_list_headers(csrf: str, cookies: str) -> dict:
     return {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
@@ -829,12 +935,24 @@ def _build_get_product_branch_list_headers(
         "cookie": cookies,
     }
 
-
 @router.post("/api/dev/iwhalecloud/get_product_branch_list")
 async def get_product_branch_list(body: GetProductBranchListRequest) -> dict:
-    """对外路由：按产品版本查询分支列表（内部复用 _get_product_branch_list）。"""
+    f"""对外路由：按产品版本查询分支列表（内部复用 _get_product_branch_list）。
+    功能：按产品版本查询分支列表。
+    用法：传入产品版本ID、项目空间ID，获取产品分支列表。
+    接口类型：研发云界面抓取请求（研发平台 --> 需求管理 --> 产品版本筛选）
+    返回数据格式：{
+        "total": 100,
+        "list": [
+            {
+                "branchVersionId": 123,
+                "branchName": "分支名称",
+            }
+        ]
+    }
+    转调：GET /portal/zcm-cicd/product/branch/qryByConditionWithMain，返回码code为“9999”表示成功
+    """
     return await _get_product_branch_list(body)
-
 
 async def _get_product_branch_list(body: GetProductBranchListRequest) -> dict:
     """
@@ -855,7 +973,7 @@ async def _get_product_branch_list(body: GetProductBranchListRequest) -> dict:
         "page": 1,
         "_": str(int(time.time() * 1000)),
     }
-    headers = _build_get_product_branch_list_headers(body, csrf, cookies)
+    headers = _build_get_product_branch_list_headers(csrf, cookies)
     logger.debug("get_product_branch_list url:%s, headers:%s, params:%s", url, headers, params)
     try:
         async with httpx.AsyncClient(timeout=60) as client:
@@ -867,32 +985,30 @@ async def _get_product_branch_list(body: GetProductBranchListRequest) -> dict:
 
     if resp.status_code >= 400:
         return error_response(resp.status_code, f"研发云获取产品分支列表失败：{resp.text}")
+
+    # 检查数据格式
     try:
-        data = resp.json()
+        raw = resp.json()
+        if not isinstance(raw.get("data"), dict):
+            return error_response(502, f"研发云返回数据data非字典：{resp.text}")
     except ValueError:
         return error_response(502, f"研发云获取产品分支列表返回非 JSON：{resp.text}")
-    if data.get("code") != "9999":
-        msg = data.get("finalMessage") or data.get("msg") or data.get("message") or "研发云获取产品分支列表失败"
-        return error_response(502, msg, error=str(data))
+    
+    # 检查返回码
+    if raw.get("code") != "9999":
+        msg = raw.get("finalMessage") or raw.get("msg") or raw.get("message") or "研发云获取产品分支列表失败"
+        return error_response(502, msg, error=str(raw))
 
-    page_data = data.get("data") or {}
-    if not isinstance(page_data, dict):
-        page_data = {}
-    branch_list = page_data.get("list") or []
-    if not isinstance(branch_list, list):
-        branch_list = []
-
-    formatted: list[dict] = []
-    for item in branch_list:
-        if not isinstance(item, dict):
-            continue
-        formatted.append(
-            {
-                "branchVersionId": item.get("branchVersionId"),
-                "branchName": item.get("branchName"),
-            }
-        )
-    return success_response({"total": page_data.get("total", 0), "list": formatted})
+    # 提取数据
+    page_data = raw.get("data") or {}
+    simplified = [  
+        {
+            "branchVersionId": it.get("branchVersionId"),
+            "branchName": it.get("branchName"),
+        }
+        for it in page_data.get("list")
+    ]
+    return success_response({"total": page_data.get("total", 0), "list": simplified})
 
 
 class GetZcmProductListRequest(BaseModel):
@@ -995,12 +1111,12 @@ async def _get_zcm_product_list(body: GetZcmProductListRequest) -> dict:
 
 
 class GetPatchVersionRequest(BaseModel):
-    userId: int = Field(2787, description="用户ID，默认2787")
+    userId: int = Field(..., description="用户ID")
     projectId: int = Field(-1, description="项目空间ID，默认-1")
     stateList: list[str] = Field(default_factory=lambda: ["PENDING"], description="版本状态列表，默认PENDING")
     branchVersionIdList: list[str] = Field(..., description="产品分支ID列表，必传")
 
-def _build_get_patch_version_headers(body: GetPatchVersionRequest, csrf: str, cookies: str) -> dict:
+def _build_get_patch_version_headers(csrf: str, cookies: str) -> dict:
     return {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
@@ -1041,7 +1157,15 @@ def _build_get_patch_version_payload(body: GetPatchVersionRequest) -> dict:
 
 @router.post("/api/dev/iwhalecloud/get_patch_version")
 async def get_patch_version(body: GetPatchVersionRequest) -> dict:
-    """对外路由：根据产品分支版本ID获取模块版本（补丁计划）（内部复用 _get_patch_version）。"""
+    """对外路由：根据产品分支版本ID获取模块版本（补丁计划）（内部复用 _get_patch_version）。
+    功能：根据产品分支版本ID获取模块版本（补丁计划）。
+    用法：传入产品分支版本ID列表，获取模块版本（补丁计划）。
+    接口类型：研发云界面抓取请求（研发平台 --> 版本管理 --> 查询）
+    返回数据格式：{
+        "patchName": "补丁计划名称",
+    }
+    转调：GET /portal/zcm-devspace/patch/page/list/{userId}?page=1&limit=1000，返回码code为“9999”表示成功
+    """
     return await _get_patch_version(body)
 
 async def _get_patch_version(body: GetPatchVersionRequest) -> dict:
@@ -1058,7 +1182,7 @@ async def _get_patch_version(body: GetPatchVersionRequest) -> dict:
 
     url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-devspace/patch/page/list/{body.userId}"
     params = {"page": 1, "limit": 1000}
-    headers = _build_get_patch_version_headers(body, csrf, cookies)
+    headers = _build_get_patch_version_headers(csrf, cookies)
     payload = _build_get_patch_version_payload(body)
 
     logger.debug("get_patch_version url:%s, params:%s, payload:%s", url, params, payload)
@@ -1072,15 +1196,22 @@ async def _get_patch_version(body: GetPatchVersionRequest) -> dict:
 
     if resp.status_code >= 400:
         return error_response(resp.status_code, f"研发云获取补丁计划失败：{resp.text}")
+
+    # 检查数据格式
     try:
-        data = resp.json()
+        raw = resp.json()
+        if not isinstance(raw.get("data"), dict):
+            return error_response(502, f"研发云返回数据data非字典：{resp.text}")
     except ValueError:
         return error_response(502, f"研发云获取补丁计划返回非 JSON：{resp.text}")
-    if data.get("code") != "9999":
-        msg = data.get("finalMessage") or data.get("msg") or data.get("message") or "研发云获取补丁计划失败"
-        return error_response(502, msg, error=str(data))
 
-    items = ((data.get("data") or {}).get("list") or [])
+    # 检查返回码
+    if raw.get("code") != "9999":
+        msg = raw.get("finalMessage") or raw.get("msg") or raw.get("message") or "研发云获取补丁计划失败"
+        return error_response(502, msg, error=str(raw))
+
+    # 提取数据
+    items = ((raw.get("data") or {}).get("list") or [])
     if not items:
         return success_response({"patchName": None}, "未找到补丁计划")
     patch_name = (((items[0] or {}).get("adPatch") or {}).get("patchName"))
@@ -1094,7 +1225,22 @@ class GetCiFlowExecutionStatusRequest(BaseModel):
 
 @router.post("/api/dev/iwhalecloud/get_ci_flow_execution_status")
 async def get_ci_flow_execution_status(body: GetCiFlowExecutionStatusRequest) -> dict:
-    """对外路由：根据构建流程获取CI最新的构建结果（内部复用 _get_ci_flow_execution_status）。"""
+    """对外路由：根据构建流程获取CI最新的构建结果（内部复用 _get_ci_flow_execution_status）。
+    功能：根据构建流程获取CI最新的构建结果。
+    用法：传入流程ID，获取CI最新的构建结果。
+    接口类型：研发云提供标准API接口
+    返回数据格式：{
+        "status": "success",
+        "stages": [
+            {
+                "stageName": "阶段名称",
+                "stageInstanceId": "阶段实例ID",
+                "status": "阶段状态",
+            }
+        ],
+        "resultMsg": "构建结果消息",
+    }
+    """
     return await _get_ci_flow_execution_status(body)
 
 async def _get_ci_flow_execution_status(body: GetCiFlowExecutionStatusRequest) -> dict:
@@ -1117,15 +1263,22 @@ async def _get_ci_flow_execution_status(body: GetCiFlowExecutionStatusRequest) -
 
     if resp.status_code >= 400:
         return error_response(resp.status_code, f"研发云获取CI执行结果失败：{resp.text}")
+    
+    # 检查数据格式
     try:
-        data = resp.json()
+        raw = resp.json()
+        if not isinstance(raw.get("data"), dict):
+            return error_response(502, f"研发云返回数据data非字典：{resp.text}")
     except ValueError:
         return error_response(502, f"研发云获取CI执行结果返回非 JSON：{resp.text}")
-    if data.get("code") != "9999":
-        msg = data.get("finalMessage") or data.get("msg") or data.get("message") or "研发云获取CI执行结果失败"
-        return error_response(502, msg, error=str(data))
 
-    flow_data = data.get("data") or {}
+    # 检查返回码
+    if raw.get("code") != "9999":
+        msg = raw.get("finalMessage") or raw.get("msg") or raw.get("message") or "研发云获取CI执行结果失败"
+        return error_response(502, msg, error=str(raw))
+
+    # 提取数据
+    flow_data = raw.get("data") or {}
     stages: list[dict] = []
     for item in flow_data.get("nodeInstanceBuildStatuses") or []:
         stages.append(
@@ -1153,7 +1306,25 @@ class GetCiFlowReportRequest(BaseModel):
 
 @router.post("/api/dev/iwhalecloud/get_ci_flow_report")
 async def get_ci_flow_report(body: GetCiFlowReportRequest) -> dict:
-    """对外路由：根据构建流程获取最新的CI报表（内部复用 _get_ci_flow_report）。"""
+    """对外路由：根据构建流程获取最新的CI报表（内部复用 _get_ci_flow_report）。
+    功能：据构建流程获取最新的CI报表。
+    用法：传入流程ID，获取最新的CI报表。
+    接口类型：研发云提供标准API接口
+    返回数据格式：[
+		{
+			"nodeTypeId": 0,
+			"nodeTypeName": "",
+			"attachmentList": [
+				{
+					"attachmentDesc": "",
+					"url": "",
+					"size": 0
+				}
+			]
+		}
+	]
+    转调：POST /portal/ai-gateway/cicd/rpc/v3/flow/{flowId}/artifact/report，返回码code为“9999”表示成功
+    """
     return await _get_ci_flow_report(body)
     
 async def _get_ci_flow_report(body: GetCiFlowReportRequest) -> dict:
@@ -1175,13 +1346,27 @@ async def _get_ci_flow_report(body: GetCiFlowReportRequest) -> dict:
         logger.exception("调用研发云获取CI报表接口异常: %s", exc)
         return error_response(503, f"调用研发云接口异常: {exc}")
 
-    return _forward_response(resp)
+    # 检查数据格式
+    try:
+        raw = resp.json()
+        if not isinstance(raw.get("data"), list):
+            return error_response(502, f"研发云返回数据data非列表：{resp.text}")
+    except ValueError:
+        return error_response(502, f"研发云获取CI报表返回非 JSON：{resp.text}")
+
+    # 检查返回码
+    if raw.get("code") != "9999":
+        msg = raw.get("finalMessage") or raw.get("msg") or raw.get("message") or "研发云获取CI报表失败"
+        return error_response(502, msg, error=str(raw))
+
+    # 提取数据
+    return success_response(raw.get("data"))
 
 
 class GetTaskBuildHistoryRequest(BaseModel):
     taskId: int = Field(..., description="任务ID")
 
-def _build_get_task_build_history_headers(body: GetTaskBuildHistoryRequest, csrf: str, cookies: str) -> dict:
+def _build_get_task_build_history_headers(csrf: str, cookies: str) -> dict:
     return {
         "accept": "application/json, text/javascript, */*; q=0.01",
         "accept-language": "zh-CN,zh;q=0.9,en;q=0.9,en-GB;q=0.7,en-US;q=0.6",
@@ -1202,7 +1387,21 @@ def _build_get_task_build_history_headers(body: GetTaskBuildHistoryRequest, csrf
 
 @router.post("/api/dev/iwhalecloud/get_task_build_history")
 async def get_task_build_history(body: GetTaskBuildHistoryRequest) -> dict:
-    """对外路由：根据任务ID获取任务构建历史（内部复用 _get_task_build_history）。"""
+    """对外路由：根据任务ID获取任务构建历史（内部复用 _get_task_build_history）。
+    功能：根据任务ID获取任务构建历史。
+    用法：传入任务ID，获取任务构建历史。
+    接口类型：研发云界面抓取请求（研发平台 --> 事务管理 --> 任务详情 --> 代码分支）
+    返回数据格式：[
+        {
+            "ciFlowId": 123,
+            "ciFlowInstId": "ciFlowInstId",
+            "ciFlowInstBeginDate": "ciFlowInstBeginDate",
+            "ciFlowInstEndDate": "ciFlowInstEndDate",
+            "ciFlowInstRunState": "ciFlowInstRunState",
+        }
+    ]
+    转调：GET /portal/zcm-devspace/task/{taskId}/build-history，返回码code为“9999”表示成功
+    """
     return await _get_task_build_history(body)
 
 async def _get_task_build_history(body: GetTaskBuildHistoryRequest) -> dict:
@@ -1217,7 +1416,7 @@ async def _get_task_build_history(body: GetTaskBuildHistoryRequest) -> dict:
 
     url = f"{DEV_IWHALECLOUD_BASE_URL}/portal/zcm-devspace/task/{body.taskId}/build-history"
     params = {"_": int(datetime.now().timestamp() * 1000)}
-    headers = _build_get_task_build_history_headers(body, csrf, cookies)
+    headers = _build_get_task_build_history_headers(csrf, cookies)
     logger.debug("get_task_build_history url:%s, params:%s", url, params)
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -1227,7 +1426,31 @@ async def _get_task_build_history(body: GetTaskBuildHistoryRequest) -> dict:
         logger.exception("调用研发云获取任务构建历史接口异常: %s", exc)
         return error_response(503, f"调用研发云接口异常: {exc}")
 
-    return _forward_response(resp)
+    # 检查数据格式
+    try:
+        raw = resp.json()
+        if not isinstance(raw.get("data"), dict):
+            return error_response(502, f"研发云返回数据data非字典：{resp.text}")
+    except ValueError:
+        return error_response(502, f"研发云获取任务构建历史返回非 JSON：{resp.text}")
+
+    # 检查返回码
+    if raw.get("code") != "9999":
+        msg = raw.get("finalMessage") or raw.get("msg") or raw.get("message") or "研发云获取任务构建历史失败"
+        return error_response(502, msg, error=str(raw))
+
+    # 提取数据
+    simplified = [
+        {
+            "ciFlowId": it.get("ciFlowId"),
+            "ciFlowInstId": it.get("ciFlowInstId"),
+            "ciFlowInstBeginDate": it.get("ciFlowInstBeginDate"),
+            "ciFlowInstEndDate": it.get("ciFlowInstEndDate"),
+            "ciFlowInstRunState": it.get("ciFlowInstRunState"),
+        }
+        for it in raw.get("data").get("featureBuildHisList")
+    ]
+    return success_response(simplified)
 
 
 
@@ -1255,7 +1478,31 @@ def _build_get_ci_flow_build_result_headers(body: GetCiFlowBuildResultRequest, c
 
 @router.post("/api/dev/iwhalecloud/get_ci_flow_build_result")
 async def get_ci_flow_build_result(body: GetCiFlowBuildResultRequest) -> dict:
-    """对外路由：根据 ciFlowInstId 获取本次构建各环节结果。"""
+    f"""对外路由：根据 ciFlowInstId 获取本次构建各环节结果。
+    功能：根据 ciFlowInstId 获取本次构建各环节结果。
+    用法：传入构建实例ID，获取本次构建各环节结果。
+    接口类型：研发云界面抓取请求（研发平台 --> 事务管理 --> 任务详情 --> 代码分支 --> 双击试飞构建历史）
+    返回数据格式：[
+        {
+            "nodeName": "节点名称",
+            "stepId": "步骤ID",
+            "runResult": "运行结果",
+            "url": "URL",
+            "attachments": [
+                {
+                    "fullPath": "附件全路径",
+                    "path": "附件路径",
+                    "nodeInstanceId": "节点实例ID",
+                    "attachmentDesc": "附件描述",
+                    "fileSize": "附件大小",
+                    "resultType": "附件类型",
+                    "createDate": "创建时间",
+                }
+            ]
+        }
+    ]
+    转调：GET /portal/zcm-cicd/ci/flow/history/qryFlowNodeInstanceDetail/{{ciFlowInstId}}，返回码code为null
+    """
     return await _get_ci_flow_build_result(body)
 
 async def _get_ci_flow_build_result(body: GetCiFlowBuildResultRequest) -> dict:
@@ -1282,7 +1529,31 @@ async def _get_ci_flow_build_result(body: GetCiFlowBuildResultRequest) -> dict:
         logger.exception("调用研发云获取构建结果接口异常: %s", exc)
         return error_response(503, f"调用研发云接口异常: {exc}")
 
-    return success_response(resp.json())
+    # 检查数据格式
+    try:
+        raw = resp.json()
+        if not isinstance(raw.get("data"), list):
+            return error_response(502, f"研发云返回数据data非列表：{resp.text}")
+    except ValueError:
+        return error_response(502, f"研发云获取构建结果返回非 JSON：{resp.text}")
+
+    # 检查返回码    
+    if raw.get("code") != "9999":
+        msg = raw.get("finalMessage") or raw.get("msg") or raw.get("message") or "研发云获取构建结果失败"
+        return error_response(502, msg, error=str(raw))
+
+    # 提取数据 
+    simplified = [
+        {
+            "nodeName": it.get("nodeName"),
+            "stepId": it.get("stepId"),
+            "runResult": it.get("runResult"),
+            "url": it.get("url"),
+            "attachments": it.get("attachments") or [],
+        }
+        for it in raw.get("data")
+    ]
+    return success_response(simplified)
 
 
 class GetCiFlowBuildStatusRequest(BaseModel):
@@ -1326,11 +1597,11 @@ async def get_ci_flow_build_status(body: GetCiFlowBuildStatusRequest) -> dict:
             return history_resp if isinstance(history_resp, dict) else error_response(502, "获取构建历史失败")
 
         # 兜底：无历史数据时直接返回错误（避免后续分组逻辑空指针）
-        if not history_resp.get("data").get("data") or not history_resp.get("data").get("data").get("featureBuildHisList") or history_resp.get("data").get("data").get("featureBuildHisList") == []:
+        if not history_resp.get("data") or history_resp.get("data") == []:
             return error_response(502, "获取构建历史失败")
 
         # 2) 提取构建历史列表（同一个 flowId 可能会有多次构建记录）
-        history_data = history_resp.get("data").get("data").get("featureBuildHisList") or []
+        history_data = history_resp.get("data") or []
         # 3) 先按 ciFlowId 分组（一个任务可能挂多个 CI flow；每个 flow 又可能构建多次）
         grouped: dict[str, list[dict]] = {}
         for item in history_data:
@@ -1370,10 +1641,9 @@ async def get_ci_flow_build_status(body: GetCiFlowBuildStatusRequest) -> dict:
                     )
                     # 上游成功：只抽取前端关心的字段，保持数组结构不变
                     if isinstance(build_result_resp, dict) and build_result_resp.get("errorcode") == 0:
-                        br_outer = build_result_resp.get("data") or {}
-                        br_inner = (br_outer.get("data") if isinstance(br_outer, dict) else None)
-                        if isinstance(br_inner, list):
-                            for n in br_inner:
+                        br_data = build_result_resp.get("data") or []
+                        if isinstance(br_data, list):
+                            for n in br_data:
                                 if not isinstance(n, dict):
                                     continue
                                 node_results.append(
