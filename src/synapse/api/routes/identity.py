@@ -84,6 +84,39 @@ def _resolve_file(name: str) -> Path:
     return target
 
 
+# Persona files that must not be removed via API (shipped presets + system overlay).
+_PROTECTED_PERSONA_SLUGS = frozenset(
+    {
+        "default",
+        "business",
+        "tech_expert",
+        "butler",
+        "girlfriend",
+        "boyfriend",
+        "family",
+        "jarvis",
+        "user_custom",
+    }
+)
+
+
+def _sanitize_persona_upload_filename(raw: str) -> str:
+    """Basename for identity/personas/*.md — allows Unicode (e.g. CJK); blocks path segments and OS-forbidden chars."""
+    name = raw.strip()
+    if not name:
+        raise HTTPException(400, "文件名不能为空")
+    if "/" in name or "\\" in name or ".." in name:
+        raise HTTPException(400, "非法文件名")
+    if not name.lower().endswith(".md"):
+        name = name + ".md"
+    name = re.sub(r'[<>:"|?*\x00-\x1f]', "_", name)
+    if name.startswith(".") or not name.lower().endswith(".md"):
+        raise HTTPException(400, "非法文件名")
+    if len(name) > 240:
+        raise HTTPException(400, "文件名过长")
+    return name
+
+
 def _get_agent(request: Request):
     agent = getattr(request.app.state, "agent", None)
     if agent is None:
@@ -293,6 +326,33 @@ async def write_identity_file(req: FileWriteRequest, request: Request):
     }
 
 
+@router.delete("/file")
+async def delete_identity_file(name: str, request: Request):
+    """Delete a custom persona file under personas/ only. Built-in presets cannot be removed."""
+    if not name.startswith("personas/") or not name.endswith(".md"):
+        raise HTTPException(400, "Only personas/*.md can be deleted via this endpoint")
+    slug = name[len("personas/") : -len(".md")]
+    if not slug or slug in _PROTECTED_PERSONA_SLUGS:
+        raise HTTPException(403, "Cannot delete built-in or system persona files")
+    path = _resolve_file(name)
+    if not path.exists():
+        raise HTTPException(404, f"File not found: {name}")
+    path.unlink()
+    try:
+        agent = getattr(request.app.state, "agent", None)
+        if agent is not None:
+            identity = getattr(agent, "identity", None)
+            if identity is None:
+                local = getattr(agent, "_local_agent", None)
+                if local:
+                    identity = getattr(local, "identity", None)
+            if identity is not None:
+                identity.reload()
+    except Exception as e:
+        logger.warning("[Identity API] reload after delete failed: %s", e)
+    return {"deleted": True, "name": name}
+
+
 @router.post("/validate")
 async def validate_file(req: ValidateRequest):
     """Validate file content without saving."""
@@ -482,18 +542,12 @@ async def download_persona_template():
 async def import_persona_file(file: UploadFile = File(...)):
     """Import a persona MD file. Saves to identity/personas/ with the uploaded filename.
 
-    No strict validation — the file is saved as-is.
+    Filename may contain Unicode (e.g. Chinese); path separators and Windows-reserved characters are rejected.
     """
     if not file.filename:
         raise HTTPException(400, "文件名不能为空")
 
-    fname = file.filename
-    if not fname.endswith(".md"):
-        fname = fname + ".md"
-
-    safe_name = re.sub(r"[^\w\-.]", "_", fname)
-    if safe_name.startswith(".") or "/" in safe_name or "\\" in safe_name:
-        raise HTTPException(400, "非法文件名")
+    safe_name = _sanitize_persona_upload_filename(file.filename)
 
     content_bytes = await file.read()
     try:

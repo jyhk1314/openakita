@@ -16,6 +16,8 @@ export const RD_UNIFIED_PATHS = {
   updateProdInfo: "/dev/iwhalecloud/synapse/update_prod_info",
   getProdInfo: "/dev/iwhalecloud/synapse/get_prod_info",
   getProdProcessInfo: "/dev/iwhalecloud/synapse/get_prod_process_info",
+  gitNexusInitialize: "/dev/iwhalecloud/synapse/gitnexus_initialize",
+  gitNexusAnalysis: "/dev/iwhalecloud/synapse/gitnexus_analysis",
   changeRepoInfo: "/dev/iwhalecloud/synapse/change_repo_info",
   destroyProd: "/dev/iwhalecloud/synapse/destroy_prod",
 } as const;
@@ -135,6 +137,16 @@ export type GetProdProcessInfoResponse = {
   total: number;
 };
 
+/** gitnexus_initialize：按产品与分支启动 GitNexus 初始化（异步任务） */
+export type GitNexusInitializeBody = {
+  prod: string;
+  repo_branch: string;
+  prod_branch: string;
+};
+
+/** gitnexus_analysis：按产品与分支重新分析（异步任务）；请求体与 {@link GitNexusInitializeBody} 相同 */
+export type GitNexusAnalysisBody = GitNexusInitializeBody;
+
 /** change_repo_info：服务端若需产品标识可一并传 prod */
 export type ChangeRepoInfoBody = {
   prod: string;
@@ -188,6 +200,91 @@ export async function getDevserviceHost(): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/** 代码关系分析图谱前端（与统一服务同机，端口 11001） */
+export const CODE_GRAPH_VIEWER_PORT = 11001;
+/** 图谱后端服务端口（嵌入页 `server` 查询参数，端口 11011） */
+export const CODE_GRAPH_SERVER_PORT = 11011;
+
+/**
+ * 将 `devservice.ip` 内容规范为 `http://host:port` 中的 host（IPv6 加 `[]`）。
+ * 规则与 {@link rdUnifiedOrigin} 中非 URL 分支一致。
+ */
+export function unifiedServiceHostAuthority(hostRaw: string): string | null {
+  const h = hostRaw.trim();
+  if (!h) return null;
+  if (h.includes("://")) {
+    try {
+      return formatHostAuthority(new URL(h).hostname);
+    } catch {
+      return null;
+    }
+  }
+  const bare = h.replace(/^\[|\]$/g, "");
+  return formatHostAuthority(bare);
+}
+
+function formatHostAuthority(hostname: string): string {
+  const isV4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname);
+  if (isV4) return hostname;
+  if (hostname.includes(":")) return `[${hostname}]`;
+  return hostname;
+}
+
+/** 从 `repo_branch`（如 `repositoryId|destBranchName`）解析真实分支名：`|` 后为分支；无 `|` 则整段视为分支名。 */
+function branchNameFromRepoBranchComposite(repoBranch: string): string {
+  const t = repoBranch.trim();
+  if (!t) return "";
+  const parts = t.split("|").map((p) => p.trim()).filter((p) => p.length > 0);
+  if (parts.length >= 2) {
+    return parts.slice(1).join("|");
+  }
+  return parts[0] ?? "";
+}
+
+function projectNameFromRepoUrl(repoUrl: string): string {
+  const s = repoUrl.trim();
+  if (!s) return "";
+  try {
+    const u = new URL(s);
+    const seg = u.pathname.replace(/\/$/, "").split("/").filter(Boolean).pop() ?? "";
+    const name = seg.replace(/\.git$/i, "");
+    return name || u.hostname || s;
+  } catch {
+    return s;
+  }
+}
+
+/**
+ * 图谱嵌入页 `repo` 查询参数取值：先由仓库 URL 得到 project（路径最后一段，去掉 `.git`），再结合 `repo_branch`。
+ * - 将 `repo_branch` 按 `|` 分割，取 `|` 之后为真实分支名（多段时后续段再拼回，兼容分支名中含 `|` 的极端情况）。
+ * - 若分支名为 `master`（大小写不敏感），仅返回 project，不拼接分支。
+ * - 否则返回 `project@@branch_name`。
+ */
+export function codeGraphProjectNameFromRepoUrl(repoUrl: string, repoBranch: string): string {
+  const project = projectNameFromRepoUrl(repoUrl);
+  if (!project) return "";
+  const branchName = branchNameFromRepoBranchComposite(repoBranch);
+  if (!branchName) return project;
+  if (branchName.toLowerCase() === "master") {
+    return project;
+  }
+  return `${project}@@${branchName}`;
+}
+
+/**
+ * 代码关系分析图谱嵌入 URL：
+ * `http://{host}:11001/?server=http://{host}:11011/&repo={...}`
+ */
+export function buildCodeGraphEmbedUrl(unifiedServiceHostRaw: string, repo: string): string | null {
+  const host = unifiedServiceHostAuthority(unifiedServiceHostRaw);
+  const repoParam = repo.trim();
+  if (!host || !repoParam) return null;
+  const server = `http://${host}:${CODE_GRAPH_SERVER_PORT}/`;
+  const viewer = `http://${host}:${CODE_GRAPH_VIEWER_PORT}/`;
+  const q = new URLSearchParams({ server, repo: repoParam });
+  return `${viewer}?${q.toString()}`;
 }
 
 export async function fetchUserinfoForUnifiedService(synapseApiBase: string): Promise<{
@@ -323,6 +420,58 @@ export async function getProdProcessInfo(
   );
   if (resp.code !== 0) {
     throw new Error(resp.message || "get_prod_process_failed");
+  }
+  return resp;
+}
+
+/**
+ * GitNexus 初始化：研发统一服务 gitnexus_initialize（异步执行，成功仅表示任务已提交）。
+ * 仅应在 Tauri 下调用。
+ */
+export async function gitNexusInitialize(
+  _synapseApiBase: string,
+  body: GitNexusInitializeBody,
+): Promise<DevServiceResponse> {
+  if (!IS_TAURI) {
+    throw new Error("rd_unified_tauri_only");
+  }
+  const host = await getDevserviceHost();
+  if (!host) {
+    throw new Error("missing_devservice_ip");
+  }
+  const resp = await postRdUnifiedJson<DevServiceResponse>(
+    host,
+    RD_UNIFIED_PATHS.gitNexusInitialize,
+    body,
+  );
+  if (resp.code !== 0) {
+    throw new Error(resp.message || "gitnexus_initialize_failed");
+  }
+  return resp;
+}
+
+/**
+ * GitNexus 重新分析：研发统一服务 gitnexus_analysis（异步执行，成功仅表示任务已提交）。
+ * 仅应在 Tauri 下调用。
+ */
+export async function gitNexusAnalysis(
+  _synapseApiBase: string,
+  body: GitNexusAnalysisBody,
+): Promise<DevServiceResponse> {
+  if (!IS_TAURI) {
+    throw new Error("rd_unified_tauri_only");
+  }
+  const host = await getDevserviceHost();
+  if (!host) {
+    throw new Error("missing_devservice_ip");
+  }
+  const resp = await postRdUnifiedJson<DevServiceResponse>(
+    host,
+    RD_UNIFIED_PATHS.gitNexusAnalysis,
+    body,
+  );
+  if (resp.code !== 0) {
+    throw new Error(resp.message || "gitnexus_analysis_failed");
   }
   return resp;
 }

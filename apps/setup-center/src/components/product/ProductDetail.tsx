@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   GitBranch,
@@ -25,12 +25,27 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { IS_TAURI } from "@/platform";
+import {
+  buildCodeGraphEmbedUrl,
+  codeGraphProjectNameFromRepoUrl,
+  getDevserviceHost,
+  getProdProcessInfo,
+  gitNexusAnalysis,
+  gitNexusInitialize,
+} from "@/api/rdUnifiedService";
+import type { ProdProcessDataPayload } from "@/api/rdUnifiedService";
 import "./product-workbench.css";
+
+/** 详情页轮询 get_prod_process_info（与列表页仅用 get_prod_info 区分） */
+const PRODUCT_DETAIL_PROCESS_POLL_MS = 15_000;
 
 interface ProductDetailProps {
   product: Product | null;
   open: boolean;
   onClose: () => void;
+  synapseApiBase: string;
+  onProcessPayload: (productId: string, payload: ProdProcessDataPayload) => void;
 }
 
 function detailWireBadgeClass(u: UnifiedWireAnalysisState): string {
@@ -65,14 +80,34 @@ function detailWireStateLabel(
   }
 }
 
-export function ProductDetail({ product, open, onClose }: ProductDetailProps) {
+export function ProductDetail({ product, open, onClose, synapseApiBase, onProcessPayload }: ProductDetailProps) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<string>("code-graph");
   const [openDocs, setOpenDocs] = useState<{ id: string; title: string; category: string; content: string }[]>([]);
   const [expandedKnowledge, setExpandedKnowledge] = useState<string[]>([]);
   const [activeRepoIdx, setActiveRepoIdx] = useState<number>(0);
+  const [gitnexusBusyIdx, setGitnexusBusyIdx] = useState<number | null>(null);
+  const [devserviceHost, setDevserviceHost] = useState<string | null>(null);
 
-  React.useEffect(() => {
+  const productRef = useRef(product);
+  productRef.current = product;
+
+  const fetchProcessOnce = useCallback(async () => {
+    const p = productRef.current;
+    if (!p || !IS_TAURI) return;
+    const prodKey = p.name.trim();
+    if (!prodKey) return;
+    try {
+      const resp = await getProdProcessInfo(synapseApiBase, { prod: prodKey });
+      if (resp.data != null) {
+        onProcessPayload(p.id, resp.data);
+      }
+    } catch {
+      /* 轮询失败静默，避免打扰 */
+    }
+  }, [synapseApiBase, onProcessPayload]);
+
+  useEffect(() => {
     if (open && product) {
       setActiveTab("code-graph");
       setOpenDocs([]);
@@ -80,7 +115,40 @@ export function ProductDetail({ product, open, onClose }: ProductDetailProps) {
       const mainIdx = product.repositories.findIndex((r) => r.isMain);
       setActiveRepoIdx(mainIdx >= 0 ? mainIdx : 0);
     }
-  }, [open, product]);
+    // 仅打开或切换产品时重置视图；勿依赖整个 product，避免详情内轮询更新过程字段时打断当前 Tab
+  }, [open, product?.id]);
+
+  useEffect(() => {
+    if (!open || !product || !IS_TAURI) return;
+    void fetchProcessOnce();
+    const id = window.setInterval(() => void fetchProcessOnce(), PRODUCT_DETAIL_PROCESS_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [open, product?.id, fetchProcessOnce]);
+
+  useEffect(() => {
+    if (!open || !IS_TAURI) {
+      setDevserviceHost(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const h = await getDevserviceHost();
+      if (!cancelled) setDevserviceHost(h);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  const codeGraphIframeSrc = useMemo(() => {
+    if (!product || !IS_TAURI || !devserviceHost) return null;
+    const repo = product.repositories[activeRepoIdx];
+    const url = repo?.url?.trim() ?? "";
+    if (!url) return null;
+    const proj = codeGraphProjectNameFromRepoUrl(url, repo?.branch ?? "");
+    if (!proj) return null;
+    return buildCodeGraphEmbedUrl(devserviceHost, proj);
+  }, [product, activeRepoIdx, devserviceHost]);
 
   const knowledgeItems = useMemo(
     () => [
@@ -223,12 +291,43 @@ export function ProductDetail({ product, open, onClose }: ProductDetailProps) {
                                 variant="ghost"
                                 size="icon"
                                 className={`h-6 w-6 ${wireU === "done" ? "text-primary" : "text-muted-foreground"}`}
-                                disabled={wireU !== "done"}
+                                disabled={
+                                  wireU !== "done" || gitnexusBusyIdx === idx || !IS_TAURI
+                                }
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  if (wireU === "done") {
-                                    toast.success(t("workbench.products.detail.analysisSubmitted"));
+                                  if (wireU !== "done") return;
+                                  if (!IS_TAURI) {
+                                    toast.message(t("workbench.products.tauriOnlyAction"));
+                                    return;
                                   }
+                                  const prodKey = product.name.trim();
+                                  if (!prodKey) return;
+                                  setGitnexusBusyIdx(idx);
+                                  void (async () => {
+                                    try {
+                                      const resp = await gitNexusAnalysis(synapseApiBase, {
+                                        prod: prodKey,
+                                        repo_branch: (repo.branch ?? "").trim(),
+                                        prod_branch: (repo.prodBranch ?? "").trim(),
+                                      });
+                                      const msg =
+                                        typeof resp.message === "string" && resp.message.trim() !== ""
+                                          ? resp.message.trim()
+                                          : t("workbench.products.detail.gitnexusInitDefaultSuccess");
+                                      toast.success(msg);
+                                      await fetchProcessOnce();
+                                    } catch (err) {
+                                      const msg = err instanceof Error ? err.message : String(err);
+                                      toast.error(
+                                        t("workbench.products.detail.gitnexusAnalysisFailed", {
+                                          message: msg,
+                                        }),
+                                      );
+                                    } finally {
+                                      setGitnexusBusyIdx(null);
+                                    }
+                                  })();
                                 }}
                                 title={
                                   wireU === "done"
@@ -238,7 +337,12 @@ export function ProductDetail({ product, open, onClose }: ProductDetailProps) {
                                       : detailWireStateLabel(t, wireU)
                                 }
                               >
-                                <RefreshCw size={12} className={isRepoAnalyzing ? "animate-spin" : ""} />
+                                <RefreshCw
+                                  size={12}
+                                  className={
+                                    isRepoAnalyzing || gitnexusBusyIdx === idx ? "animate-spin" : ""
+                                  }
+                                />
                               </Button>
                             </div>
                           )}
@@ -248,15 +352,38 @@ export function ProductDetail({ product, open, onClose }: ProductDetailProps) {
                           <div className="mt-2.5" onClick={(e) => e.stopPropagation()}>
                             <Button
                               type="button"
+                              disabled={gitnexusBusyIdx === idx || !IS_TAURI}
                               title={t("workbench.products.detail.autoAnalysisCardHint")}
                               className="w-full h-8 gap-1.5 text-xs font-medium bg-gradient-to-r from-primary/10 to-primary/5 hover:from-primary/20 hover:to-primary/10 text-primary border border-primary/20 shadow-sm transition-all rounded-md"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                toast.message(
-                                  t("workbench.products.detail.autoAnalysisRepoPending", {
-                                    branch: repo.branch || repo.url || String(idx),
-                                  }),
-                                );
+                                if (!IS_TAURI) {
+                                  toast.message(t("workbench.products.tauriOnlyAction"));
+                                  return;
+                                }
+                                const prodKey = product.name.trim();
+                                if (!prodKey) return;
+                                setGitnexusBusyIdx(idx);
+                                void (async () => {
+                                  try {
+                                    const resp = await gitNexusInitialize(synapseApiBase, {
+                                      prod: prodKey,
+                                      repo_branch: (repo.branch ?? "").trim(),
+                                      prod_branch: (repo.prodBranch ?? "").trim(),
+                                    });
+                                    const msg =
+                                      typeof resp.message === "string" && resp.message.trim() !== ""
+                                        ? resp.message.trim()
+                                        : t("workbench.products.detail.gitnexusInitDefaultSuccess");
+                                    toast.success(msg);
+                                    await fetchProcessOnce();
+                                  } catch (err) {
+                                    const msg = err instanceof Error ? err.message : String(err);
+                                    toast.error(t("workbench.products.detail.gitnexusInitFailed", { message: msg }));
+                                  } finally {
+                                    setGitnexusBusyIdx(null);
+                                  }
+                                })();
                               }}
                             >
                               <Zap className="size-3.5 shrink-0" strokeWidth={2.5} />
@@ -453,36 +580,36 @@ export function ProductDetail({ product, open, onClose }: ProductDetailProps) {
           {/* Main Content Area */}
           <div className="flex-1 flex flex-col min-w-0 bg-background relative overflow-y-auto custom-scrollbar">
             {activeTab === "code-graph" && (
-              <div className="p-6 h-full flex flex-col gap-4">
-                <div className="flex-1 rounded-xl border border-border bg-muted/5 relative overflow-hidden flex items-center justify-center min-h-[400px]">
-                  <div className="absolute inset-0 bg-[radial-gradient(var(--primary)_1px,transparent_1px)] [background-size:30px_30px] opacity-10"></div>
-                  <div className="relative z-10 flex flex-col items-center text-center max-w-md">
-                    <Code2 size={48} className="text-primary opacity-50 mb-4" strokeWidth={1} />
-                    <h4 className="text-lg font-semibold text-foreground mb-2">
-                      {t("workbench.products.detail.codeGraphTitle")}
-                    </h4>
-                    <p className="text-sm text-muted-foreground">
-                      {t("workbench.products.detail.codeGraphHint")}
-                    </p>
-                    <div className="mt-6 flex items-center justify-center gap-3 flex-wrap">
-                      <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">Nodes: 1,248</Badge>
-                      <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">Edges: 5,692</Badge>
-                    </div>
-                  </div>
-                  
-                  <div className="absolute bottom-5 right-5 bg-background border border-border shadow-sm rounded-md p-1 flex items-center gap-1 z-10">
-                    <Button variant="ghost" size="sm" className="h-7 text-xs px-2" title={t("workbench.products.detail.zoom")}>
-                      {t("workbench.products.detail.zoom")}
-                    </Button>
-                    <div className="w-px h-4 bg-border"></div>
-                    <Button variant="ghost" size="sm" className="h-7 text-xs px-2" title={t("workbench.products.detail.filters")}>
-                      {t("workbench.products.detail.filters")}
-                    </Button>
-                    <div className="w-px h-4 bg-border"></div>
-                    <Button variant="ghost" size="sm" className="h-7 text-xs px-2" title={t("workbench.products.detail.centric")}>
-                      {t("workbench.products.detail.centric")}
-                    </Button>
-                  </div>
+              <div className="p-6 h-full flex min-h-0 flex-col gap-4">
+                <div className="flex min-h-[400px] flex-1 flex-col rounded-xl border border-border bg-muted/5 relative overflow-hidden">
+                  {codeGraphIframeSrc ? (
+                    <iframe
+                      key={codeGraphIframeSrc}
+                      title={t("workbench.products.detail.codeGraphTitle")}
+                      src={codeGraphIframeSrc}
+                      className="h-full min-h-[400px] w-full flex-1 border-0 bg-background"
+                      referrerPolicy="no-referrer-when-downgrade"
+                    />
+                  ) : (
+                    <>
+                      <div className="absolute inset-0 bg-[radial-gradient(var(--primary)_1px,transparent_1px)] [background-size:30px_30px] opacity-10 pointer-events-none" />
+                      <div className="relative z-10 flex min-h-[400px] flex-1 flex-col items-center justify-center px-6 text-center">
+                        <Code2 size={48} className="text-primary opacity-50 mb-4" strokeWidth={1} />
+                        <h4 className="text-lg font-semibold text-foreground mb-2">
+                          {t("workbench.products.detail.codeGraphTitle")}
+                        </h4>
+                        <p className="text-sm text-muted-foreground max-w-md">
+                          {!IS_TAURI
+                            ? t("workbench.products.detail.codeGraphEmbedTauriOnly")
+                            : !devserviceHost
+                              ? t("workbench.products.createMissingDevservice")
+                              : !product?.repositories[activeRepoIdx]?.url?.trim()
+                                ? t("workbench.products.detail.codeGraphNoRepoUrl")
+                                : t("workbench.products.detail.codeGraphEmbedUnavailable")}
+                        </p>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}

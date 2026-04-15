@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { FieldText, FieldBool, FieldSelect } from "../components/EnvFields";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -27,6 +27,10 @@ type AgentSystemViewProps = {
   toggleViewDisabled: (viewName: string) => void;
   serviceRunning?: boolean;
   apiBaseUrl?: string;
+  /** 插入在「人格」区块之后（如引导中的 personas/ 文件编辑） */
+  belowPersonaSlot?: ReactNode;
+  /** 引导页可隐藏「计划任务」，与主配置「主动行为」区分 */
+  showScheduler?: boolean;
 };
 
 // ─── Reusable: toggle pill (iOS-style switch in summary) ────────────────
@@ -62,7 +66,10 @@ function TogglePill({ enabled, label, onToggle }: {
 // ─── Main Component ─────────────────────────────────────────────────────
 
 export function AgentSystemView(props: AgentSystemViewProps) {
-  const { envDraft, setEnvDraft, busy = null, disabledViews, toggleViewDisabled, serviceRunning, apiBaseUrl = "" } = props;
+  const {
+    envDraft, setEnvDraft, busy = null, disabledViews, toggleViewDisabled, serviceRunning, apiBaseUrl = "",
+    belowPersonaSlot, showScheduler = true,
+  } = props;
   const { t } = useTranslation();
 
   const [reviewing, setReviewing] = useState(false);
@@ -244,6 +251,7 @@ export function AgentSystemView(props: AgentSystemViewProps) {
               {t("config.personaTemplateDownload")}
             </Button>
           </div>
+          {belowPersonaSlot}
         </Section>
 
         {/* ── 核心参数 ── */}
@@ -351,6 +359,7 @@ export function AgentSystemView(props: AgentSystemViewProps) {
         </Section>
 
         {/* ── 计划任务 ── */}
+        {showScheduler && (
         <Section
           title={t("config.agentScheduler")}
           subtitle={t("config.agentSchedulerSub")}
@@ -367,6 +376,7 @@ export function AgentSystemView(props: AgentSystemViewProps) {
             {FT({ k: "SCHEDULER_TIMEZONE", label: t("config.agentTimezone"), placeholder: "Asia/Shanghai", help: t("config.agentTimezoneHelp") })}
           </div>
         </Section>
+        )}
       </div>
     </>
   );

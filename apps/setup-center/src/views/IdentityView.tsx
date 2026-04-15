@@ -227,7 +227,9 @@ export function IdentityView({ serviceRunning, apiBaseUrl }: Props) {
   const tokenCount = estimateTokens(content);
   const budgetTokens = currentMeta?.budget_tokens;
 
-  const sourceFiles = files.filter(f => !f.is_runtime);
+  const sourceFiles = files.filter(
+    f => !f.is_runtime && f.name !== "personas/user_custom.md",
+  );
   const runtimeFiles = files.filter(f => f.is_runtime);
 
   const runtimeLinks = selectedFile ? SOURCE_TO_RUNTIME[selectedFile] : undefined;

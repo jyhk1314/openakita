@@ -96,6 +96,7 @@ import { toast } from "sonner";
 import { useVersionCheck } from "./hooks/useVersionCheck";
 import { useEnvManager } from "./hooks/useEnvManager";
 import { AdvancedView } from "./views/AdvancedView";
+import { OnboardingCoreAgentPanel } from "./views/OnboardingCoreAgentPanel";
 
 const THEME_I18N_KEYS: Record<Theme, string> = {
   system: "topbar.themeSystem",
@@ -406,6 +407,7 @@ export function App() {
   type OnboardingStep =
     | "ob-welcome"
     | "ob-iwhalecloud"
+    | "ob-core-agent"
     | "ob-claude-code"
     | "ob-devservices"
     | "ob-agreement"
@@ -466,6 +468,11 @@ export function App() {
   const [obIwcLocalDetectPassed, setObIwcLocalDetectPassed] = useState(false);
   /** 自动检测结束且未通过时可选提示（如未找到凭据、无法连接后端） */
   const [obIwcLocalDetectHint, setObIwcLocalDetectHint] = useState<string | null>(null);
+
+  /** 核心智能体配置是否已完成所有任务项（用于点亮“下一步”按钮） */
+  const [obCoreAgentReady, setObCoreAgentReady] = useState(false);
+  /** 离开「核心智能体」步骤时正在保存 .env（含 PERSONA_NAME） */
+  const [obCoreAgentNextBusy, setObCoreAgentNextBusy] = useState(false);
 
   /** 研发工具 CLI：Claude Code / Cursor / OpenCode，任装其一即可继续 */
   type ObDevToolStatus = { installed: boolean; version?: string };
@@ -2918,6 +2925,18 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, stepId, currentWorkspaceId, synapseInstalled, skillsDetail, dataMode]);
 
+  // 引导「核心智能体」步骤：预加载 skills 列表（与配置页技能开关一致）
+  useEffect(() => {
+    if (view !== "onboarding") return;
+    if (obStep !== "ob-core-agent") return;
+    if (!currentWorkspaceId && dataMode !== "remote") return;
+    if (!!busy) return;
+    if (skillsDetail) return;
+    if (!synapseInstalled && dataMode !== "remote") return;
+    void doRefreshSkills();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, obStep, currentWorkspaceId, synapseInstalled, skillsDetail, dataMode]);
+
   async function doRefreshSkills() {
     if (!currentWorkspaceId && dataMode !== "remote") {
       notifyError("请先设置当前工作区");
@@ -4363,9 +4382,15 @@ export function App() {
       logTask("保存环境变量", "running");
       try {
         const imKeys = getAutoSaveKeysForStep("im");
+        const agentKeys = getAutoSaveKeysForStep("agent");
         const entries: Record<string, string> = {};
         for (const k of imKeys) {
           if (Object.prototype.hasOwnProperty.call(envDraft, k) && envDraft[k]) {
+            entries[k] = envDraft[k];
+          }
+        }
+        for (const k of agentKeys) {
+          if (Object.prototype.hasOwnProperty.call(envDraft, k) && envDraft[k] !== undefined && envDraft[k] !== "") {
             entries[k] = envDraft[k];
           }
         }
@@ -4390,6 +4415,30 @@ export function App() {
           }
           log(t("onboarding.progress.envSaved") || "✓ 环境变量已保存");
         }
+
+        if (skillsDetail && skillsDetail.length > 0 && activeWsId) {
+          try {
+            const externalAllowlist = skillsDetail
+              .filter((s) => !s.system && !!s.skill_id)
+              .filter((s) => !!skillsSelection[s.skill_id])
+              .map((s) => s.skill_id);
+            const skillContent =
+              JSON.stringify(
+                {
+                  version: 1,
+                  external_allowlist: externalAllowlist,
+                  updated_at: new Date().toISOString(),
+                },
+                null,
+                2,
+              ) + "\n";
+            await writeWorkspaceFile("data/skills.json", skillContent);
+            log("✓ 已保存 skills 启用配置 (data/skills.json)");
+          } catch (e) {
+            log(`⚠ 保存 skills.json 失败: ${String(e)}`);
+          }
+        }
+
         updateTask("env-save", { status: "done", detail: `${Object.keys(entries).length} 项` });
         logTask("保存环境变量", "done", `${Object.keys(entries).length} 项`);
       } catch (e) {
@@ -4417,8 +4466,8 @@ export function App() {
     // Progress/done are transitional states and should not create extra indicator dots.
     const obStepDots = (
       IS_TAURI
-        ? ["ob-welcome", "ob-iwhalecloud", "ob-claude-code", "ob-devservices", "ob-agreement", "ob-llm", "ob-im", "ob-cli"]
-        : ["ob-welcome", "ob-iwhalecloud", "ob-devservices", "ob-agreement", "ob-llm", "ob-im", "ob-cli"]
+        ? ["ob-welcome", "ob-iwhalecloud", "ob-core-agent", "ob-claude-code", "ob-devservices", "ob-agreement", "ob-llm", "ob-im", "ob-cli"]
+        : ["ob-welcome", "ob-iwhalecloud", "ob-core-agent", "ob-devservices", "ob-agreement", "ob-llm", "ob-im", "ob-cli"]
     ) as OnboardingStep[];
     const obCurrentIdxRaw = obStepDots.indexOf(obStep);
     const obCurrentIdx = obCurrentIdxRaw >= 0 ? obCurrentIdxRaw : obStepDots.length - 1;
@@ -4426,6 +4475,7 @@ export function App() {
     const obStepLabels: Record<string, string> = {
       "ob-welcome": t("onboarding.step.welcome", "欢迎"),
       "ob-iwhalecloud": t("onboarding.step.iwhalecloud", "研发云"),
+      "ob-core-agent": t("onboarding.step.coreAgent", "核心智能体"),
       "ob-claude-code": t("onboarding.step.claudeCode", "Dev tools"),
       "ob-devservices": t("onboarding.step.devservices", "产品公共服务"),
       "ob-agreement": t("onboarding.step.agreement", "协议"),
@@ -4884,7 +4934,7 @@ export function App() {
                     disabled={obIwcLocalDetecting || !(obIwcValidated || obIwcLocalDetectPassed)}
                     title={obIwcLocalDetecting || !(obIwcValidated || obIwcLocalDetectPassed) ? t("onboarding.iwhalecloud.validateRequired") : undefined}
                     onClick={() => {
-                      if (obIwcValidated || obIwcLocalDetectPassed) setObStep(IS_TAURI ? "ob-claude-code" : "ob-devservices");
+                      if (obIwcValidated || obIwcLocalDetectPassed) setObStep("ob-core-agent");
                     }}
                   >
                     {t("onboarding.iwhalecloud.proceed")}
@@ -4893,6 +4943,74 @@ export function App() {
               </div>
             </div>
           </TooltipProvider>
+        );
+
+      case "ob-core-agent":
+        return (
+          <div className="obPage">
+            <div className="obContent w-full max-w-none px-2">
+              <OnboardingCoreAgentPanel
+                envDraft={envDraft}
+                setEnvDraft={setEnvDraft}
+                disabledViews={disabledViews}
+                toggleViewDisabled={toggleViewDisabled}
+                serviceRunning={!!serviceStatus?.running}
+                apiBaseUrl={httpApiBase()}
+                onReady={setObCoreAgentReady}
+                skillsSection={
+                  disabledViews.includes("skills") ? (
+                    <div className="rounded-lg border border-border p-8 text-center text-sm text-muted-foreground">
+                      {t("onboarding.coreAgent.skillsDisabledHint")}
+                    </div>
+                  ) : (
+                    <Suspense
+                      fallback={(
+                        <div className="flex justify-center py-10">
+                          <Loader2 className="size-8 animate-spin text-muted-foreground" />
+                        </div>
+                      )}
+                    >
+                      <SkillManager
+                        venvDir={venvDir}
+                        currentWorkspaceId={currentWorkspaceId}
+                        envDraft={envDraft}
+                        onEnvChange={setEnvDraft}
+                        onSaveEnvKeys={async (keys) => {
+                          await saveEnvKeys(keys);
+                        }}
+                        apiBaseUrl={apiBaseUrl}
+                        serviceRunning={!!serviceStatus?.running}
+                        dataMode={dataMode}
+                      />
+                    </Suspense>
+                  )
+                }
+              />
+            </div>
+            <div className="obFooter">
+              {stepIndicator}
+              <div className="obFooterBtns">
+                <Button variant="outline" onClick={() => setObStep("ob-iwhalecloud")}>{t("config.prev")}</Button>
+                <Button
+                  disabled={!obCoreAgentReady || obCoreAgentNextBusy}
+                  onClick={async () => {
+                    setObCoreAgentNextBusy(true);
+                    try {
+                      await saveEnvKeys(getAutoSaveKeysForStep("agent"));
+                      setObStep(IS_TAURI ? "ob-claude-code" : "ob-devservices");
+                    } catch (e) {
+                      notifyError(String(e));
+                    } finally {
+                      setObCoreAgentNextBusy(false);
+                    }
+                  }}
+                >
+                  {obCoreAgentNextBusy ? <Loader2 className="size-4 animate-spin inline mr-2" /> : null}
+                  {t("config.next")}
+                </Button>
+              </div>
+            </div>
+          </div>
         );
 
       case "ob-claude-code": {
@@ -5185,7 +5303,7 @@ export function App() {
             <div className="obFooter">
               {stepIndicator}
               <div className="obFooterBtns">
-                <Button variant="outline" onClick={() => setObStep("ob-iwhalecloud")}>{t("config.prev")}</Button>
+                <Button variant="outline" onClick={() => setObStep("ob-core-agent")}>{t("config.prev")}</Button>
                 <Button disabled={obClaudeChecking || installBusy || !canProceedClaude} title={!canProceedClaude ? t("onboarding.claudeCode.needInstall") : undefined} onClick={() => {
                   if (canProceedClaude) setObStep("ob-devservices");
                 }}>
@@ -5285,7 +5403,7 @@ export function App() {
               <div className="obFooterBtns">
                 <Button
                   variant="outline"
-                  onClick={() => setObStep(IS_TAURI ? "ob-claude-code" : "ob-iwhalecloud")}
+                  onClick={() => setObStep(IS_TAURI ? "ob-claude-code" : "ob-core-agent")}
                 >
                   {t("config.prev")}
                 </Button>

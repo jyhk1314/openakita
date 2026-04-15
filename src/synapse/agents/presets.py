@@ -18,21 +18,21 @@ SYSTEM_PRESETS: list[AgentProfile] = [
     # ── 通用基础 ──────────────────────────────────────────────────────
     AgentProfile(
         id="default",
-        name="小秋",
+        name="小鲸",
         description="通用全能助手，拥有所有技能",
         type=AgentType.SYSTEM,
         skills=[],
         skills_mode=SkillsMode.ALL,
         custom_prompt="",
-        icon="🐕",
+        icon="🐋",
         color="#4A90D9",
         category="general",
         fallback_profile_id=None,
         created_by="system",
-        name_i18n={"zh": "小秋", "en": "Akita"},
+        name_i18n={"zh": "小鲸", "en": "Synapse"},
         description_i18n={
-            "zh": "通用全能助手，拥有所有技能",
-            "en": "General-purpose assistant with all skills",
+            "zh": "核心智能助手，拥有所有技能",
+            "en": "Core intelligent assistant with all skills",
         },
     ),
     # ── 内容创作 ──────────────────────────────────────────────────────

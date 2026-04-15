@@ -7,25 +7,24 @@
 
 ---
 
-## 当前未提交批次（工作区快照 · 2026-04-13）
+## 当前未提交批次（工作区快照 · 2026-04-15）
 
 **快照依据**：`git status --short -- apps/setup-center/`、`git diff --stat -- apps/setup-center/`。
 
 | 路径 | 功能摘要 |
 |------|----------|
-| `src-tauri/src/main.rs` | 新增 `dev_tools_prereq_satisfied`：CLI 已安装且 Claude/OpenCode 配置文件存在或 Cursor 在 PATH，用于「连接已有服务」类门禁 |
-| `src/App.tsx` | Tauri+HTTP：主界面校验 `userinfo` 与 `devservice.ip`，缺失则回引导；每 5 分钟 `whalecloudHeart`（`POST get_project_list`）保活门户会话 |
-| `src/api/rdUnifiedService.ts` | `fetchSynapseJson` 导出；`prod_branch`；`fetchProjectList`、`fetchZcmProductList`、`fetchModuleNameList`、`fetchProductBranchList`、`fetchRepoDetailByProdBranch`；`whalecloudHeart`（仅 Tauri） |
-| `src/components/product/SearchableVirtualSelect.tsx` | **新增**：可搜索 + `Virtuoso` 虚拟列表下拉，支撑大列表级联 |
-| `src/components/product/ProductModal.tsx` | 项目空间 / 产品版本 / 模块等级联与表单；依赖 `synapseApiBase`、`projectSpaces` |
-| `src/components/product/ProductManager.tsx` | 预拉 `fetchProjectList`；`insertProdInfo` 使用 `repositoriesToRdRepoInfo`；向 Modal 传入 `projectSpaces` / `synapseApiBase` |
-| `src/components/product/RepoUpdateDialog.tsx` | 产品分支列表、`get_repo_detail_by_prod_branch` 驱动的仓库行与分支映射 |
-| `src/components/product/ProductCard.tsx` | `displayIdPipeName`、描述 Tooltip、工单文案与布局 |
-| `src/components/product/types.ts` | 复合字段解析/展示、`prod_branch`、`repositoriesToRdRepoInfo` 等 |
-| `src/components/ui/tooltip.tsx` | `showArrow` 可选，禁用箭头 |
-| `src/i18n/en.json`、`zh.json` | 随上述 UI 的键与文案增量 |
+| `src/App.tsx` | 引导步骤 `ob-core-agent`；`OnboardingCoreAgentPanel`；进入该步时 `doRefreshSkills`；保存 env 时合并 `agent` 键；`data/skills.json` 外部技能 allowlist；步骤点阵与 `ob-iwhalecloud` → 核心智能体 → 后续步的导航 |
+| `src/views/OnboardingCoreAgentPanel.tsx` | **新增**：核心智能体引导（人格、`PERSONA_NAME`、视图开关、SkillManager 插槽、persona 文件增删改与 API） |
+| `src/views/AgentSystemView.tsx` | `belowPersonaSlot`、`showScheduler` |
+| `src/views/IdentityView.tsx` | 列表隐藏 `personas/user_custom.md` |
+| `src/api/rdUnifiedService.ts` | GitNexus initialize/analysis；代码图谱 URL 与 host/`repo` 参数构造 |
+| `src/components/product/ProductManager.tsx` | 产品列表手动/60s 自动刷新；过程线刷新走 `get_prod_info` 行匹配 |
+| `src/components/product/ProductDetail.tsx` | `get_prod_process_info` 轮询；图谱 iframe；`gitNexusAnalysis`；props：`synapseApiBase`、`onProcessPayload` |
+| `package.json`、`package-lock.json` | `@uiw/react-md-editor` 等依赖增量 |
+| `src-tauri/tauri.conf.json` | CSP `frame-src` 含 `http:`/`https:` |
+| `src/i18n/en.json`、`zh.json` | 引导与产品/GitNexus/图谱文案 |
 
-**合并提示**：与上游冲突时优先保留 **引导门禁**、**门户保活**、**产品分支与仓库级联** 相关逻辑；`dist-web/` 若仅 CI/本地重构建可忽略语义合并。
+**合并提示**：与上游冲突时优先保留 **引导核心智能体**、**GitNexus/图谱**、**persona 删除与文件名规则**（与后端 `identity` 路由一致）。分模块说明见仓库根 `docs/localization/uncommitted-batch-2026-04-15-scheme.md`。
 
 ---
 
@@ -33,3 +32,4 @@
 
 1. **提交前**：用根目录 skill `openakita-localized-sync` 中的「提交前：setup-center DIFF 回写」步骤，对 `apps/setup-center/` 跑 `git diff` / `git diff --cached` / 未跟踪列表，更新上表「当前未提交批次」；无待提交改动时可删除该节或改为「（无）」。  
 2. **合并进 main 后**：将已上线行为吸收进仓库根 `DIFF.md` 对应小节（若属于长期与上游差异），并精简本节重复描述。
+

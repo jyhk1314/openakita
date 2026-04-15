@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus, Package, Loader2 } from "lucide-react";
+import { Plus, Package, Loader2, RefreshCw } from "lucide-react";
 import { ProductCard } from "./ProductCard";
 import { ProductModal, formatProjectSpaceOption, type ProductModalFinishValues } from "./ProductModal";
 import { RepoUpdateDialog } from "./RepoUpdateDialog";
@@ -18,23 +18,34 @@ import {
 } from "./types";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuCheckboxItem,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { IS_TAURI } from "@/platform";
 import {
   getProdInfo,
   insertProdInfo,
   updateProdInfo,
-  getProdProcessInfo,
   fetchProjectList,
   destroyProd,
 } from "@/api/rdUnifiedService";
 import type { ProdProcessDataPayload } from "@/api/rdUnifiedService";
 import "./product-workbench.css";
 
+/** 产品列表定时刷新间隔（与产品详情页的 process 轮询分离） */
+const PRODUCT_LIST_AUTO_REFRESH_MS = 60_000;
+
 export function ProductManager({ synapseApiBase = "http://127.0.0.1:18900" }: { synapseApiBase?: string }) {
   const { t } = useTranslation();
   const [products, setProducts] = useState<Product[]>(() => (IS_TAURI ? [] : MOCK_PRODUCTS));
   const [listLoading, setListLoading] = useState(IS_TAURI);
+  const [listRefreshing, setListRefreshing] = useState(false);
+  const [listAutoRefresh, setListAutoRefresh] = useState(false);
   const [projectSpaces, setProjectSpaces] = useState<{label: string, value: string}[] | null>(null);
 
   useEffect(() => {
@@ -90,6 +101,74 @@ export function ProductManager({ synapseApiBase = "http://127.0.0.1:18900" }: { 
       cancelled = true;
     };
   }, [synapseApiBase, t]);
+
+  const mergeProcessIntoProduct = useCallback((productId: string, payload: ProdProcessDataPayload) => {
+    setProducts((prev) =>
+      prev.map((p) => (p.id === productId ? applyProcessPayloadToProduct(p, payload) : p)),
+    );
+    setSelectedProduct((sp) =>
+      sp?.id === productId ? applyProcessPayloadToProduct(sp, payload) : sp,
+    );
+  }, []);
+
+  const refreshListFromServer = useCallback(
+    async (opts: { successToast: boolean }) => {
+      if (!IS_TAURI) return;
+      try {
+        const resp = await getProdInfo(synapseApiBase);
+        const raw = Array.isArray(resp.data) ? resp.data : [];
+        const rows = raw.filter((row): row is NonNullable<typeof row> => row != null);
+        const mapped = rows.map(prodInfoWireToProduct);
+        if (resp.total !== rows.length) {
+          console.warn("[get_prod_info] total != data.length", resp.total, rows.length);
+        }
+        setProducts(mapped);
+        setSelectedProduct((sp) => {
+          if (!sp) return sp;
+          const m = mapped.find((p) => p.id === sp.id || p.name.trim() === sp.name.trim());
+          if (!m) return sp;
+          return { ...m, knowledge: sp.knowledge, latestTickets: sp.latestTickets };
+        });
+        if (opts.successToast) {
+          toast.success(t("workbench.products.refreshListSuccess"));
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg === "missing_devservice_ip") {
+          toast.error(t("workbench.products.createMissingDevservice"));
+        } else {
+          toast.error(t("workbench.products.refreshListFailed", { message: msg }));
+        }
+      }
+    },
+    [synapseApiBase, t],
+  );
+
+  useEffect(() => {
+    if (!IS_TAURI || !listAutoRefresh) return;
+    const id = window.setInterval(() => {
+      void refreshListFromServer({ successToast: false });
+    }, PRODUCT_LIST_AUTO_REFRESH_MS);
+    return () => window.clearInterval(id);
+  }, [IS_TAURI, listAutoRefresh, refreshListFromServer]);
+
+  const listRefreshLock = useRef(false);
+  const handleHeaderRefreshList = async () => {
+    if (!IS_TAURI) {
+      toast.message(t("workbench.products.tauriOnlyAction"));
+      return;
+    }
+    if (listRefreshLock.current) return;
+    listRefreshLock.current = true;
+    setListRefreshing(true);
+    try {
+      await refreshListFromServer({ successToast: true });
+    } finally {
+      setListRefreshing(false);
+      listRefreshLock.current = false;
+    }
+  };
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | undefined>(undefined);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -101,15 +180,6 @@ export function ProductManager({ synapseApiBase = "http://127.0.0.1:18900" }: { 
 
   const filteredProducts = products;
 
-  const mergeProcessIntoProduct = (productId: string, payload: ProdProcessDataPayload) => {
-    setProducts((prev) =>
-      prev.map((p) => (p.id === productId ? applyProcessPayloadToProduct(p, payload) : p)),
-    );
-    setSelectedProduct((sp) =>
-      sp?.id === productId ? applyProcessPayloadToProduct(sp, payload) : sp,
-    );
-  };
-
   const handleRefreshProcess = async (product: Product) => {
     if (!IS_TAURI) {
       toast.message(t("workbench.products.tauriOnlyAction"));
@@ -117,19 +187,43 @@ export function ProductManager({ synapseApiBase = "http://127.0.0.1:18900" }: { 
     }
     setCardActionBusy({ productId: product.id, kind: "refresh" });
     try {
-      const resp = await getProdProcessInfo(synapseApiBase, { prod: product.name.trim() });
-      if (resp.data == null) {
+      const resp = await getProdInfo(synapseApiBase);
+      const raw = Array.isArray(resp.data) ? resp.data : [];
+      const match = raw.find((r) => r != null && (r.prod ?? "").trim() === product.name.trim());
+      if (!match) {
         toast.error(t("workbench.products.refreshProcessEmpty"));
         return;
       }
-      mergeProcessIntoProduct(product.id, resp.data);
+      const updated = prodInfoWireToProduct(match);
+      setProducts((prev) =>
+        prev.map((p) =>
+          p.id === product.id
+            ? {
+                ...updated,
+                id: p.id,
+                knowledge: p.knowledge,
+                latestTickets: p.latestTickets,
+              }
+            : p,
+        ),
+      );
+      setSelectedProduct((sp) =>
+        sp?.id === product.id
+          ? {
+              ...updated,
+              id: sp.id,
+              knowledge: sp.knowledge,
+              latestTickets: sp.latestTickets,
+            }
+          : sp,
+      );
       toast.success(t("workbench.products.refreshProcessSuccess"));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg === "missing_devservice_ip") {
         toast.error(t("workbench.products.createMissingDevservice"));
       } else {
-        toast.error(t("workbench.products.refreshProcessFailed", { message: msg }));
+        toast.error(t("workbench.products.refreshListFailed", { message: msg }));
       }
     } finally {
       setCardActionBusy(null);
@@ -363,7 +457,34 @@ export function ProductManager({ synapseApiBase = "http://127.0.0.1:18900" }: { 
                   </div>
                 </div>
 
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={!IS_TAURI || listRefreshing}
+                        title={t("workbench.products.tooltipRefreshList")}
+                      >
+                        <RefreshCw
+                          size={14}
+                          className={`mr-1.5 ${listRefreshing || listAutoRefresh ? "animate-spin" : ""}`}
+                        />
+                        {t("workbench.products.refreshList")}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-48">
+                      <DropdownMenuItem inset onClick={() => void handleHeaderRefreshList()}>
+                        {t("workbench.products.refreshNow", "立即刷新")}
+                      </DropdownMenuItem>
+                      <DropdownMenuCheckboxItem
+                        checked={listAutoRefresh}
+                        onCheckedChange={setListAutoRefresh}
+                      >
+                        {t("workbench.products.autoRefreshListLabel")}
+                      </DropdownMenuCheckboxItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <Button variant="outline" onClick={handleAdd}>
                     <Plus size={14} className="mr-1.5" />
                     {t("workbench.products.addProduct")}
@@ -435,7 +556,13 @@ export function ProductManager({ synapseApiBase = "http://127.0.0.1:18900" }: { 
           }}
         />
 
-        <ProductDetail product={selectedProduct} open={isDetailOpen} onClose={() => setIsDetailOpen(false)} />
+        <ProductDetail
+          product={selectedProduct}
+          open={isDetailOpen}
+          onClose={() => setIsDetailOpen(false)}
+          synapseApiBase={synapseApiBase}
+          onProcessPayload={mergeProcessIntoProduct}
+        />
       </div>
     </div>
   );

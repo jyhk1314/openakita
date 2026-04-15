@@ -36,6 +36,7 @@
 | `src/synapse/api/auth.py` | base64url 与 HS256 JWT 编解码辅助（`encode_jwt` 主路径仍可能存在） |
 | `src/synapse/llm/registries/providers.json` | 增加公司内部 WhaleCloud / `iwhalecloud` 提供商配置 |
 | `src/synapse/skills/registry.py` | `_MARKETPLACE_HOSTS` 允许的技能市场主机/路径集合与上游不同（影响允许下载来源） |
+| `src/synapse/api/routes/identity.py` | `DELETE /identity/file`：仅允许删除 `personas/*.md` 自定义文件，内置 slug 集合不可删，删后尝试 `identity.reload()`；`import_persona_file` 使用 `_sanitize_persona_upload_filename`（Unicode 合法名、禁止路径与非法字符） |
 
 ---
 
@@ -99,16 +100,22 @@
 
 除 Android Java 包目录名（`com.openakita.mobile` ↔ `com.synapse.mobile`）外，**未发现**「整棵子目录仅在上游存在、本仓库完全缺失」的附加结构；此前若存在「上游独有大量视图/组件」的表述，**与当前本机两棵树不一致**，已不以表格形式维护。
 
-### 2.4 当前工作区待提交增量（快照：2026-04-13）
+### 2.4 当前工作区待提交增量（快照：2026-04-15）
 
-以下为相对**已提交版本**仍在本工作区、且属功能语义向的改动摘要（详细方案见 `docs/localization/` 与 `docs/product-manager-scheme.md`）。
+以下为相对**已提交版本**仍在本工作区、且属功能语义向的改动摘要（分模块方案见 `docs/localization/uncommitted-batch-2026-04-15-scheme.md`；产品工作台长期说明见 `docs/product-manager-scheme.md` 等）。
 
 | 路径 | 功能摘要 |
 |------|----------|
-| `apps/setup-center/src/App.tsx` | Tauri + HTTP：离开引导后主界面校验 `local-userinfo-exists` 与 `devservice-ip`，缺失则回到 `ob-iwhalecloud` / `ob-devservices`；定时 `whalecloudHeart` 保活门户会话 |
-| `apps/setup-center/src-tauri/src/main.rs` | `dev_tools_prereq_satisfied`：汇总 CLI 是否安装及 Claude/OpenCode 配置文件或 Cursor PATH 是否满足「可连接已有服务」语义 |
-| `apps/setup-center/src/components/ui/tooltip.tsx` | `TooltipContent` 增加 `showArrow`，供产品卡片等场景无箭头气泡 |
-| `tests/integration/test_dev_iwhalecloud_api.py` | 随 `dev_iwhalecloud` 契约与路由扩展的集成用例 |
+| `apps/setup-center/src/App.tsx` | 引导新增 `ob-core-agent`：`OnboardingCoreAgentPanel`，预加载技能；引导收尾保存 env 合并 IM+`agent` 键；写入 `data/skills.json`（`external_allowlist`）；步骤点阵与从研发云到 Dev tools/产品公共服务的跳转链调整 |
+| `apps/setup-center/src/views/OnboardingCoreAgentPanel.tsx` | **新增**：首次引导「核心智能体」——人格与 `PERSONA_NAME` 等、视图开关、内嵌技能区；与后端 `personas/*.md` 读写/删除联动 |
+| `apps/setup-center/src/views/AgentSystemView.tsx` | `belowPersonaSlot`、`showScheduler`：供引导插入内容与隐藏计划任务区块 |
+| `apps/setup-center/src/views/IdentityView.tsx` | 源文件列表排除 `personas/user_custom.md`，避免与运行时叠加重复 |
+| `apps/setup-center/src/api/rdUnifiedService.ts` | `gitnexus_initialize` / `gitnexus_analysis`；图谱端口与 `buildCodeGraphEmbedUrl` / `codeGraphProjectNameFromRepoUrl` 等 |
+| `apps/setup-center/src/components/product/ProductManager.tsx` | 列表手动/定时刷新；「刷新过程线」改为从 `get_prod_info` 行更新 |
+| `apps/setup-center/src/components/product/ProductDetail.tsx` | 详情轮询 `get_prod_process_info`；代码图谱 iframe；GitNexus 重新分析；`synapseApiBase` + `onProcessPayload` |
+| `apps/setup-center/package.json`、`package-lock.json` | 新增 `@uiw/react-md-editor` 等依赖 |
+| `apps/setup-center/src-tauri/tauri.conf.json` | CSP `frame-src` 允许 `http:`/`https:` 以嵌入图谱页 |
+| `apps/setup-center/src/i18n/en.json`、`zh.json` | 上述引导、产品与 GitNexus/图谱相关文案键 |
 
 ---
 
@@ -117,7 +124,7 @@
 1. **上游同步**：使用 `git fetch upstream` 与明确 **tag/commit 范围**；变更文件与本表求交后做增量合并。  
 2. **更新本表**：新增/删除本地化能力时增删行；品牌与注释类差异**不**写入本表，按 SKILL 归并到品牌化流程或非审计项。  
 3. **重新生成方法**：对齐本机 `openakita` 与 `openakita_jyhk` 路径，Python 侧辅以 `ast.dump(parse(...))` 过滤注释噪声；前端侧以品牌归一化后的文本 diff 为准。  
-4. **方案文档**：门户会话与桌面产品工作台拆分说明见 `docs/localization/dev-iwhalecloud-portal-session.md`、`docs/localization/setup-center-product-rd-workbench.md`。
+4. **方案文档**：门户会话与桌面产品工作台拆分说明见 `docs/localization/dev-iwhalecloud-portal-session.md`、`docs/localization/setup-center-product-rd-workbench.md`；未提交批次分模块方案见 `docs/localization/uncommitted-batch-2026-04-15-scheme.md`。
 
 ---
 
