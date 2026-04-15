@@ -245,7 +245,7 @@ Synapse 按「现状」(AS IS) 提供，不附带任何形式的明示或暗示
             default=False,
         ):
             console.print("\n[red]未同意风险须知，安装向导已退出。[/red]")
-            console.print("[dim]如需继续，请重新运行 openakita init[/dim]")
+            console.print("[dim]如需继续，请重新运行 synapse init[/dim]")
             sys.exit(1)
         console.print("\n[green]✓ 已确认，继续安装向导。[/green]\n")
 
@@ -1471,7 +1471,7 @@ Synapse 按「现状」(AS IS) 提供，不附带任何形式的明示或暗示
                 "DATABASE_PATH=data/agent.db",
                 f"LOG_LEVEL={self.config.get('LOG_LEVEL', 'INFO')}",
                 "LOG_DIR=logs  # 日志文件目录",
-                "LOG_FILE_PREFIX=openakita  # 日志文件名前缀",
+                "LOG_FILE_PREFIX=synapse  # 日志文件名前缀",
                 "LOG_MAX_SIZE_MB=10  # 单个日志文件最大大小（MB）",
                 "LOG_BACKUP_COUNT=30  # 日志文件保留份数",
                 "LOG_RETENTION_DAYS=30  # 日志文件保留天数",
@@ -1895,7 +1895,7 @@ Synapse 按「现状」(AS IS) 提供，不附带任何形式的明示或暗示
             self._channel_deps_missing = missing_pip
             extra = CHANNEL_EXTRAS.get(self._selected_channel, "")
             if extra:
-                console.print(f"  [dim]稍后可运行: pip install openakita[{extra}][/dim]")
+                console.print(f"  [dim]稍后可运行: pip install synapse[{extra}][/dim]")
             return
 
         with Progress(
@@ -2171,12 +2171,12 @@ Synapse 按「现状」(AS IS) 提供，不附带任何形式的明示或暗示
             "",
             "**Start the CLI:**",
             "```bash",
-            "openakita",
+            "synapse",
             "```",
             "",
             "**Or run as service (Telegram/IM):**",
             "```bash",
-            "openakita serve",
+            "synapse serve",
             "```",
             "",
             "## Configuration Files",
@@ -2203,7 +2203,7 @@ Synapse 按「现状」(AS IS) 提供，不附带任何形式的明示或暗示
                 parts.append(f"- `{pkg}`")
             parts.append("")
             if extra:
-                parts.append(f"Install with: `pip install openakita[{extra}]`")
+                parts.append(f"Install with: `pip install synapse[{extra}]`")
             else:
                 parts.append(f"Install with: `pip install {' '.join(self._channel_deps_missing)}`")
             parts.append("")
@@ -2215,13 +2215,13 @@ Synapse 按「现状」(AS IS) 提供，不附带任何形式的明示或暗示
                 "## Next Steps",
                 "",
                 "1. Customize `identity/SOUL.md` to personalize your agent",
-                "2. Run `openakita` to start chatting",
-                "3. Check `openakita --help` for all commands",
+                "2. Run `synapse` to start chatting",
+                "3. Check `synapse --help` for all commands",
                 "",
                 "## Documentation",
                 "",
-                "- GitHub: https://github.com/openakita/openakita",
-                "- Docs: https://github.com/openakita/openakita/tree/main/docs",
+                "- GitHub: https://github.com/synapse/synapse",
+                "- Docs: https://github.com/synapse/synapse/tree/main/docs",
                 "",
                 "Enjoy your loyal AI companion!",
             ]

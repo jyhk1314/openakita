@@ -201,7 +201,7 @@
 **现状问题：**
 
 - `wechat` 适配器存在于 `adapters/wechat.py`，配置字段在 `config.py` 中定义
-- `channels/deps.py` 将 `wechat` 映射到 `openakita[wechat]`
+- `channels/deps.py` 将 `wechat` 映射到 `synapse[wechat]`
 - **但 `pyproject.toml` 中并未定义 `wechat` 这个 optional-dependencies extra**
 - 实际依赖是 `httpx`（核心自带）+ `pycryptodome`（需手动安装或通过 `wework` extra 获得）
 

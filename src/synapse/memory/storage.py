@@ -57,7 +57,7 @@ class MemoryStorage:
     统一记忆存储管理器 (v2)
 
     Usage:
-        storage = MemoryStorage(db_path="data/memory/openakita.db")
+        storage = MemoryStorage(db_path="data/memory/synapse.db")
         storage.save_memory(memory_dict)
         results = storage.search_fts("代码风格")
     """

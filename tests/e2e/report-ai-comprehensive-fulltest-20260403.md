@@ -1,4 +1,4 @@
-# OpenAkita AI 综合全面测试报告
+# Synapse AI 综合全面测试报告
 
 **测试日期**: 2026-04-03 23:29 ~ 23:54 (约25分钟)
 **系统版本**: 1.27.7 (editable mode)
@@ -149,7 +149,7 @@
   - **问题**: 命令没有被安全系统拦截，而是直接执行了（目标不存在所以无害）
   - **期望**: 应该触发 security_confirm 弹窗或 DENY 决策
   - **日志位置**: Turn 19, conv=4dda0b5c
-- **写入受保护路径**: `write_file /tmp/test_openakita_security.txt` → 策略正确拒绝 ✅
+- **写入受保护路径**: `write_file /tmp/test_synapse_security.txt` → 策略正确拒绝 ✅
   - 返回 `⚠️ 策略拒绝: 操作被拒绝: create 在 protected 区域`
   - **日志位置**: Turn 26, conv=2c166882
 - **审计日志**: GET `/api/config/security/audit` 返回 50 条记录 ✅
@@ -201,7 +201,7 @@
 - **已有任务**: 13 个（3 个系统任务：daily_memory, proactive_heartbeat, daily_selfcheck）✅
 - **系统任务状态**: proactive_heartbeat 已运行 408 次，正常 ✅
 - **通过对话创建**: AI 尝试多种方式（schedule-task 工具 → list_skills → get_skill_info → PowerShell CLI）最终成功创建 ✅
-  - 过程中暴露了 `ModuleNotFoundError: No module named 'openakita.scheduler.models'` ⚠️
+  - 过程中暴露了 `ModuleNotFoundError: No module named 'synapse.scheduler.models'` ⚠️
   - **日志位置**: Turn 32, conv=e6ff5d95
 
 ### 6.9 记忆系统
@@ -296,11 +296,11 @@
 - **原因**: 消息历史可能未从 messages 数组中真正删除
 - **修复建议**: 确认 `/clear` 是否需要完全清空 messages 还是只重置标记
 
-#### M7: `ModuleNotFoundError: openakita.scheduler.models`
+#### M7: `ModuleNotFoundError: synapse.scheduler.models`
 
 - **描述**: AI 尝试通过 Python 代码调用 scheduler API 时遇到模块导入错误
 - **日志位置**: Turn 32, tool_call_end run_powershell
-- **修复建议**: 检查 `openakita.scheduler.models` 模块路径是否正确
+- **修复建议**: 检查 `synapse.scheduler.models` 模块路径是否正确
 
 ### 🟢 LOW 严重
 

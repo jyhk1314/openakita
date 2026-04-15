@@ -35,7 +35,7 @@
 ```text
 npx tsc --noEmit
 py -3.11 -m pytest tests/orgs/test_api.py tests/orgs/test_runtime.py
-py -3.11 -m py_compile src/openakita/api/routes/orgs.py src/openakita/orgs/runtime.py src/openakita/orgs/heartbeat.py tests/orgs/test_api.py tests/orgs/test_runtime.py
+py -3.11 -m py_compile src/synapse/api/routes/orgs.py src/synapse/orgs/runtime.py src/synapse/orgs/heartbeat.py tests/orgs/test_api.py tests/orgs/test_runtime.py
 ```
 
 ## 实际结果

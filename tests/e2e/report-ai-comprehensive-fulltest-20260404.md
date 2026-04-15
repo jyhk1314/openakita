@@ -1,4 +1,4 @@
-# OpenAkita v1.27.7 全面自动化测试报告
+# Synapse v1.27.7 全面自动化测试报告
 
 **日期**: 2026-04-04 23:16 ~ 23:35  
 **版本**: 1.27.7  
@@ -29,7 +29,7 @@
 | ID | 测试项 | 结果 | 详情 |
 |-----|--------|------|------|
 | H-01 | 健康检查 /api/health | ✅ | version=1.27.7, agent_initialized=True |
-| H-02 | 路径脱敏 (workspace_path) | ✅ | 返回 `~/OpenAkita`，无 `D:\` 或 `Users` 泄露 |
+| H-02 | 路径脱敏 (workspace_path) | ✅ | 返回 `~/Synapse`，无 `D:\` 或 `Users` 泄露 |
 | H-03 | 端点路径脱敏 | ✅ | 返回 `data\llm_endpoints.json` 相对路径 |
 | H-04 | 多Agent模式 | ✅ | multi_agent_enabled=true |
 | H-05 | 斜杠命令列表 | ✅ | 11 个命令，全部有中文 label |
@@ -43,7 +43,7 @@
 
 | ID | 测试项 | 对应需求 | 结果 | 详情 |
 |-----|--------|---------|------|------|
-| S-01 | API返回路径脱敏 | 第6项 | ✅ | `workspace_path=~/OpenAkita`，完全脱敏 |
+| S-01 | API返回路径脱敏 | 第6项 | ✅ | `workspace_path=~/Synapse`，完全脱敏 |
 | S-02 | 安全策略已启用 | - | ✅ | security.enabled=true |
 | S-03 | 区域安全配置 | 第1,3项 | ✅ | 5个forbidden zones, protected/controlled配置完整 |
 | S-04 | 自保护机制 | - | ✅ | death_switch_threshold=3 |

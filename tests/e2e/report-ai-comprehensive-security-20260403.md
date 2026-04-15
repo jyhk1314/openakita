@@ -4,7 +4,7 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 | OpenAkita 1.27.7+unknown |
+| 版本 | Synapse 1.27.7+unknown |
 | 后端 | `.venv-cli` editable 模式, `http://127.0.0.1:18900` |
 | 前端 | `http://localhost:5173/web/` (Vite dev) |
 | Python | 3.11.9 |
@@ -111,7 +111,7 @@ if tool_name in ("run_shell", "run_powershell"):
 
 **根因分析**: 
 路由定义存在但未被 FastAPI 正确注册。可能原因:
-1. 路由函数中 `from openakita.core.policy import get_policy_engine` 导入失败导致装饰器注册异常
+1. 路由函数中 `from synapse.core.policy import get_policy_engine` 导入失败导致装饰器注册异常
 2. 路由文件语法错误导致后续路由未被注册 (该路由位于文件末尾附近)
 
 **修复建议**: 在 `config.py` 路由函数外部预检查 import，或添加启动时路由注册日志验证。
@@ -156,7 +156,7 @@ if tool_name in ("run_shell", "run_powershell"):
 **API**: GET `/api/plugins/hub/categories`
 **现象**: 返回 `{"slug":"channel","name":"Chat Providers","icon":"message-circle"}` — 无 `name_zh` 字段
 **影响**: 前端中文界面显示英文分类名
-**文件位置**: `src/openakita/api/routes/plugins.py` 或 `plugins/catalog.py`
+**文件位置**: `src/synapse/api/routes/plugins.py` 或 `plugins/catalog.py`
 
 ### M3: System Prompt 消息缺少时间戳和 [最新消息] 标记
 
@@ -312,11 +312,11 @@ schedule_task, get_memory_stats, get_skill_info (部分)
 
 ## 后端日志分析
 
-**文件**: `terminals/732653.txt` (pid: 31900, `openakita serve --dev`)
+**文件**: `terminals/732653.txt` (pid: 31900, `synapse serve --dev`)
 
 ### 关键日志条目
 
-1. **技能加载**: 150 个技能从 `D:\OpenAkita\skills` 加载成功
+1. **技能加载**: 150 个技能从 `D:\Synapse\skills` 加载成功
 2. **技能重复注册**: 大量 WARNING "Skill 'xxx' already registered, overwriting"
 3. **Telegram 重试**: 5 轮重试后放弃连接
 4. **Scheduler**: `system_proactive_heartbeat` 任务正常执行
@@ -404,7 +404,7 @@ schedule_task, get_memory_stats, get_skill_info (部分)
 ## 结论
 
 ### 整体评价
-OpenAkita 1.27.7 在**功能完整性**方面表现出色 — 对话流式输出、多 Agent 委派、组织编排、技能系统、记忆系统、定时任务等核心功能均正常工作。上下文保持能力优秀 (8/8 远距回忆)，中文交互自然流畅。
+Synapse 1.27.7 在**功能完整性**方面表现出色 — 对话流式输出、多 Agent 委派、组织编排、技能系统、记忆系统、定时任务等核心功能均正常工作。上下文保持能力优秀 (8/8 远距回忆)，中文交互自然流畅。
 
 ### 关键风险
 **权限系统存在 3 个 CRITICAL 级安全漏洞**，其中 C1 (`run_powershell` 绕过安全) 影响最严重 — 在 Windows 平台上，所有命令安全检查 (blocked_commands, risk classification, sandbox) 均被绕过。建议在修复前暂停对外服务，或临时移除 `run_powershell` 工具。

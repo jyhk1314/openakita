@@ -134,7 +134,7 @@ test("only inserted when messages exist", 'if messages:\n                message
 
 print()
 print("=== C4: TaskVerify handles non-task messages ===")
-rh_src = read("src/openakita/core/response_handler.py")
+rh_src = read("src/synapse/core/response_handler.py")
 _vs = rh_src.find("async def verify_task_completion")
 _ve = rh_src.find("\n    async def do_task_retrospect", _vs)
 verify_section = rh_src[_vs:_ve] if _vs >= 0 and _ve > _vs else rh_src[_vs : _vs + 16000]
@@ -146,7 +146,7 @@ test("simple Q&A in verify prompt", "简单问答" in verify_section)
 
 print()
 print("=== C5: soften INCOMPLETE message ===")
-re_src = read("src/openakita/core/reasoning_engine.py")
+re_src = read("src/synapse/core/reasoning_engine.py")
 _core = agent_src + re_src
 test("old harsh message removed", "任务尚未完成。请继续执行" not in _core)
 test("new soft message in reasoning_engine", "根据复核判断，用户请求可能还有未完成的部分" in re_src)
@@ -158,8 +158,8 @@ test("IM path sets base_force_retries from im_floor", 'session_type == "im"' in 
 
 print()
 print("=== C7: loop detection refactored ===")
-sup_src = read("src/openakita/core/supervisor.py")
-state_src = read("src/openakita/core/agent_state.py")
+sup_src = read("src/synapse/core/supervisor.py")
+state_src = read("src/synapse/core/agent_state.py")
 test("_make_tool_signature with hashlib", "import hashlib" in re_src)
 test("param hash in signature", "param_hash = hashlib.md5" in re_src)
 test("old soft limit 15 removed", "max_tool_rounds_soft = 15" not in re_src)

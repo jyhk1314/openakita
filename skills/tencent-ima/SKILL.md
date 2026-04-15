@@ -1,5 +1,5 @@
 ---
-name: openakita/skills@tencent-ima
+name: synapse/skills@tencent-ima
 description: "Tencent IMA OpenAPI skill for notes and knowledge base management. Use when user mentions knowledge base, notes, memos, file uploads, web page collection, or knowledge search. Supports notes CRUD, knowledge base file upload, web link addition, and content search."
 license: MIT
 metadata:

@@ -9,7 +9,7 @@
   "entry": "plugin.py",
   "permissions": ["tools.register", "hooks.retrieve", "retrieval.register", "config.read", "config.write", "log", "skill"],
   "requires": {
-    "openakita": ">=1.27.0",
+    "synapse": ">=1.27.0",
     "plugin_api": "~1",
     "python": ">=3.11"
   },

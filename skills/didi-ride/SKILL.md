@@ -1,5 +1,5 @@
 ---
-name: openakita/skills@didi-ride
+name: synapse/skills@didi-ride
 description: "DiDi ride-hailing service skill. Supports taxi booking, price estimation, route planning (driving/transit/walking/cycling), order management, driver location tracking, and scheduled rides. Use when user expresses any transportation need including ride-hailing, route queries, or commuting."
 license: MIT
 metadata:

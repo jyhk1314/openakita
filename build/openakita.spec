@@ -1,9 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-OpenAkita PyInstaller spec file
+Synapse PyInstaller spec file
 
 Usage:
-  pyinstaller build/openakita.spec
+  pyinstaller build/synapse.spec
 """
 
 import os
@@ -17,7 +17,7 @@ PROJECT_ROOT = Path(SPECPATH).parent
 SRC_DIR = PROJECT_ROOT / "src"
 
 # Force clean output directories to avoid macOS symlink conflicts
-_dist_server = PROJECT_ROOT / "dist" / "openakita-server"
+_dist_server = PROJECT_ROOT / "dist" / "synapse-server"
 if _dist_server.exists():
     print(f"[spec] Removing existing output: {_dist_server}")
     shutil.rmtree(_dist_server)
@@ -28,94 +28,94 @@ if _dist_server.exists():
 hidden_imports_core = [
     # stdlib dunder module required by pip (e.g. `from __future__ import annotations`)
     "__future__",
-    # -- openakita internal modules --
-    "openakita",
-    "openakita.main",
-    "openakita.config",
-    "openakita.runtime_env",
-    "openakita.core.agent",
-    "openakita.core.llm",
-    "openakita.core.tools",
-    "openakita.memory",
-    "openakita.memory.manager",
-    "openakita.memory.vector_store",
-    "openakita.memory.daily_consolidator",
-    "openakita.memory.consolidator",
-    "openakita.channels",
-    "openakita.channels.gateway",
-    "openakita.channels.base",
-    "openakita.channels.types",
-    "openakita.channels.registry",
-    "openakita.channels.group_response",
-    "openakita.channels.policy",
-    "openakita.channels.bot_config",
-    "openakita.channels.chat_aliases",
-    "openakita.channels.retry",
-    "openakita.channels.text_splitter",
-    "openakita.channels.media_parser",
-    "openakita.channels.adapters",
-    "openakita.channels.adapters.telegram",
-    "openakita.channels.adapters.feishu",
-    "openakita.channels.adapters.dingtalk",
-    "openakita.channels.adapters.onebot",
-    "openakita.channels.adapters.qq_official",
-    "openakita.channels.adapters.wework_bot",
-    "openakita.channels.adapters.wework_ws",
-    "openakita.channels.media",
-    "openakita.channels.media.handler",
-    "openakita.channels.media.audio_utils",
-    "openakita.channels.media.storage",
-    "openakita.skills",
-    "openakita.skills.loader",
-    "openakita.evolution",
-    "openakita.evolution.installer",
-    "openakita.setup_center",
-    "openakita.setup_center.bridge",
-    "openakita.setup.qqbot_onboard",
-    "openakita.setup.wecom_onboard",
-    "openakita.setup.feishu_onboard",
-    "openakita.mcp_servers",
-    "openakita.mcp_servers.desktop_control",
-    "openakita.mcp_servers.web_search",
-    "openakita.orchestration",
-    "openakita.orchestration.bus",
-    "openakita.tracing",
-    "openakita.logging",
-    "openakita.tools",
-    "openakita.tools.shell",
-    "openakita.tools._import_helper",
+    # -- synapse internal modules --
+    "synapse",
+    "synapse.main",
+    "synapse.config",
+    "synapse.runtime_env",
+    "synapse.core.agent",
+    "synapse.core.llm",
+    "synapse.core.tools",
+    "synapse.memory",
+    "synapse.memory.manager",
+    "synapse.memory.vector_store",
+    "synapse.memory.daily_consolidator",
+    "synapse.memory.consolidator",
+    "synapse.channels",
+    "synapse.channels.gateway",
+    "synapse.channels.base",
+    "synapse.channels.types",
+    "synapse.channels.registry",
+    "synapse.channels.group_response",
+    "synapse.channels.policy",
+    "synapse.channels.bot_config",
+    "synapse.channels.chat_aliases",
+    "synapse.channels.retry",
+    "synapse.channels.text_splitter",
+    "synapse.channels.media_parser",
+    "synapse.channels.adapters",
+    "synapse.channels.adapters.telegram",
+    "synapse.channels.adapters.feishu",
+    "synapse.channels.adapters.dingtalk",
+    "synapse.channels.adapters.onebot",
+    "synapse.channels.adapters.qq_official",
+    "synapse.channels.adapters.wework_bot",
+    "synapse.channels.adapters.wework_ws",
+    "synapse.channels.media",
+    "synapse.channels.media.handler",
+    "synapse.channels.media.audio_utils",
+    "synapse.channels.media.storage",
+    "synapse.skills",
+    "synapse.skills.loader",
+    "synapse.evolution",
+    "synapse.evolution.installer",
+    "synapse.setup_center",
+    "synapse.setup_center.bridge",
+    "synapse.setup.qqbot_onboard",
+    "synapse.setup.wecom_onboard",
+    "synapse.setup.feishu_onboard",
+    "synapse.mcp_servers",
+    "synapse.mcp_servers.desktop_control",
+    "synapse.mcp_servers.web_search",
+    "synapse.orchestration",
+    "synapse.orchestration.bus",
+    "synapse.tracing",
+    "synapse.logging",
+    "synapse.tools",
+    "synapse.tools.shell",
+    "synapse.tools._import_helper",
     # -- Hub & Store (Agent Store / Skill Store 平台集成) --
-    "openakita.hub",
-    "openakita.hub.agent_hub_client",
-    "openakita.hub.skill_store_client",
-    "openakita.agents.packager",
-    "openakita.agents.presets",
-    "openakita.agents.profile",
+    "synapse.hub",
+    "synapse.hub.agent_hub_client",
+    "synapse.hub.skill_store_client",
+    "synapse.agents.packager",
+    "synapse.agents.presets",
+    "synapse.agents.profile",
     # -- tools.handlers / definitions (新增模块需显式声明，避免缓存遗漏) --
-    "openakita.tools.handlers.agent_hub",
-    "openakita.tools.handlers.skill_store",
-    "openakita.tools.handlers.agent",
-    "openakita.tools.handlers.agent_package",
-    "openakita.tools.handlers.config",
-    "openakita.tools.definitions.agent_hub",
-    "openakita.tools.definitions.skill_store",
-    "openakita.tools.definitions.agent",
-    "openakita.tools.definitions.agent_package",
-    "openakita.tools.definitions.config",
+    "synapse.tools.handlers.agent_hub",
+    "synapse.tools.handlers.skill_store",
+    "synapse.tools.handlers.agent",
+    "synapse.tools.handlers.agent_package",
+    "synapse.tools.handlers.config",
+    "synapse.tools.definitions.agent_hub",
+    "synapse.tools.definitions.skill_store",
+    "synapse.tools.definitions.agent",
+    "synapse.tools.definitions.agent_package",
+    "synapse.tools.definitions.config",
     # -- LLM registries (dynamically imported via import_module, PyInstaller can't trace) --
-    "openakita.llm.registries",
-    "openakita.llm.registries.base",
-    "openakita.llm.registries.anthropic",
-    "openakita.llm.registries.openai",
-    "openakita.llm.registries.dashscope",
-    "openakita.llm.registries.kimi",
-    "openakita.llm.registries.minimax",
-    "openakita.llm.registries.deepseek",
-    "openakita.llm.registries.openrouter",
-    "openakita.llm.registries.siliconflow",
-    "openakita.llm.registries.volcengine",
-    "openakita.llm.registries.zhipu",
-    "openakita.llm.capabilities",
+    "synapse.llm.registries",
+    "synapse.llm.registries.base",
+    "synapse.llm.registries.anthropic",
+    "synapse.llm.registries.openai",
+    "synapse.llm.registries.dashscope",
+    "synapse.llm.registries.kimi",
+    "synapse.llm.registries.minimax",
+    "synapse.llm.registries.deepseek",
+    "synapse.llm.registries.openrouter",
+    "synapse.llm.registries.siliconflow",
+    "synapse.llm.registries.volcengine",
+    "synapse.llm.registries.zhipu",
+    "synapse.llm.capabilities",
     # -- Third-party core dependencies --
     "uvicorn",
     "uvicorn.lifespan",
@@ -394,10 +394,10 @@ print(f"[spec] Auto-collected {len(_stdlib_modules)} stdlib modules")
 
 hidden_imports = hidden_imports_core + _stdlib_modules
 
-# Collect all OpenAkita LLM submodules to prevent regressions when adding
-# new files (e.g. openakita.llm.cache/retry/sse) that may be imported
+# Collect all Synapse LLM submodules to prevent regressions when adding
+# new files (e.g. synapse.llm.cache/retry/sse) that may be imported
 # transitively but missed by static analysis in frozen builds.
-hidden_imports += collect_submodules("openakita.llm")
+hidden_imports += collect_submodules("synapse.llm")
 
 # ============== Excludes ==============
 
@@ -516,31 +516,31 @@ except ImportError:
     print("[spec] WARNING: browser_use not installed, prompt templates not bundled")
 
 # Web frontend for remote browser access (built by: cd apps/setup-center && npm run build:web)
-# Bundled to openakita/web/ so _find_web_dist() in server.py can locate it
-# via Path(__file__).parent.parent / "web" → _internal/openakita/web/
+# Bundled to synapse/web/ so _find_web_dist() in server.py can locate it
+# via Path(__file__).parent.parent / "web" → _internal/synapse/web/
 web_dist_dir = PROJECT_ROOT / "apps" / "setup-center" / "dist-web"
 if (web_dist_dir / "index.html").exists():
-    datas.append((str(web_dist_dir), "openakita/web"))
+    datas.append((str(web_dist_dir), "synapse/web"))
     print(f"[spec] Bundling web frontend: {web_dist_dir}")
 else:
     print("[spec] INFO: dist-web not found, web remote access will not be available")
 
-# openakita source code: needed by bridge subcommand which runs via the bundled
+# synapse source code: needed by bridge subcommand which runs via the bundled
 # system python.exe (not the frozen executable), so it needs importable .py files
-# in _internal/openakita/
-_openakita_src = SRC_DIR / "openakita"
-if _openakita_src.exists():
-    datas.append((str(_openakita_src), "openakita"))
-    print(f"[spec] Bundling openakita source: {_openakita_src}")
+# in _internal/synapse/
+_synapse_src = SRC_DIR / "synapse"
+if _synapse_src.exists():
+    datas.append((str(_synapse_src), "synapse"))
+    print(f"[spec] Bundling synapse source: {_synapse_src}")
 
 # Provider list (single source of truth, shared by frontend and backend)
-# Must be bundled to openakita/llm/registries/ directory, Python reads via Path(__file__).parent
-providers_json = SRC_DIR / "openakita" / "llm" / "registries" / "providers.json"
+# Must be bundled to synapse/llm/registries/ directory, Python reads via Path(__file__).parent
+providers_json = SRC_DIR / "synapse" / "llm" / "registries" / "providers.json"
 if providers_json.exists():
-    datas.append((str(providers_json), "openakita/llm/registries"))
+    datas.append((str(providers_json), "synapse/llm/registries"))
 
 # pyproject.toml (version source, after bundling __init__.py reads via relative path)
-# After PyInstaller bundling, openakita module is in _internal/, pyproject.toml would be 3 levels up
+# After PyInstaller bundling, synapse module is in _internal/, pyproject.toml would be 3 levels up
 # In bundled mode this path won't work, so we write a version file directly
 _pyproject_path = PROJECT_ROOT / "pyproject.toml"
 if _pyproject_path.exists():
@@ -560,7 +560,7 @@ if _pyproject_path.exists():
     # Write version+hash to build dir (not source tree) so local builds don't dirty git
     _version_file = PROJECT_ROOT / "build" / "_bundled_version.txt"
     _version_file.write_text(f"{_pyproject_version}+{_git_hash}", encoding="utf-8")
-    datas.append((str(_version_file), "openakita"))
+    datas.append((str(_version_file), "synapse"))
 
 # lark_oapi (飞书 SDK): 10K+ 自动生成的 API 文件，PyInstaller hidden_imports 无法
 # 完整收集 (wildcard imports: from .api import *)。直接复制整包目录作为 data files，
@@ -707,28 +707,28 @@ except Exception as _pw_err:
 # Built-in MCP server configs (chrome-browser, desktop-control, web-search, etc.)
 mcps_dir = PROJECT_ROOT / "mcps"
 if mcps_dir.exists():
-    datas.append((str(mcps_dir), "openakita/builtin_mcps"))
+    datas.append((str(mcps_dir), "synapse/builtin_mcps"))
     print(f"[spec] Bundling built-in MCP configs: {mcps_dir}")
 
 # Built-in system skills (64 core skills: tool wrappers, memory, planning, etc.)
 skills_dir = PROJECT_ROOT / "skills" / "system"
 if skills_dir.exists():
-    datas.append((str(skills_dir), "openakita/builtin_skills/system"))
+    datas.append((str(skills_dir), "synapse/builtin_skills/system"))
 
 # External/extended skills (29 skills: document generation, browser testing, etc.)
 # These are discovered at runtime via SKILL_DIRECTORIES → "skills" relative to project_root
-# In bundled mode, _builtin_skills_root() resolves to _internal/openakita/builtin_skills/
+# In bundled mode, _builtin_skills_root() resolves to _internal/synapse/builtin_skills/
 # so we place external skills alongside system skills
 _skills_root = PROJECT_ROOT / "skills"
 if _skills_root.exists():
     for _skill_entry in _skills_root.iterdir():
         if _skill_entry.is_dir() and _skill_entry.name != "system" and _skill_entry.name != ".gitkeep":
-            datas.append((str(_skill_entry), f"openakita/builtin_skills/{_skill_entry.name}"))
+            datas.append((str(_skill_entry), f"synapse/builtin_skills/{_skill_entry.name}"))
 
 # ============== Analysis ==============
 
 a = Analysis(
-    [str(SRC_DIR / "openakita" / "__main__.py")],
+    [str(SRC_DIR / "synapse" / "__main__.py")],
     pathex=[str(SRC_DIR)],
     binaries=[],
     datas=datas,
@@ -743,13 +743,13 @@ a = Analysis(
 pyz = PYZ(a.pure)
 
 # Contract A: all platforms use onedir output so runtime can always
-# discover bundled interpreter at openakita-server/_internal/python*
+# discover bundled interpreter at synapse-server/_internal/python*
 exe = EXE(
     pyz,
     a.scripts,
     [],
     exclude_binaries=True,
-    name="openakita-server",
+    name="synapse-server",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -769,5 +769,5 @@ coll = COLLECT(
     strip=False,
     upx=(sys.platform != "darwin"),
     upx_exclude=[],
-    name="openakita-server",
+    name="synapse-server",
 )

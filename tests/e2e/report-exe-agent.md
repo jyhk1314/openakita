@@ -1,4 +1,4 @@
-# OpenAkita EXE 阶段测试报告（Agent 执行）
+# Synapse EXE 阶段测试报告（Agent 执行）
 
 > 测试形态: EXE 打包安装态  
 > 执行日期: 2026-04-01  
@@ -94,14 +94,14 @@ py -3.11 tests/e2e/test_context_retention_live.py --base-url http://127.0.0.1:18
   - `data/llm_debug/llm_request_*.json`
   - `data/llm_debug/llm_response_*.json`
 - 服务日志:
-  - `logs/openakita.log`
+  - `logs/synapse.log`
   - `logs/error.log`
-  - `logs/openakita-serve.log`
+  - `logs/synapse-serve.log`
   - `logs/frontend.log`
 
 建议定位顺序:
 
 1. 先按测试时间段筛 `logs/error.log`  
 2. 对齐同时间 `llm_request/llm_response` 看 messages 与 tool calls 结构  
-3. 再回看 `openakita.log` 中对应 request_id 的上下文
+3. 再回看 `synapse.log` 中对应 request_id 的上下文
 

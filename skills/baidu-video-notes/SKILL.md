@@ -1,5 +1,5 @@
 ---
-name: openakita/skills@baidu-video-notes
+name: synapse/skills@baidu-video-notes
 description: "AI Video Notes skill for video content analysis and note generation. Extract key information from videos for learning, meetings, and content summarization. Use when user wants to analyze video content or generate notes from videos."
 license: MIT
 metadata:

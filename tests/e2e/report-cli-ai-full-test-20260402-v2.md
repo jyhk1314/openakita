@@ -1,4 +1,4 @@
-# OpenAkita CLI/EXE — AI 探索性全面自测报告 v2
+# Synapse CLI/EXE — AI 探索性全面自测报告 v2
 
 - **日期**: 2026-04-02
 - **版本**: 1.27.7+3d648e7 (初始测试: 打包 EXE) → 1.27.7+unknown (修复验证: CLI editable install)
@@ -220,19 +220,19 @@
 
 | # | 问题 | 修复文件 | 修复内容 | 状态 |
 |---|------|---------|---------|------|
-| 1 | **P1 LLM API 400 "content field required"** | `src/openakita/llm/capabilities.py` | 添加 `qwen3.5-plus`, `qwen3.5-turbo` 到 dashscope provider, 标记为双模 (非 thinking_only) | ✅ 已修复+验证 |
-| 2 | **P1 LLM API 400 (reasoning_content 空值)** | `src/openakita/llm/converters/messages.py` | `reasoning_content` 为空时注入 `"..."` 占位符, 避免 DashScope enable_thinking=true 时 400 | ✅ 已修复+验证 |
+| 1 | **P1 LLM API 400 "content field required"** | `src/synapse/llm/capabilities.py` | 添加 `qwen3.5-plus`, `qwen3.5-turbo` 到 dashscope provider, 标记为双模 (非 thinking_only) | ✅ 已修复+验证 |
+| 2 | **P1 LLM API 400 (reasoning_content 空值)** | `src/synapse/llm/converters/messages.py` | `reasoning_content` 为空时注入 `"..."` 占位符, 避免 DashScope enable_thinking=true 时 400 | ✅ 已修复+验证 |
 | 3 | **P1 endpoint config thinking_only 误标** | `data/llm_endpoints.json` | 移除 dashscope-deepseek-r1 的 `thinking_only` capability (qwen3.5-plus 为双模模型) | ✅ 已修复+验证 |
-| 4 | **P2 tool_call 语法泄漏** | `src/openakita/core/response_handler.py` | `strip_tool_simulation_text()` 新增正则: 移除 `<tool_call>...</tool_call>` XML 块 | ✅ 已修复+验证 |
+| 4 | **P2 tool_call 语法泄漏** | `src/synapse/core/response_handler.py` | `strip_tool_simulation_text()` 新增正则: 移除 `<tool_call>...</tool_call>` XML 块 | ✅ 已修复+验证 |
 | 5 | **P0 Ask 模式锁定** | `agent.py` (3处) + `chat.py` (1处) | 已在前次修复中完成 | ✅ 之前已修复 |
 | 6 | **P1 /clear 失效** | `chat.py` (fallback + 404 语义) | 已在前次修复中完成 | ✅ 之前已修复 |
 
 ### 8.2 部署方式
 
 - 停止 EXE 进程 (PID 55060)
-- CLI 环境 (`.venv-cli`) 使用 editable install: `pip install -e "D:\OpenAkita" --no-deps`
-- 验证 import 指向源码: `D:\OpenAkita\src\openakita\__init__.py`
-- 启动 CLI 版服务: `python -m openakita serve` (PID 53532)
+- CLI 环境 (`.venv-cli`) 使用 editable install: `pip install -e "D:\Synapse" --no-deps`
+- 验证 import 指向源码: `D:\Synapse\src\synapse\__init__.py`
+- 启动 CLI 版服务: `python -m synapse serve` (PID 53532)
 
 ### 8.3 验证结果
 
@@ -277,9 +277,9 @@
 
 ### 打包注意事项
 
-1. 确保 `src/openakita/llm/capabilities.py` 中 qwen3.5-plus/qwen3.5-turbo 的 capabilities 正确
-2. 确保 `src/openakita/llm/converters/messages.py` 中 reasoning_content 空值占位逻辑
-3. 确保 `src/openakita/core/response_handler.py` 中 XML tool_call 过滤正则
+1. 确保 `src/synapse/llm/capabilities.py` 中 qwen3.5-plus/qwen3.5-turbo 的 capabilities 正确
+2. 确保 `src/synapse/llm/converters/messages.py` 中 reasoning_content 空值占位逻辑
+3. 确保 `src/synapse/core/response_handler.py` 中 XML tool_call 过滤正则
 4. 确保 `data/llm_endpoints.json` 中 dashscope-deepseek-r1 无 thinking_only capability
 
 ---
@@ -302,17 +302,17 @@
 ### 环境信息
 
 - OS: Windows 10 (10.0.19045)
-- 初始测试运行形态: EXE 打包态 (openakita-server.exe, PID 55060)
-- 修复验证运行形态: CLI editable install (python -m openakita serve, PID 53532)
+- 初始测试运行形态: EXE 打包态 (synapse-server.exe, PID 55060)
+- 修复验证运行形态: CLI editable install (python -m synapse serve, PID 53532)
 - 版本: 1.27.7+3d648e7 (EXE) / 1.27.7+unknown (CLI)
 
 ### 修复涉及文件
 
 | 文件 | 修改类型 |
 |------|---------|
-| `src/openakita/llm/capabilities.py` | 新增 qwen3.5-plus/turbo model capabilities |
-| `src/openakita/llm/converters/messages.py` | reasoning_content 空值占位 |
-| `src/openakita/core/response_handler.py` | XML tool_call 过滤正则 |
+| `src/synapse/llm/capabilities.py` | 新增 qwen3.5-plus/turbo model capabilities |
+| `src/synapse/llm/converters/messages.py` | reasoning_content 空值占位 |
+| `src/synapse/core/response_handler.py` | XML tool_call 过滤正则 |
 | `data/llm_endpoints.json` | 移除 thinking_only capability |
-| `src/openakita/prompt/builder.py` | 提取核心对话约定为独立函数, Ask 模式也注入 |
+| `src/synapse/prompt/builder.py` | 提取核心对话约定为独立函数, Ask 模式也注入 |
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resolve git merge conflicts after merging upstream/openakita into Synapse fork.
+"""Resolve git merge conflicts after merging upstream openakita into Synapse fork.
 
 - Drop duplicate src/openakita/* (canonical package is src/synapse).
 - For most src/synapse/*: take upstream (:3) and rewrite openakita -> synapse imports.

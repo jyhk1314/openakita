@@ -1,5 +1,5 @@
 ---
-name: openakita/skills@amap-maps
+name: synapse/skills@amap-maps
 description: "Amap (Gaode) Maps comprehensive service for POI search, route planning, travel planning, nearby search, heatmap visualization, and geocoding. Use when user wants to search locations, plan routes, find nearby places, or visualize geographic data."
 license: MIT
 metadata:

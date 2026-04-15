@@ -154,7 +154,7 @@ jobs:
 
       - name: Run all tests
         if: ${{ hashFiles('tests/**') != '' }}
-        run: pytest tests/ -v --cov=src/openakita --cov-report=xml -k "not TestVectorStore"
+        run: pytest tests/ -v --cov=src/synapse --cov-report=xml -k "not TestVectorStore"
 
       - name: Skip tests (no tests directory)
         if: ${{ hashFiles('tests/**') == '' }}
@@ -247,7 +247,7 @@ jobs:
         if: ${{ hashFiles('apps/setup-center/src-tauri/Cargo.toml') != '' }}
         shell: bash
         run: |
-          mkdir -p apps/setup-center/src-tauri/resources/openakita-server
+          mkdir -p apps/setup-center/src-tauri/resources/synapse-server
           # user_custom.md is gitignored (personal data); create placeholder for include_str!()
           mkdir -p identity/personas
           if [ ! -f identity/personas/user_custom.md ]; then
@@ -307,7 +307,7 @@ jobs:
       - name: Clean previous PyInstaller output
         run: |
           rm -rf dist/
-          rm -rf build/openakita-server
+          rm -rf build/synapse-server
           rm -rf build/pyinstaller_work
 
       - name: Package Python backend (PyInstaller)
@@ -317,11 +317,11 @@ jobs:
         run: |
           RESOURCE_DIR="apps/setup-center/src-tauri/resources"
           mkdir -p "$RESOURCE_DIR"
-          rm -rf "$RESOURCE_DIR/openakita-server"
-          cp -r dist/openakita-server "$RESOURCE_DIR/openakita-server"
+          rm -rf "$RESOURCE_DIR/synapse-server"
+          cp -r dist/synapse-server "$RESOURCE_DIR/synapse-server"
 
       - name: Verify bundled Python contract
-        run: python build/verify_bundled_python_contract.py --backend-dir apps/setup-center/src-tauri/resources/openakita-server
+        run: python build/verify_bundled_python_contract.py --backend-dir apps/setup-center/src-tauri/resources/synapse-server
 
       - name: Create gitignored placeholders
         run: |
@@ -366,14 +366,14 @@ jobs:
           pip install build ruff
 
       - name: Lint SDK
-        working-directory: openakita-plugin-sdk
+        working-directory: synapse-plugin-sdk
         run: ruff check src/
 
       - name: Build SDK wheel
-        run: python -m build --wheel openakita-plugin-sdk/ --outdir dist-sdk/
+        run: python -m build --wheel synapse-plugin-sdk/ --outdir dist-sdk/
 
       - name: Verify SDK wheel installs
-        run: pip install dist-sdk/*.whl && python -c "from openakita_plugin_sdk import SDK_VERSION; print(f'SDK {SDK_VERSION} OK')"
+        run: pip install dist-sdk/*.whl && python -c "from synapse_plugin_sdk import SDK_VERSION; print(f'SDK {SDK_VERSION} OK')"
 
       - name: Upload SDK artifact
         uses: actions/upload-artifact@v6

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# OpenAkita Core Package Build Script (Linux/macOS)
+# Synapse Core Package Build Script (Linux/macOS)
 # Output: Installer with core dependencies only (~180MB)
 # Usage: build_core.sh [--fast]
 
@@ -14,11 +14,11 @@ FAST_FLAG=""
 if [[ "${1:-}" == "--fast" ]]; then
     FAST_FLAG="--fast"
     echo "============================================"
-    echo "  OpenAkita Core Package Build [FAST MODE]"
+    echo "  Synapse Core Package Build [FAST MODE]"
     echo "============================================"
 else
     echo "============================================"
-    echo "  OpenAkita Core Package Build"
+    echo "  Synapse Core Package Build"
     echo "============================================"
 fi
 
@@ -30,8 +30,8 @@ python3 "$SCRIPT_DIR/build_backend.py" --mode core $FAST_FLAG
 # Step 2: Copy package result to Tauri resources
 echo ""
 echo "[2/3] Copying backend to Tauri resources..."
-DIST_SERVER_DIR="$PROJECT_ROOT/dist/openakita-server"
-TARGET_DIR="$RESOURCE_DIR/openakita-server"
+DIST_SERVER_DIR="$PROJECT_ROOT/dist/synapse-server"
+TARGET_DIR="$RESOURCE_DIR/synapse-server"
 
 rm -rf "$TARGET_DIR"
 mkdir -p "$RESOURCE_DIR"

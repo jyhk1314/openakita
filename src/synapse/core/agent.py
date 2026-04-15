@@ -250,7 +250,7 @@ class Agent:
     # 通过 from ..tools.definitions import BASE_TOOLS 导入
 
     # 说明：历史上这里用类变量保存 IM 上下文，存在并发串台风险。
-    # 现在改为使用 `openakita.core.im_context` 中的 contextvars（协程隔离）。
+    # 现在改为使用 `synapse.core.im_context` 中的 contextvars（协程隔离）。
     _current_im_session = None  # legacy: 保留字段避免外部引用崩溃（不再使用）
     _current_im_gateway = None  # legacy: 保留字段避免外部引用崩溃（不再使用）
 
@@ -769,7 +769,7 @@ class Agent:
         underscores, strip source prefix), then uses infer_category() to resolve
         built-in tool categories.  Only produces hints for skills that correspond
         to built-in categories (e.g. browser-click -> Browser).  External skills
-        (openakita/skills@xxx) that don't match any category are silently skipped.
+        (synapse/skills@xxx) that don't match any category are silently skipped.
 
         Returns empty list when no profile or no category-mapped skills — this
         causes _effective_tools to skip intent filtering, keeping all tools.

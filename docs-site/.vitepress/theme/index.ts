@@ -33,7 +33,7 @@ export default {
         if (hash) {
           if (window.parent && window.parent !== window) {
             window.parent.postMessage(
-              { type: "openakita-navigate", hash },
+              { type: "synapse-navigate", hash },
               "*",
             );
           } else {

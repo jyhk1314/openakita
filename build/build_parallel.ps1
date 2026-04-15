@@ -1,5 +1,5 @@
 # ==========================================================
-#  OpenAkita Parallel Build Script (PowerShell)
+#  Synapse Parallel Build Script (PowerShell)
 #  将 PyInstaller、前端构建、Rust 编译并行执行，大幅缩短打包时间
 #
 #  Usage:
@@ -28,7 +28,7 @@ $ResourceDir = Join-Path $SrcTauri "resources"
 $modeLabel = if ($Fast) { "$Mode, FAST" } else { $Mode }
 Write-Host ""
 Write-Host "==================================================" -ForegroundColor Cyan
-Write-Host "  OpenAkita Parallel Build (mode: $modeLabel)" -ForegroundColor Cyan
+Write-Host "  Synapse Parallel Build (mode: $modeLabel)" -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 
 # ── Phase 1: Three parallel jobs ──────────────────────────
@@ -142,8 +142,8 @@ if ($failed) {
 Write-Host ""
 Write-Host "[Phase 2/3] Copying backend to Tauri resources..." -ForegroundColor Yellow
 
-$DistServerDir = Join-Path $ProjectRoot "dist\openakita-server"
-$TargetDir = Join-Path $ResourceDir "openakita-server"
+$DistServerDir = Join-Path $ProjectRoot "dist\synapse-server"
+$TargetDir = Join-Path $ResourceDir "synapse-server"
 
 if (Test-Path $TargetDir) { Remove-Item -Recurse -Force $TargetDir }
 New-Item -ItemType Directory -Force -Path $ResourceDir | Out-Null
@@ -193,7 +193,7 @@ if (Test-Path $nsisDir) {
             $gitHash = (git -C $ProjectRoot rev-parse --short=7 HEAD 2>$null)
             if (-not $gitHash) { $gitHash = "unknown" }
         } catch { $gitHash = "unknown" }
-        $baseName = $latest.BaseName   # e.g. "OpenAkita Desktop_1.22.5_x64-setup"
+        $baseName = $latest.BaseName   # e.g. "Synapse Desktop_1.22.5_x64-setup"
         $tag      = "$([char]0x9884)$([char]0x89C8)$([char]0x7248)"  # 预览版
         $newName  = "${baseName}_${timestamp}_${gitHash}_${tag}.exe"
         $newPath  = Join-Path $nsisDir $newName

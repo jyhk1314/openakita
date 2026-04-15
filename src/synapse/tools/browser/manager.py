@@ -656,7 +656,7 @@ class BrowserManager:
                         return
 
         _root = os.environ.get("SYNAPSE_ROOT", "").strip()
-        _base = Path(_root) if _root else Path.home() / ".openakita"
+        _base = Path(_root) if _root else Path.home() / ".synapse"
         browsers_dir = _base / "modules" / "browser" / "browsers"
         if browsers_dir.is_dir():
             os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(browsers_dir)
@@ -742,9 +742,9 @@ class BrowserManager:
             raise RuntimeError("Chrome executable not found")
 
         if use_oa_profile:
-            from .chrome_finder import get_openakita_chrome_profile, sync_chrome_cookies
+            from .chrome_finder import get_synapse_chrome_profile, sync_chrome_cookies
 
-            user_data = get_openakita_chrome_profile()
+            user_data = get_synapse_chrome_profile()
             if self._chrome_user_data:
                 sync_chrome_cookies(self._chrome_user_data, user_data)
             label = "Synapse profile"

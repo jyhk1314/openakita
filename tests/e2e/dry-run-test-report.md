@@ -1,4 +1,4 @@
-# OpenAkita Dry-Run 包 AI 探索性测试报告
+# Synapse Dry-Run 包 AI 探索性测试报告
 
 - **测试日期**: 2026-04-01
 - **版本**: 1.27.7+8cbc023
@@ -16,7 +16,7 @@
 | GET /api/health | PASS | `status: ok`, `agent_initialized: true`, PID 60324 |
 | POST /api/health/check | PASS | dashscope-qwen3.5-plus: healthy, 927ms |
 | GET /api/sessions | PASS | `ready: true`, 空列表 |
-| Web UI (HTTP) | PASS | HTTP 200, 标题 "OpenAkita Setup Center" |
+| Web UI (HTTP) | PASS | HTTP 200, 标题 "Synapse Setup Center" |
 | 事件循环 | PASS | `dual_loop: true`, lag 0ms, max_concurrent 20 |
 
 **发现**: 测试期间后端 PID 从 60324 变为 23196，表明发生过一次服务重启。
@@ -150,8 +150,8 @@
 | 检查项 | 结果 |
 |--------|------|
 | /web/ 页面加载 | PASS - HTTP 200, HTML 正确渲染 |
-| 页面标题 | PASS - "OpenAkita" |
-| 启动内容 | PASS - "OpenAkita Setup Center" |
+| 页面标题 | PASS - "Synapse" |
+| 启动内容 | PASS - "Synapse Setup Center" |
 
 ---
 
@@ -169,7 +169,7 @@
 |---|------|----------|-------------|
 | 2 | **记忆系统 add_memory 不替换旧记录** | Major | 更正事实后旧数据（张伟/8月15日）仍存在，可能导致混淆。建议实现 upsert 语义或自动标记旧记录为 superseded。 |
 | 3 | **轮次 8 未回答用户问题** | Major | Agent 完全跳过了"推荐3本书"的请求，转而讨论工具使用边界。system prompt 中"工具优先"规则对知识型问答产生了负面干扰。建议在消息分型原则中强化"问答型请求直接用知识回答"。 |
-| 4 | **run_shell 路径含空格执行失败** | Major | `D:\Program Files\OpenAkita\...` 路径在 cmd.exe 中因空格被截断。Agent 每次都需要 fallback 到 run_powershell，浪费一次迭代。建议在 run_shell 工具中自动为包含空格的路径加引号。 |
+| 4 | **run_shell 路径含空格执行失败** | Major | `D:\Program Files\Synapse\...` 路径在 cmd.exe 中因空格被截断。Agent 每次都需要 fallback 到 run_powershell，浪费一次迭代。建议在 run_shell 工具中自动为包含空格的路径加引号。 |
 | 5 | **记忆系统注入大量冗余经验** | Major | "工具优先与真实落地"协议在核心记忆中重复出现 5+ 次，消耗了宝贵的 context token。建议记忆合并/去重机制更积极地清理。 |
 
 ### P2 - Minor
@@ -210,7 +210,7 @@
 ## 测试环境信息
 
 - **测试执行者**: Cursor AI Agent (Claude)
-- **后端进程**: openakita-server.exe (PID 23196 at end of test)
-- **日志目录**: `C:\Users\Peilong_Hong\.openakita\workspaces\default\data\llm_debug\`
+- **后端进程**: synapse-server.exe (PID 23196 at end of test)
+- **日志目录**: `C:\Users\Peilong_Hong\.synapse\workspaces\default\data\llm_debug\`
 - **日志文件时间范围**: 20260401_163656 - 20260401_190941
 - **会话通道**: desktop (API via curl.exe)

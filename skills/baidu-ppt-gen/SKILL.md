@@ -1,5 +1,5 @@
 ---
-name: openakita/skills@baidu-ppt-gen
+name: synapse/skills@baidu-ppt-gen
 description: "AI PPT Generator skill. Quickly generate well-structured, professionally formatted presentation drafts from topics and outlines. Use when user wants to create PowerPoint presentations."
 license: MIT
 metadata:

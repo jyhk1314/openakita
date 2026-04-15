@@ -1,5 +1,5 @@
 ---
-name: openakita/skills@baidu-yijian
+name: synapse/skills@baidu-yijian
 description: "Baidu Yijian visual management skill for industrial scenarios. Provides visual recognition capabilities across 20+ industries including retail, energy, mining, ports, chemical, and steel. Use for industrial visual inspection and management."
 license: MIT
 metadata:

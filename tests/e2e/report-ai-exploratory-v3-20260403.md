@@ -1,7 +1,7 @@
-# OpenAkita AI 探索性全面自测报告 v3（2026-04-03 下午，修复后回归）
+# Synapse AI 探索性全面自测报告 v3（2026-04-03 下午，修复后回归）
 
 - **依据规范**: `ai-exploratory-testing.mdc`
-- **后端**: `http://127.0.0.1:18900` — `openakita.exe serve --dev`（editable，源码即时生效）
+- **后端**: `http://127.0.0.1:18900` — `synapse.exe serve --dev`（editable，源码即时生效）
 - **前端**: `http://localhost:5173/web/`
 - **后端版本**: 1.27.7+unknown, PID 21368
 - **LLM 模型**: qwen3.5-plus
@@ -90,7 +90,7 @@ Last error: API error (400): The image length and width do not meet the model re
 ### 分析
 
 - qwen3.5-plus **有 vision 能力**（`has_any_endpoint_with_capability("vision")` = True），所以图片正确以 `image_url` 发送给 LLM
-- 上游 API 返回 400 拒绝了 **1x1 像素** 的图片（要求宽高均 >10px），这是 **模型供应商限制**，不是 OpenAkita 代码 bug
+- 上游 API 返回 400 拒绝了 **1x1 像素** 的图片（要求宽高均 >10px），这是 **模型供应商限制**，不是 Synapse 代码 bug
 - 错误消息现在**完整传递到前端**，用户能理解原因 — 这正是 P1-B 修复的目的
 - 若用正常尺寸图片（>=10x10），预期能正常工作
 

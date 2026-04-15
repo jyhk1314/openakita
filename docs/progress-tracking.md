@@ -135,7 +135,7 @@ Backlog → Todo → In Progress → Code Review → Testing → Done
 
 ### 5.1 GitHub Projects 设置
 ```yaml
-Project: OpenAkita Android MVP
+Project: Synapse Android MVP
 Columns:
   - Backlog
   - Todo

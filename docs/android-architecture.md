@@ -236,7 +236,7 @@ dynamicFeatures.add(":features:feature-premium")
 ### 5.1 标准目录结构
 
 ```
-app/src/main/java/com/openakita/tasktracker/
+app/src/main/java/com/synapse/tasktracker/
 ├── di/                          # 依赖注入模块
 │   ├── AppModule.kt
 │   ├── NetworkModule.kt
@@ -632,4 +632,4 @@ coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", ve
 
 ---
 
-*本文档由 OpenAkita 架构师团队编写，最后更新：2026-04-07*
+*本文档由 Synapse 架构师团队编写，最后更新：2026-04-07*

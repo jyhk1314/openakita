@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: OpenAkita
+  name: Synapse
   text: 开源多 Agent AI 助手
   tagline: 不只是聊天，是一个帮你把事情做完的 AI 团队
   actions:
@@ -14,7 +14,7 @@ hero:
       link: /guide/intro
     - theme: alt
       text: GitHub
-      link: https://github.com/openakita/openakita
+      link: https://github.com/synapse/synapse
 
 features:
   - icon: 💬

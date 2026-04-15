@@ -1,10 +1,10 @@
 # Architecture
 
-This document describes the architecture and design principles of OpenAkita.
+This document describes the architecture and design principles of Synapse.
 
 ## Overview
 
-OpenAkita is a self-evolving AI agent built on three core principles:
+Synapse is a self-evolving AI agent built on three core principles:
 
 1. **Never Give Up** - Ralph Wiggum Mode ensures task completion
 2. **Self-Evolution** - Automatically acquires new capabilities
@@ -65,7 +65,7 @@ OpenAkita is a self-evolving AI agent built on three core principles:
 
 ### 1. Identity System
 
-OpenAkita uses a document-based identity system:
+Synapse uses a document-based identity system:
 
 | Document | Purpose | Update Frequency |
 |----------|---------|------------------|
@@ -76,7 +76,7 @@ OpenAkita uses a document-based identity system:
 
 ### 2. Two-Stage Prompt Architecture
 
-OpenAkita uses a two-stage prompt architecture for better task understanding:
+Synapse uses a two-stage prompt architecture for better task understanding:
 
 **Stage 1: Prompt Compiler**
 - Translates user request into structured YAML task definition
@@ -105,7 +105,7 @@ risks:
 
 ### Model Switching & Tool-State Isolation
 
-When timeout/errors trigger model/endpoint failover, OpenAkita treats all stateful tool context as **unknown** to avoid inheriting stale assumptions across models.
+When timeout/errors trigger model/endpoint failover, Synapse treats all stateful tool context as **unknown** to avoid inheriting stale assumptions across models.
 
 - **Context reset**: discard prior `tool_use/tool_result` chain and keep only human user messages (or the original task message in the task loop).
 - **Barrier injection**: append a “tool-state revalidation barrier” message requiring re-checks before using stateful tools:
@@ -274,7 +274,7 @@ async def run_shell_command(cmd: str) -> str:
 ## File Structure
 
 ```
-src/openakita/
+src/synapse/
 ├── core/           # Core agent logic
 │   ├── agent.py    # Main Agent class
 │   ├── brain.py    # LLM interaction

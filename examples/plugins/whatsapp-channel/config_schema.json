@@ -31,7 +31,7 @@
       "type": "string",
       "title": "Webhook 验证令牌 / Verify Token",
       "description": "Custom string for webhook verification",
-      "default": "openakita-verify"
+      "default": "synapse-verify"
     },
     "webhook_port": {
       "type": "integer",

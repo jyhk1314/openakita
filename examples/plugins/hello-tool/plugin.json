@@ -9,7 +9,7 @@
   "entry": "plugin.py",
   "permissions": ["tools.register"],
   "requires": {
-    "openakita": ">=1.5.0",
+    "synapse": ">=1.5.0",
     "plugin_api": "~1",
     "python": ">=3.11"
   },

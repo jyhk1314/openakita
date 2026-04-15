@@ -34,6 +34,6 @@
 - **前端 (`apps/setup-center/src/`)**：`App.tsx` 扩展引导步骤流，注入 `ob-devservices`；新增 `rdUnifiedService.ts` API 层及完整的 `product/` UI 组件树。
 
 ## 4. 与上游合并策略
-本方案属于典型的**本地个性化功能改造差异**。后续与上游 (openakita) 同步合并时，应遵循 `DIFF.md` 中的规范：
+本方案属于典型的**本地个性化功能改造差异**。后续与上游 (synapse) 同步合并时，应遵循 `DIFF.md` 中的规范：
 - 本地独占组件 (`components/product/`) 及路由、API 封装等原样保留。
 - 引导流与 Rust 命令处的注入采用增量形式（即在 `ob-claude-code` 之后补充 `ob-devservices`），使用手工合并，不可被上游盲目覆盖。

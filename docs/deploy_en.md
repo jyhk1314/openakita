@@ -1,4 +1,4 @@
-# OpenAkita Deployment Guide (English)
+# Synapse Deployment Guide (English)
 
 [中文版](./deploy.md)
 
@@ -68,19 +68,19 @@ python -m venv venv
 source venv/bin/activate  # Linux/macOS
 # or .\venv\Scripts\activate  # Windows
 
-# 2. Install OpenAkita (core)
-pip install openakita
+# 2. Install Synapse (core)
+pip install synapse
 
 # 3. Install optional features
-pip install openakita[feishu]     # + Feishu (Lark) support
-pip install openakita[windows]    # + Windows desktop automation
-pip install openakita[all]       # Install all optional features (Windows-only deps are auto-skipped on non-Windows)
+pip install synapse[feishu]     # + Feishu (Lark) support
+pip install synapse[windows]    # + Windows desktop automation
+pip install synapse[all]       # Install all optional features (Windows-only deps are auto-skipped on non-Windows)
 
 # 4. Run setup wizard
-openakita init
+synapse init
 
 # 5. Start
-openakita
+synapse
 ```
 
 ### Method 2: One-Click Deploy Script
@@ -95,29 +95,29 @@ There are two one-click paths:
 **Linux/macOS:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/openakita/openakita/main/scripts/quickstart.sh | bash
+curl -fsSL https://raw.githubusercontent.com/synapse/synapse/main/scripts/quickstart.sh | bash
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-irm https://raw.githubusercontent.com/openakita/openakita/main/scripts/quickstart.ps1 | iex
+irm https://raw.githubusercontent.com/synapse/synapse/main/scripts/quickstart.ps1 | iex
 ```
 
 For extras / mirrors, download and run with parameters (recommended):
 
 ```bash
-curl -fsSL -o quickstart.sh https://raw.githubusercontent.com/openakita/openakita/main/scripts/quickstart.sh
+curl -fsSL -o quickstart.sh https://raw.githubusercontent.com/synapse/synapse/main/scripts/quickstart.sh
 bash quickstart.sh --extras all --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
 ```powershell
-irm https://raw.githubusercontent.com/openakita/openakita/main/scripts/quickstart.ps1 -OutFile quickstart.ps1
+irm https://raw.githubusercontent.com/synapse/synapse/main/scripts/quickstart.ps1 -OutFile quickstart.ps1
 .\quickstart.ps1 -Extras all -IndexUrl https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-> The script installs into `~/.openakita/app` and uses an isolated venv at `~/.openakita/venv` by default
-> (Windows: `%USERPROFILE%\.openakita\...`), to avoid polluting system Python.
+> The script installs into `~/.synapse/app` and uses an isolated venv at `~/.synapse/venv` by default
+> (Windows: `%USERPROFILE%\.synapse\...`), to avoid polluting system Python.
 
 #### Method 2-B: One-click deploy (Source)
 
@@ -125,16 +125,16 @@ Automatically installs Python, Git, dependencies, and everything else (requires 
 
 **Linux/macOS:**
 ```bash
-git clone https://github.com/openakita/openakita.git
-cd openakita
+git clone https://github.com/synapse/synapse.git
+cd synapse
 chmod +x scripts/deploy.sh
 ./scripts/deploy.sh
 ```
 
 **Windows (PowerShell):**
 ```powershell
-git clone https://github.com/openakita/openakita.git
-cd openakita
+git clone https://github.com/synapse/synapse.git
+cd synapse
 .\scripts\deploy.ps1
 ```
 
@@ -153,8 +153,8 @@ The script will automatically:
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/openakita/openakita.git
-cd openakita
+git clone https://github.com/synapse/synapse.git
+cd synapse
 
 # 2. Create virtual environment
 python -m venv venv
@@ -179,10 +179,10 @@ cp data/llm_endpoints.json.example data/llm_endpoints.json
 # Edit data/llm_endpoints.json to configure LLM endpoints
 
 # 8. Run setup wizard (or configure manually)
-openakita init
+synapse init
 
 # 9. Start
-openakita
+synapse
 ```
 
 ---
@@ -240,7 +240,7 @@ ANTHROPIC_API_KEY=sk-your-api-key-here
 | `SILICONFLOW_API_KEY` | | - | SiliconFlow API Key |
 | `LLM_ENDPOINTS_CONFIG` | | `data/llm_endpoints.json` | LLM endpoint config file path |
 | **Agent Configuration** | | | |
-| `AGENT_NAME` | | `OpenAkita` | Agent name |
+| `AGENT_NAME` | | `Synapse` | Agent name |
 | `MAX_ITERATIONS` | | `100` | Ralph loop max iterations |
 | `AUTO_CONFIRM` | | `false` | Auto-confirm dangerous operations |
 | `DATABASE_PATH` | | `data/agent.db` | Database path |
@@ -280,13 +280,13 @@ ANTHROPIC_API_KEY=sk-your-api-key-here
 
 ### LLM Endpoint Configuration (llm_endpoints.json)
 
-This is the **core configuration file** of OpenAkita, supporting multi-endpoint, automatic failover, and capability-based routing.
+This is the **core configuration file** of Synapse, supporting multi-endpoint, automatic failover, and capability-based routing.
 
 #### Configuration Methods
 
 **Method A: Interactive Wizard (Recommended)**
 ```bash
-python -m openakita.llm.setup.cli
+python -m synapse.llm.setup.cli
 ```
 
 The wizard supports:
@@ -473,16 +473,16 @@ If direct access to Anthropic is difficult, use a relay service:
 
 ### IM Channel Configuration
 
-OpenAkita supports 5 major IM platforms, all enabled via `.env`:
+Synapse supports 5 major IM platforms, all enabled via `.env`:
 
 | Platform | Status | Protocol | Extra Dependency |
 |----------|--------|----------|-----------------|
 | Telegram | ✅ Stable | Bot API | Built-in |
-| Feishu (Lark) | ✅ Stable | WebSocket | `pip install openakita[feishu]` |
+| Feishu (Lark) | ✅ Stable | WebSocket | `pip install synapse[feishu]` |
 | WeCom (WeWork) | ✅ Stable | HTTP API | None |
 | DingTalk | ✅ Stable | HTTP API | None |
-| QQ Official Bot | ✅ Stable | QQ Open Platform API | `pip install openakita[qqbot]` |
-| OneBot | ✅ Stable | OneBot WS | Requires OneBot server + `pip install openakita[onebot]` |
+| QQ Official Bot | ✅ Stable | QQ Open Platform API | `pip install synapse[qqbot]` |
+| OneBot | ✅ Stable | OneBot WS | Requires OneBot server + `pip install synapse[onebot]` |
 
 #### Telegram
 
@@ -556,10 +556,10 @@ IM channels support two running modes:
 
 ```bash
 # Mode 1: CLI + IM (interactive mode with IM channels running simultaneously)
-openakita
+synapse
 
 # Mode 2: IM-only service (background service, no CLI)
-openakita serve
+synapse serve
 ```
 
 ### Identity Configuration (identity/)
@@ -581,7 +581,7 @@ cp identity/MEMORY.md.example identity/MEMORY.md
 | `USER.md` | User profile | Yes (Agent auto-learns) |
 | `MEMORY.md` | Core memory | Yes (daily consolidation) |
 
-> Running `openakita init` will automatically create these files.
+> Running `synapse init` will automatically create these files.
 
 ### Memory System Configuration
 
@@ -602,31 +602,31 @@ EMBEDDING_DEVICE=cpu                                # Set to cuda if GPU availab
 ### Interactive Mode (Development/Testing)
 
 ```bash
-openakita           # Interactive CLI (with IM channels running simultaneously)
-python -m openakita # Same
+synapse           # Interactive CLI (with IM channels running simultaneously)
+python -m synapse # Same
 ```
 
 ### Service Mode (Production)
 
 ```bash
-openakita serve     # IM-only service, no CLI interaction
+synapse serve     # IM-only service, no CLI interaction
 ```
 
 ### Single Task
 
 ```bash
-openakita run "Analyze the code structure of the current directory"
+synapse run "Analyze the code structure of the current directory"
 ```
 
 ### Other Commands
 
 ```bash
-openakita init              # Run setup wizard
-openakita status            # Show Agent status
-openakita selfcheck         # Run self-check
-openakita compile           # Compile identity files (reduces token usage)
-openakita prompt-debug      # Show prompt debug info
-openakita --version         # Show version
+synapse init              # Run setup wizard
+synapse status            # Show Agent status
+synapse selfcheck         # Run self-check
+synapse compile           # Compile identity files (reduces token usage)
+synapse prompt-debug      # Show prompt debug info
+synapse --version         # Show version
 ```
 
 ---
@@ -671,11 +671,11 @@ git push origin v1.2.2
 
 ```bash
 # Install from PyPI
-pip install openakita
+pip install synapse
 
 # Verify
-openakita --version
-python -c "import openakita; print(openakita.__version__)"
+synapse --version
+python -c "import synapse; print(synapse.__version__)"
 ```
 
 ---
@@ -684,19 +684,19 @@ python -c "import openakita; print(openakita.__version__)"
 
 ### Using systemd (Linux Recommended)
 
-Create service file `/etc/systemd/system/openakita.service`:
+Create service file `/etc/systemd/system/synapse.service`:
 
 ```ini
 [Unit]
-Description=OpenAkita AI Agent Service
+Description=Synapse AI Agent Service
 After=network.target
 
 [Service]
 Type=simple
 User=your-user
-WorkingDirectory=/path/to/openakita
-Environment="PATH=/path/to/openakita/venv/bin"
-ExecStart=/path/to/openakita/venv/bin/openakita serve
+WorkingDirectory=/path/to/synapse
+Environment="PATH=/path/to/synapse/venv/bin"
+ExecStart=/path/to/synapse/venv/bin/synapse serve
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -708,12 +708,12 @@ WantedBy=multi-user.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable openakita
-sudo systemctl start openakita
-sudo systemctl status openakita
+sudo systemctl enable synapse
+sudo systemctl start synapse
+sudo systemctl status synapse
 
 # View logs
-journalctl -u openakita -f
+journalctl -u synapse -f
 ```
 
 ### Using Docker
@@ -736,25 +736,25 @@ COPY . .
 # Install Playwright
 RUN playwright install chromium && playwright install-deps chromium
 
-CMD ["openakita", "serve"]
+CMD ["synapse", "serve"]
 ```
 
 ```bash
-docker build -t openakita .
+docker build -t synapse .
 docker run -d \
-  --name openakita \
+  --name synapse \
   -v $(pwd)/.env:/app/.env \
   -v $(pwd)/data:/app/data \
   -v $(pwd)/identity:/app/identity \
-  openakita
+  synapse
 ```
 
 ### Using nohup (Simple Background)
 
 ```bash
 source venv/bin/activate
-nohup openakita serve > logs/serve.log 2>&1 &
-echo $! > openakita.pid
+nohup synapse serve > logs/serve.log 2>&1 &
+echo $! > synapse.pid
 ```
 
 ---
@@ -781,7 +781,7 @@ python --version
 
 ```bash
 # Use Chinese mirror (for users in China)
-pip install openakita -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install synapse -i https://pypi.tuna.tsinghua.edu.cn/simple
 # Or set permanent mirror
 pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 ```
@@ -811,7 +811,7 @@ playwright install chromium
 
 ```bash
 # Use the interactive tool to test
-python -m openakita.llm.setup.cli
+python -m synapse.llm.setup.cli
 # Choose "4. Test endpoint" to verify connectivity
 ```
 
@@ -823,10 +823,10 @@ python -m openakita.llm.setup.cli
 
 ```bash
 # PyPI install
-pip install --upgrade openakita
+pip install --upgrade synapse
 
 # Source install
-cd openakita
+cd synapse
 git pull
 pip install -e ".[all]"
 ```
@@ -835,12 +835,12 @@ pip install -e ".[all]"
 
 ```bash
 # Stop service
-sudo systemctl stop openakita
-sudo systemctl disable openakita
-sudo rm /etc/systemd/system/openakita.service
+sudo systemctl stop synapse
+sudo systemctl disable synapse
+sudo rm /etc/systemd/system/synapse.service
 
 # Uninstall package
-pip uninstall openakita
+pip uninstall synapse
 
 # Remove data (use caution)
 rm -rf data/ identity/ logs/
@@ -851,7 +851,7 @@ rm -rf data/ identity/ logs/
 ## Support
 
 - Documentation: See `docs/` directory for detailed docs
-- Issues: Submit a [GitHub Issue](https://github.com/openakita/openakita/issues)
+- Issues: Submit a [GitHub Issue](https://github.com/synapse/synapse/issues)
 - Community: Join the Telegram group
 
 ---

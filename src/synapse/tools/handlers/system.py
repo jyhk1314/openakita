@@ -138,7 +138,7 @@ class SystemHandler:
             "## 工作区路径地图",
             "",
             f"- **项目根目录**: {root}",
-            f"- **用户数据目录**: {settings.openakita_home}",
+            f"- **用户数据目录**: {settings.synapse_home}",
             f"- **Identity**: {identity_rel}/ — 身份文档 (SOUL.md, AGENT.md, USER.md, MEMORY.md)",
             "- **Skills**: 技能系统是多源的，可能来自 builtin、用户工作区或项目目录。",
             "- **Skills Rule**: 不要根据 workspace map 猜测 skill 文件路径；请使用 list_skills / get_skill_info 查看真实来源与路径。",

@@ -1,4 +1,4 @@
-# OpenAkita 完整依赖清单
+# Synapse 完整依赖清单
 
 > 自动扫描生成于 2026-01-31
 
@@ -179,7 +179,7 @@ pip install python-telegram-bot>=21.0
 ### QQ 官方机器人
 
 ```bash
-pip install openakita[qqbot]
+pip install synapse[qqbot]
 # 包含: websockets, aiohttp, pilk
 ```
 
@@ -214,7 +214,7 @@ pip install -e ".[dev]"
 ## 📁 文件结构
 
 ```
-openakita/
+synapse/
 ├── requirements.txt        # 依赖列表 (pip 格式)
 ├── pyproject.toml          # 项目配置 (标准格式)
 ├── docs/

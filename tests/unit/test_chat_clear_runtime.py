@@ -26,14 +26,14 @@ def test_clear_chat_runtime_state_cleans_policy_todo_and_orchestrator(monkeypatc
     global_orchestrator = _DummyOrchestrator()
     cleared_todos: list[str] = []
 
-    monkeypatch.setattr("openakita.core.policy.get_policy_engine", lambda: engine)
+    monkeypatch.setattr("synapse.core.policy.get_policy_engine", lambda: engine)
     monkeypatch.setattr(
-        "openakita.tools.handlers.plan.clear_session_todo_state",
+        "synapse.tools.handlers.plan.clear_session_todo_state",
         lambda session_id: cleared_todos.append(session_id),
     )
     monkeypatch.setitem(
         sys.modules,
-        "openakita.main",
+        "synapse.main",
         SimpleNamespace(_orchestrator=global_orchestrator),
     )
 

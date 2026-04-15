@@ -273,11 +273,11 @@ class TestSelfProtection:
         assert "自保护" in result.reason
 
     def test_cannot_delete_src(self, engine):
-        result = engine.assert_tool_allowed("delete_file", {"path": "src/openakita/core/policy.py"})
+        result = engine.assert_tool_allowed("delete_file", {"path": "src/synapse/core/policy.py"})
         assert result.decision == PolicyDecision.DENY
 
     def test_read_self_protected_allowed(self, engine):
-        result = engine.assert_tool_allowed("read_file", {"path": "src/openakita/core/policy.py"})
+        result = engine.assert_tool_allowed("read_file", {"path": "src/synapse/core/policy.py"})
         assert result.decision != PolicyDecision.DENY or "自保护" not in result.reason
 
 

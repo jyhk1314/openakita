@@ -130,12 +130,12 @@ async def health(request: Request):
     """Basic health check - returns 200 if server is running."""
     import os
 
-    from openakita import __git_hash__, get_version_string
-    from openakita import __version__ as backend_version
+    from synapse import __git_hash__, get_version_string
+    from synapse import __version__ as backend_version
 
     return {
         "status": "ok",
-        "service": "openakita",
+        "service": "synapse",
         "version": backend_version,
         "git_hash": __git_hash__,
         "version_full": get_version_string(),
@@ -262,7 +262,7 @@ async def diagnostics():
     import platform
     import sys
 
-    from openakita import __version__ as backend_version
+    from synapse import __version__ as backend_version
 
     checks: list[dict] = []
 
@@ -319,7 +319,7 @@ async def diagnostics():
                 "title": "核心引擎",
                 "status": "pass",
                 "code": "CORE_OK",
-                "evidence": [f"openakita {backend_version}"],
+                "evidence": [f"synapse {backend_version}"],
                 "autoFix": False,
                 "fixHint": None,
             }
@@ -347,7 +347,7 @@ async def diagnostics():
             "platform": f"{sys.platform}-{platform.machine()}",
             "pythonVersion": platform.python_version(),
             "runtimeType": runtime_type,
-            "openakitaVersion": backend_version,
+            "synapseVersion": backend_version,
             "pid": os.getpid(),
         },
     }

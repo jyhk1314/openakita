@@ -1,7 +1,7 @@
 # 组织编排全面功能测试报告
 
 **日期**: 2026-04-09  
-**环境**: 本地开发（Windows 10，D:\OpenAkita，v1.27.9）  
+**环境**: 本地开发（Windows 10，D:\Synapse，v1.27.9）  
 **后端**: http://127.0.0.1:18900  
 **前端**: http://localhost:5173/web/  
 **测试范围**: 组织编排系统全部功能（80+ API 端点 × 22 个测试组 × 134 个断言）
@@ -30,27 +30,27 @@
 
 - **现象**: `POST /api/orgs/{id}/nodes/{node}/freeze` 返回 `"你不在此组织中"`
 - **根因**: `freeze_node` 路由将 `from_node="user"` 传给 `handle_org_tool`，但 `_handle_org_freeze_node` 要求 caller 必须是组织内节点
-- **修复**: `src/openakita/orgs/tool_handler.py` — 当 `node_id == "user"` 时跳过组织内节点检查
+- **修复**: `src/synapse/orgs/tool_handler.py` — 当 `node_id == "user"` 时跳过组织内节点检查
 - **验证**: 修复后 freeze→frozen→unfreeze→idle 完整流程通过 ✅
 
 ### Bug 2（上次已修复）: Org 工具执行路径 — P0
 
-- `src/openakita/orgs/runtime.py` — patch `execute_tool_with_policy`
+- `src/synapse/orgs/runtime.py` — patch `execute_tool_with_policy`
 - **验证**: 本次测试中 org 工具全部正常 ✅
 
 ### Bug 3（上次已修复）: Chat Cancel 路由 — P1
 
-- `src/openakita/api/routes/chat.py` — 识别 `org:` 前缀路由到 OrgRuntime
+- `src/synapse/api/routes/chat.py` — 识别 `org:` 前缀路由到 OrgRuntime
 - **验证**: 15.5-15.7 全部通过 ✅
 
 ### Bug 4（上次已修复）: 时间戳自动填充 — P2
 
-- `src/openakita/orgs/project_store.py` — `update_task` 自动设置 started_at/delivered_at/completed_at
+- `src/synapse/orgs/project_store.py` — `update_task` 自动设置 started_at/delivered_at/completed_at
 - **验证**: 7.7a-7.7c 全部通过 ✅
 
 ### Bug 5（上次已修复）: progress=100% 自动 delivered — P2
 
-- `src/openakita/orgs/tool_handler.py` — `org_report_progress` 自动状态更新
+- `src/synapse/orgs/tool_handler.py` — `org_report_progress` 自动状态更新
 - **验证**: 14.6 从 in_progress 自动变为 delivered ✅
 
 ---
@@ -241,11 +241,11 @@
 
 | 文件 | 修复内容 | 严重度 |
 |------|---------|--------|
-| `src/openakita/orgs/runtime.py` | org 工具执行路径：patch `execute_tool_with_policy` | P0 |
-| `src/openakita/api/routes/chat.py` | Chat Cancel 路由到 OrgRuntime | P1 |
-| `src/openakita/orgs/project_store.py` | `update_task` 自动填充时间戳 | P2 |
-| `src/openakita/orgs/tool_handler.py` | `org_report_progress` progress=100% 自动 delivered | P2 |
-| `src/openakita/orgs/tool_handler.py` | `org_freeze_node` 支持 user 管理员操作 | P2 |
+| `src/synapse/orgs/runtime.py` | org 工具执行路径：patch `execute_tool_with_policy` | P0 |
+| `src/synapse/api/routes/chat.py` | Chat Cancel 路由到 OrgRuntime | P1 |
+| `src/synapse/orgs/project_store.py` | `update_task` 自动填充时间戳 | P2 |
+| `src/synapse/orgs/tool_handler.py` | `org_report_progress` progress=100% 自动 delivered | P2 |
+| `src/synapse/orgs/tool_handler.py` | `org_freeze_node` 支持 user 管理员操作 | P2 |
 
 ---
 

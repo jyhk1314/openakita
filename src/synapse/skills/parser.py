@@ -53,7 +53,7 @@ class SkillMetadata:
     tool_name: str | None = None  # 原工具名称（用于兼容）
     category: str | None = None  # 工具分类
 
-    # metadata.openakita structured fields
+    # metadata.synapse structured fields
     supported_os: list[str] = field(default_factory=list)
     required_bins: list[str] = field(default_factory=list)
     required_env: list[str] = field(default_factory=list)
@@ -75,7 +75,7 @@ class SkillMetadata:
     model: str | None = None
     fallback_for_toolsets: list[str] = field(default_factory=list)
 
-    # 国际化（由 agents/openai.yaml i18n 字段注入，兼容旧的 .openakita-i18n.json）
+    # 国际化（由 agents/openai.yaml i18n 字段注入，兼容旧的 .synapse-i18n.json）
     # key 为语言代码 (如 "zh")，value 为该语言的显示名/描述
     name_i18n: dict[str, str] = field(default_factory=dict)
     description_i18n: dict[str, str] = field(default_factory=dict)
@@ -321,9 +321,9 @@ class SkillParser:
                         }
                     )
 
-        # Extract metadata.openakita structured fields
+        # Extract metadata.synapse structured fields
         raw_metadata = data.get("metadata", {})
-        akita_meta = raw_metadata.get("openakita", {}) if isinstance(raw_metadata, dict) else {}
+        akita_meta = raw_metadata.get("synapse", {}) if isinstance(raw_metadata, dict) else {}
         if not isinstance(akita_meta, dict):
             akita_meta = {}
 

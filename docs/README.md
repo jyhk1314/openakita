@@ -1,6 +1,6 @@
-# OpenAkita Documentation
+# Synapse Documentation
 
-Welcome to the OpenAkita documentation.
+Welcome to the Synapse documentation.
 
 ## Quick Links
 

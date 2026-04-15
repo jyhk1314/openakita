@@ -1,53 +1,53 @@
 # EXE 人工测试问题登记与原因初判
 
 > 来源: 用户人工测试 32 条反馈 + 工作区日志  
-> 日志根目录: `C:\Users\Peilong_Hong\.openakita\workspaces\default`
+> 日志根目录: `C:\Users\Peilong_Hong\.synapse\workspaces\default`
 
 ---
 
 ## A. 已有日志证据（优先修）
 
 1) **默认英文回复（中文语境漂移）**  
-- 现象: 发送中文问候，回复为 `Hello! 👋 I'm OpenAkita...`  
+- 现象: 发送中文问候，回复为 `Hello! 👋 I'm Synapse...`  
 - 初判: 历史消息中英文模板回复被反复带入上下文，模型沿用英文应答风格。  
 - 证据:
-  - `C:\Users\Peilong_Hong\.openakita\workspaces\default\data\llm_debug\llm_request_20260402_092018_46b7a25a.json`
-  - `C:\Users\Peilong_Hong\.openakita\workspaces\default\data\llm_debug\llm_response_20260402_091910_a1820f35.json`
+  - `C:\Users\Peilong_Hong\.synapse\workspaces\default\data\llm_debug\llm_request_20260402_092018_46b7a25a.json`
+  - `C:\Users\Peilong_Hong\.synapse\workspaces\default\data\llm_debug\llm_response_20260402_091910_a1820f35.json`
 
 2) **工具调用文本泄漏（`<tool_call>...</tool_call>` 原样显示）**  
 - 现象: 找新闻/图片时，界面直接显示 tool_call 文本，无后续执行结果。  
 - 初判: 工具调用没有走结构化 tool event 管道，而被当普通文本回复。  
 - 证据:
-  - `C:\Users\Peilong_Hong\.openakita\workspaces\default\data\llm_debug\llm_response_20260402_092022_46b7a25a.json`
-  - `C:\Users\Peilong_Hong\.openakita\workspaces\default\data\llm_debug\llm_response_20260402_091857_35374189.json`
-  - `C:\Users\Peilong_Hong\.openakita\workspaces\default\logs\openakita.log`（`[Chat API] 回复完成` 中可见 `<tool_call>...`）
+  - `C:\Users\Peilong_Hong\.synapse\workspaces\default\data\llm_debug\llm_response_20260402_092022_46b7a25a.json`
+  - `C:\Users\Peilong_Hong\.synapse\workspaces\default\data\llm_debug\llm_response_20260402_091857_35374189.json`
+  - `C:\Users\Peilong_Hong\.synapse\workspaces\default\logs\synapse.log`（`[Chat API] 回复完成` 中可见 `<tool_call>...`）
 
 3) **LLM 结构错误与超时（影响流式和稳定性）**  
 - 现象: 偶发慢、中断、无流式或直接失败。  
 - 初判: 上游端点在部分请求触发 `content field is required` + `ReadTimeout`。  
 - 证据:
-  - `C:\Users\Peilong_Hong\.openakita\workspaces\default\logs\error.log`
-  - `C:\Users\Peilong_Hong\.openakita\workspaces\default\logs\openakita-serve.log`
+  - `C:\Users\Peilong_Hong\.synapse\workspaces\default\logs\error.log`
+  - `C:\Users\Peilong_Hong\.synapse\workspaces\default\logs\synapse-serve.log`
 
 4) **`/clear` 后仍可记住会话内容**  
 - 现象: 清空后仍记得“上个会话让它查新闻/昵称信息”。  
 - 初判: `chat/clear` 与内存会话索引/会话键映射存在不一致，清理未命中当前会话。  
 - 证据:
-  - `C:\Users\Peilong_Hong\.openakita\workspaces\default\logs\openakita.log`（`exe_clear_6029391e` 相关记录）
-  - `C:\Users\Peilong_Hong\.openakita\workspaces\default\logs\openakita-serve.log`
+  - `C:\Users\Peilong_Hong\.synapse\workspaces\default\logs\synapse.log`（`exe_clear_6029391e` 相关记录）
+  - `C:\Users\Peilong_Hong\.synapse\workspaces\default\logs\synapse-serve.log`
 
 5) **`/skills` 与 `/memory` 行为异常（前端提示与后端实际不一致）**  
 - 现象: 前端提示“暂无已安装技能/无法加载记忆”，但后端有技能与记忆。  
 - 初判: 前端展示层与后端命令执行返回格式不一致（尤其 tool_call 文本泄漏时），导致 UI 判定失败。  
 - 证据:
-  - 技能已加载日志: `C:\Users\Peilong_Hong\.openakita\workspaces\default\logs\openakita.log`
+  - 技能已加载日志: `C:\Users\Peilong_Hong\.synapse\workspaces\default\logs\synapse.log`
   - `/skills` 回包出现 tool_call 文本（复现实验）
 
 6) **“你好/你是谁”回复变快的机制说明**  
 - 结论: **不是简单关键词匹配**。  
 - 初判: 这类请求多走 `chat/other` 轻路径、无需工具、迭代轮次低，响应自然更快。  
 - 证据:
-  - `C:\Users\Peilong_Hong\.openakita\workspaces\default\logs\openakita.log`（`Intent: chat, task_type: other`）
+  - `C:\Users\Peilong_Hong\.synapse\workspaces\default\logs\synapse.log`（`Intent: chat, task_type: other`）
 
 ---
 
@@ -75,7 +75,7 @@
 - 工具 loading 卡片无法验证
 
 `frontend.log` 现状证据:
-- `C:\Users\Peilong_Hong\.openakita\workspaces\default\logs\frontend.log`（仅启动记录）
+- `C:\Users\Peilong_Hong\.synapse\workspaces\default\logs\frontend.log`（仅启动记录）
 
 ---
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# OpenAkita Full Package Build Script (Linux/macOS)
+# Synapse Full Package Build Script (Linux/macOS)
 # Output: Installer with all dependencies and models (~1GB)
 # Usage: build_full.sh [--fast]
 
@@ -14,11 +14,11 @@ FAST_FLAG=""
 if [[ "${1:-}" == "--fast" ]]; then
     FAST_FLAG="--fast"
     echo "============================================"
-    echo "  OpenAkita Full Package Build [FAST MODE]"
+    echo "  Synapse Full Package Build [FAST MODE]"
     echo "============================================"
 else
     echo "============================================"
-    echo "  OpenAkita Full Package Build"
+    echo "  Synapse Full Package Build"
     echo "============================================"
 fi
 
@@ -35,9 +35,9 @@ python3 "$SCRIPT_DIR/bundle_modules.py"
 # Step 3: Copy to Tauri resources
 echo ""
 echo "[3/4] Copying backend and modules to Tauri resources..."
-DIST_SERVER_DIR="$PROJECT_ROOT/dist/openakita-server"
+DIST_SERVER_DIR="$PROJECT_ROOT/dist/synapse-server"
 MODULES_DIR="$SCRIPT_DIR/modules"
-TARGET_SERVER_DIR="$RESOURCE_DIR/openakita-server"
+TARGET_SERVER_DIR="$RESOURCE_DIR/synapse-server"
 TARGET_MODULES_DIR="$RESOURCE_DIR/modules"
 
 rm -rf "$TARGET_SERVER_DIR" "$TARGET_MODULES_DIR"
@@ -54,7 +54,7 @@ echo ""
 echo "[4/4] Building Tauri app..."
 cd "$SETUP_CENTER_DIR"
 # Full package needs additional modules resource directory
-export TAURI_CONFIG='{"bundle":{"resources":["resources/openakita-server/","resources/modules/"]}}'
+export TAURI_CONFIG='{"bundle":{"resources":["resources/synapse-server/","resources/modules/"]}}'
 npx tauri build
 
 echo ""

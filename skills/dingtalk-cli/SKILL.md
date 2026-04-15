@@ -1,5 +1,5 @@
 ---
-name: openakita/skills@dingtalk-cli
+name: synapse/skills@dingtalk-cli
 description: "DingTalk Workspace CLI (dws) - officially open-sourced cross-platform CLI tool from DingTalk. Provides 86 commands across 12 products: Contact, Chat, Bot, Calendar, Todo, Approval, Attendance, Ding, Report, AITable, Workbench, DevDoc. Built in Go with zero-trust security architecture. Use when user wants to operate DingTalk resources."
 license: Apache-2.0
 metadata:

@@ -22,13 +22,13 @@
 
 ```powershell
 python -m build
-pip install dist\openakita-*.whl
-openakita --help
+pip install dist\synapse-*.whl
+synapse --help
 ```
 
 说明：
 
-- 这条路径最接近 `pip install openakita[all]` 用户行为。
+- 这条路径最接近 `pip install synapse[all]` 用户行为。
 - 能较好暴露: 包缺文件、entry point 错误、依赖漏装、安装后无法启动等问题。
 - 注意 `pyproject.toml` 的 `force-include`（前端产物/文档/技能等）会影响 wheel 内容；如果本地未构建相关产物，和完整发版可能有差异。
 
@@ -59,7 +59,7 @@ npm run tauri build
 ### 阶段 1: CLI 主样本验证
 
 1. 构建并安装 wheel
-2. 冒烟: `openakita --help`
+2. 冒烟: `synapse --help`
 3. 跑 Agent 自动测试（CLI 全量）:
    - 用 `tests/e2e/agent-auto-test-runbook.md`
    - 阶段 6 跑 20+ 轮
@@ -72,8 +72,8 @@ npm run tauri build
 推荐至少做其中一种：
 
 - 方案 A（同机清理）:
-  - `pip uninstall openakita -y`
-  - 若用过 pipx：`pipx uninstall openakita`
+  - `pip uninstall synapse -y`
+  - 若用过 pipx：`pipx uninstall synapse`
   - 清理/备份用户配置与缓存目录（避免读到旧配置）
 - 方案 B（更稳）:
   - 在全新虚拟机或全新系统用户下安装 EXE 直接测

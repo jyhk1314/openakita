@@ -201,7 +201,7 @@ class IMChannelHandler:
             return gw
 
         try:
-            from openakita import main as _main_mod
+            from synapse import main as _main_mod
 
             return getattr(_main_mod, "_message_gateway", None)
         except Exception:

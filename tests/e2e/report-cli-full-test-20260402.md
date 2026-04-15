@@ -1,4 +1,4 @@
-# OpenAkita CLI 安装态 — AI 探索性全面自测报告
+# Synapse CLI 安装态 — AI 探索性全面自测报告
 
 - **日期**: 2026-04-02
 - **版本**: 1.27.7+unknown (CLI pip editable install)
@@ -140,11 +140,11 @@
 
 | 文件                                         | 修改                              |
 | ------------------------------------------ | ------------------------------- |
-| `src/openakita/llm/capabilities.py`        | qwen3.5-plus/turbo capabilities |
-| `src/openakita/llm/converters/messages.py` | reasoning_content 空值占位          |
-| `src/openakita/core/response_handler.py`   | XML tool_call 过滤                |
+| `src/synapse/llm/capabilities.py`        | qwen3.5-plus/turbo capabilities |
+| `src/synapse/llm/converters/messages.py` | reasoning_content 空值占位          |
+| `src/synapse/core/response_handler.py`   | XML tool_call 过滤                |
 | `data/llm_endpoints.json`                  | 移除 thinking_only                |
-| `src/openakita/prompt/builder.py`          | Ask 模式核心对话约定注入                  |
+| `src/synapse/prompt/builder.py`          | Ask 模式核心对话约定注入                  |
 
 
 ---
@@ -163,5 +163,5 @@
 - 运行形态: **CLI 安装态** (pip install -e, `.venv-cli`)
 - Python: 3.11.9
 - 版本: 1.27.7+unknown
-- 服务启动命令: `python -m openakita serve`
+- 服务启动命令: `python -m synapse serve`
 

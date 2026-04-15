@@ -1,4 +1,4 @@
-# OpenAkita 人工测试 Checklist
+# Synapse 人工测试 Checklist
 
 > 来源: `tests/interaction-refactor-test-plan.md`  
 > 目标: 把需要人工操作的 CLI/Desktop 测试项独立出来，便于手工回归
@@ -11,8 +11,8 @@
 - [ ] 2.2 输入系统（历史、补全、多行、Ctrl+C 行为）
 - [ ] 2.3 斜杠命令（`/help` `/status` `/clear` `/model`）
 - [ ] 2.4 安全确认（y/n/sandbox 流程）
-- [ ] 2.5 快速配置（`openakita init --quick`）
-- [ ] 2.6 向导返回导航（`openakita init` 完整模式）
+- [ ] 2.5 快速配置（`synapse init --quick`）
+- [ ] 2.6 向导返回导航（`synapse init` 完整模式）
 
 ---
 

@@ -96,7 +96,7 @@ class PluginAPI:
         self._registered_search_backends: list[str] = []
         self._pending_permissions: set[str] = set()
 
-        self._logger = logging.getLogger(f"openakita.plugin.{plugin_id}")
+        self._logger = logging.getLogger(f"synapse.plugin.{plugin_id}")
         if self._logger.level == logging.NOTSET:
             self._logger.setLevel(logging.DEBUG)
         self._setup_file_logging()

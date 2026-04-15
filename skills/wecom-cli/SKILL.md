@@ -1,5 +1,5 @@
 ---
-name: openakita/skills@wecom-cli
+name: synapse/skills@wecom-cli
 description: "WeCom (Enterprise WeChat) CLI - official open-source CLI tool from WeCom. Covers 7 business categories: Contacts, Todos, Meetings, Messages, Schedules, Documents, Smartsheets. Built in Rust for macOS/Linux/Windows. Use when user wants to operate WeCom resources."
 license: MIT
 metadata:

@@ -1,7 +1,7 @@
 """
 运行时环境检测 - 兼容 PyInstaller 打包和常规 Python 环境
 
-PyInstaller 打包后 sys.executable 指向 openakita-server.exe 而非 Python 解释器，
+PyInstaller 打包后 sys.executable 指向 synapse-server.exe 而非 Python 解释器，
 本模块提供统一的运行时环境检测层，确保 pip install / 脚本执行等功能正常工作。
 """
 
@@ -103,23 +103,23 @@ def get_configured_venv_path() -> str | None:
     return None
 
 
-def _get_openakita_root() -> Path:
+def _get_synapse_root() -> Path:
     """获取 Synapse 根目录路径 (避免循环导入 config)。
 
-    优先使用 SYNAPSE_ROOT 环境变量，默认 ~/.openakita。
+    优先使用 SYNAPSE_ROOT 环境变量，默认 ~/.synapse。
     """
     import os
 
     env_root = os.environ.get("SYNAPSE_ROOT", "").strip()
     if env_root:
         return Path(env_root)
-    return Path.home() / ".openakita"
+    return Path.home() / ".synapse"
 
 
 def _get_bundled_internal_python() -> str | None:
     """查找 PyInstaller 打包时捆绑在 _internal/ 目录中的 Python 解释器。
 
-    构建时 openakita.spec 会将 sys.executable 和 pip 一起复制到 _internal/，
+    构建时 synapse.spec 会将 sys.executable 和 pip 一起复制到 _internal/，
     因此该 Python 版本与构建环境完全一致，不会产生兼容性问题。
     """
     if not IS_FROZEN:
@@ -147,7 +147,7 @@ def get_python_executable() -> str | None:
 
     PyInstaller 环境下查找优先级:
       1. 工作区 venv ({project_root}/data/venv/)
-      2. 全局 venv (~/.openakita/venv/)
+      2. 全局 venv (~/.synapse/venv/)
       3. 打包内置 Python (_internal/python.exe)
 
     常规开发环境下: 返回 sys.executable
@@ -169,9 +169,9 @@ def get_python_executable() -> str | None:
     except Exception:
         pass
 
-    root = _get_openakita_root()
+    root = _get_synapse_root()
 
-    # 2. 检查 ~/.openakita/venv/
+    # 2. 检查 ~/.synapse/venv/
     if sys.platform == "win32":
         venv_python = root / "venv" / "Scripts" / "python.exe"
     else:
@@ -190,7 +190,7 @@ def get_python_executable() -> str | None:
 
     logger.warning(
         "未找到项目自带的 Python 解释器。"
-        "已搜索: 工作区 venv → ~/.openakita/venv → "
+        "已搜索: 工作区 venv → ~/.synapse/venv → "
         "打包内置 Python。"
         "请重新安装 Synapse，确保安装包资源完整。"
     )
@@ -250,10 +250,10 @@ def get_pip_command(packages: list[str], *, index_url: str | None = None) -> lis
 def get_channel_deps_dir() -> Path:
     """获取 IM 通道依赖的隔离安装目录。
 
-    路径: ~/.openakita/modules/channel-deps/site-packages
+    路径: ~/.synapse/modules/channel-deps/site-packages
     该目录会被 inject_module_paths() 自动扫描并注入到 sys.path。
     """
-    return _get_openakita_root() / "modules" / "channel-deps" / "site-packages"
+    return _get_synapse_root() / "modules" / "channel-deps" / "site-packages"
 
 
 def ensure_ssl_certs() -> None:
@@ -335,7 +335,7 @@ def _sanitize_sys_path() -> None:
     import os
 
     meipass = getattr(sys, "_MEIPASS", "")
-    openakita_root = str(_get_openakita_root())
+    synapse_root = str(_get_synapse_root())
 
     suspicious = []
     for p in list(sys.path):
@@ -344,8 +344,8 @@ def _sanitize_sys_path() -> None:
         # 允许: PyInstaller 内部路径
         if meipass and p.startswith(meipass):
             continue
-        # 允许: 项目数据目录 (~/.openakita/)
-        if p.startswith(openakita_root):
+        # 允许: 项目数据目录 (~/.synapse/)
+        if p.startswith(synapse_root):
             continue
         # 允许: 当前工作目录 ('' 或 '.')
         if p in ("", "."):
@@ -373,7 +373,7 @@ def inject_module_paths() -> None:
 
     路径来源（按优先级）：
     1. SYNAPSE_MODULE_PATHS 环境变量 — Tauri 端通过此变量传递已安装模块路径
-    2. 扫描 ~/.openakita/modules/*/site-packages — 兜底机制
+    2. 扫描 ~/.synapse/modules/*/site-packages — 兜底机制
 
     重要：必须使用 sys.path.append() 而非 insert(0)！
     PyInstaller 打包环境中，内置模块（如 pydantic）位于 _MEIPASS/_internal 目录
@@ -404,10 +404,10 @@ def inject_module_paths() -> None:
                 sys.path.append(p)
                 injected.append(Path(p).parent.name)
 
-    # 来源 2：扫描 ~/.openakita/modules/*/site-packages（兜底）
+    # 来源 2：扫描 ~/.synapse/modules/*/site-packages（兜底）
     # 跳过已内置到 core 包的模块，避免外部旧版本与内置版本冲突
     _BUILTIN_MODULE_IDS = {"browser"}
-    modules_base = _get_openakita_root() / "modules"
+    modules_base = _get_synapse_root() / "modules"
     if modules_base.exists():
         for module_dir in modules_base.iterdir():
             if not module_dir.is_dir():
@@ -480,8 +480,8 @@ def inject_module_paths_runtime() -> int:
 
     injected = []
 
-    # 扫描 ~/.openakita/modules/*/site-packages
-    modules_base = _get_openakita_root() / "modules"
+    # 扫描 ~/.synapse/modules/*/site-packages
+    modules_base = _get_synapse_root() / "modules"
     if modules_base.exists():
         for module_dir in modules_base.iterdir():
             if not module_dir.is_dir():

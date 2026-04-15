@@ -1,5 +1,5 @@
 ---
-name: openakita/skills@baidu-baike
+name: synapse/skills@baidu-baike
 description: "Baidu Baike encyclopedia search skill. Provides authoritative, real-time, structured Chinese encyclopedia knowledge. Use when user needs factual information about concepts, people, places, or topics."
 license: MIT
 metadata:

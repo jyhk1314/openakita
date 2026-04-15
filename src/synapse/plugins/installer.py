@@ -273,7 +273,7 @@ def install_from_git(
 
     git_url = _normalize_git_url(source)
 
-    with tempfile.TemporaryDirectory(prefix="openakita-git-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="synapse-git-") as tmp:
         tmp_path = Path(tmp)
         clone_dir = tmp_path / "repo"
         cmd = ["git", "clone", "--depth", "1"]
@@ -376,7 +376,7 @@ def install_from_url(
     if progress:
         progress.update("downloading", f"正在下载: {url[:80]}", 10)
 
-    with tempfile.TemporaryDirectory(prefix="openakita-plugin-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="synapse-plugin-") as tmp:
         tmp_path = Path(tmp)
         archive = tmp_path / "plugin.zip"
         _download_to_file(url, archive)

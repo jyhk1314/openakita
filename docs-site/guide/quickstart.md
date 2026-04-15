@@ -1,6 +1,6 @@
 # 快速开始
 
-本页帮你在 3 分钟内跑起 OpenAkita，完成第一次对话并接入 IM 通道。
+本页帮你在 3 分钟内跑起 Synapse，完成第一次对话并接入 IM 通道。
 
 ---
 
@@ -23,13 +23,13 @@
 ### 第 1 步：安装
 
 ```bash
-pip install openakita
+pip install synapse
 ```
 
 如果需要全部功能（飞书、钉钉、企业微信等 IM 通道 + 桌面自动化）：
 
 ```bash
-pip install "openakita[all]"
+pip install "synapse[all]"
 ```
 
 详细安装选项见 [安装部署](/guide/installation)。
@@ -37,7 +37,7 @@ pip install "openakita[all]"
 ### 第 2 步：初始化
 
 ```bash
-openakita init
+synapse init
 ```
 
 交互式向导将引导你完成：
@@ -50,23 +50,23 @@ openakita init
 ### 第 3 步：启动
 
 ```bash
-openakita
+synapse
 ```
 
 看到欢迎消息后，直接输入你的第一句话：
 
 ```
 你 > 你好，介绍一下你自己
-OpenAkita > 你好！我是 OpenAkita，一个多 Agent AI 助手。我可以帮你处理各种任务……
+Synapse > 你好！我是 Synapse，一个多 Agent AI 助手。我可以帮你处理各种任务……
 ```
 
-🎉 恭喜！OpenAkita 已经在运行了。
+🎉 恭喜！Synapse 已经在运行了。
 
 ---
 
 ## 第一次对话示例
 
-试试这些指令感受 OpenAkita 的能力：
+试试这些指令感受 Synapse 的能力：
 
 ```
 你 > 帮我总结这篇文章：https://example.com/article
@@ -82,9 +82,9 @@ OpenAkita > 你好！我是 OpenAkita，一个多 Agent AI 助手。我可以帮
 
 推荐从 **飞书** 开始——扫码即可接入，无需申请开发者权限。
 
-1. 在 OpenAkita 中打开 [消息通道配置](/web/#/im)
+1. 在 Synapse 中打开 [消息通道配置](/web/#/im)
 2. 选择"飞书"，按提示扫码授权
-3. 在飞书中找到 OpenAkita 机器人，发送消息测试
+3. 在飞书中找到 Synapse 机器人，发送消息测试
 
 其他通道（钉钉、Telegram、企业微信、QQ）的配置步骤见 [消息通道（IM）](/features/im-channels)。
 
@@ -102,7 +102,7 @@ OpenAkita > 你好！我是 OpenAkita，一个多 Agent AI 助手。我可以帮
 启动 Web 服务：
 
 ```bash
-openakita serve
+synapse serve
 # 浏览器打开 http://localhost:8000
 ```
 
@@ -115,16 +115,16 @@ openakita serve
 **Linux / macOS：**
 
 ```bash
-curl -fsSL https://get.openakita.com | bash
+curl -fsSL https://get.synapse.com | bash
 ```
 
 **Windows（PowerShell）：**
 
 ```powershell
-irm https://get.openakita.com/install.ps1 | iex
+irm https://get.synapse.com/install.ps1 | iex
 ```
 
-脚本将自动检查 Python 环境、安装 OpenAkita 并运行 `openakita init`。
+脚本将自动检查 Python 环境、安装 Synapse 并运行 `synapse init`。
 
 ---
 
@@ -132,9 +132,9 @@ irm https://get.openakita.com/install.ps1 | iex
 
 | 方式 | 命令 | 说明 |
 |------|------|------|
-| 交互式 CLI | `openakita` | 默认模式，在终端对话 |
-| 单次任务 | `openakita run "任务描述"` | 执行一个任务后退出 |
-| API 服务 | `openakita serve` | 启动 Web 服务 + API |
+| 交互式 CLI | `synapse` | 默认模式，在终端对话 |
+| 单次任务 | `synapse run "任务描述"` | 执行一个任务后退出 |
+| API 服务 | `synapse serve` | 启动 Web 服务 + API |
 | 桌面应用 | 双击启动 | Tauri 原生桌面应用 |
 
 ---

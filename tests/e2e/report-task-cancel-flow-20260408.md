@@ -1,7 +1,7 @@
 # 任务终止与状态流转测试报告
 
 **日期**: 2026-04-08  
-**环境**: 本地开发（Windows 10，D:\OpenAkita，源码 v1.26.10）  
+**环境**: 本地开发（Windows 10，D:\Synapse，源码 v1.26.10）  
 **后端**: http://127.0.0.1:18900  
 **前端**: http://localhost:5173/web/  
 **测试目标**: 验证组织项目任务的完整生命周期（创建→派发→执行→终止→状态流转）
@@ -208,7 +208,7 @@ rejected/blocked 状态显示 "重新派发" 按钮
 
 #### 1.1 新增 Org 任务取消 API
 
-**文件**: `src/openakita/api/routes/orgs.py`
+**文件**: `src/synapse/api/routes/orgs.py`
 
 ```python
 @router.post("/{org_id}/projects/{project_id}/tasks/{task_id}/cancel")
@@ -226,7 +226,7 @@ async def cancel_dispatched_task(request, org_id, project_id, task_id):
 
 #### 1.2 Runtime 添加按 chain_id 取消任务的方法
 
-**文件**: `src/openakita/orgs/runtime.py`
+**文件**: `src/synapse/orgs/runtime.py`
 
 ```python
 async def cancel_node_task(self, org_id: str, node_id: str, 
@@ -248,7 +248,7 @@ async def cancel_node_task(self, org_id: str, node_id: str,
 
 #### 1.3 Agent cancel 信号传递到 org 节点 Agent
 
-**文件**: `src/openakita/core/agent.py`, `src/openakita/orgs/runtime.py`
+**文件**: `src/synapse/core/agent.py`, `src/synapse/orgs/runtime.py`
 
 方案：在 `cancel_node_task` 中，除了 `asyncio.Task.cancel()` 外，
 还直接调用 org 节点 Agent 的 `cancel_current_task()`：
@@ -307,7 +307,7 @@ if agent:
 
 #### 3.1 Agent 工具更新前检查任务状态
 
-**文件**: `src/openakita/orgs/tool_handler.py`
+**文件**: `src/synapse/orgs/tool_handler.py`
 
 在 `_link_project_task` 和 `_append_execution_log` 中：
 - 检查当前任务状态是否仍为 `in_progress`
@@ -326,7 +326,7 @@ def _link_project_task(self, org_id, chain_id, **kwargs):
 
 #### 3.2 ProjectStore 状态变更触发 runtime 通知
 
-**文件**: `src/openakita/orgs/project_store.py`
+**文件**: `src/synapse/orgs/project_store.py`
 
 在 `update_task` 中，当状态从 `in_progress` 变为 `todo`/`cancelled` 时，
 发出信号通知 runtime 取消对应的执行任务。
@@ -346,13 +346,13 @@ def _link_project_task(self, org_id, chain_id, **kwargs):
 当任务停留在 delivered 状态超过一定时间（如 30 分钟），
 通过 heartbeat 机制提醒上级节点进行验收。
 
-**文件**: `src/openakita/orgs/runtime.py`（`_health_check_loop` 或 `_watchdog_loop`）
+**文件**: `src/synapse/orgs/runtime.py`（`_health_check_loop` 或 `_watchdog_loop`）
 
 **预估**: 2 小时
 
 #### 4.2 任务状态新增 `cancelled` 枚举值
 
-**文件**: `src/openakita/orgs/models.py`
+**文件**: `src/synapse/orgs/models.py`
 
 当前 `TaskStatus` 有：`todo, in_progress, delivered, accepted, rejected, blocked`
 建议新增：`cancelled`
@@ -419,9 +419,9 @@ def _link_project_task(self, org_id, chain_id, **kwargs):
 
 | 关键路径 | 文件 |
 |----------|------|
-| 任务派发 | `src/openakita/api/routes/orgs.py:1896` |
-| runtime 执行 | `src/openakita/orgs/runtime.py:627 (_activate_and_run_inner)` |
-| Agent 取消 | `src/openakita/core/agent.py:5072 (cancel_current_task)` |
-| ReAct 取消检查 | `src/openakita/core/reasoning_engine.py:667` |
-| 状态更新工具 | `src/openakita/orgs/tool_handler.py:158 (_link_project_task)` |
+| 任务派发 | `src/synapse/api/routes/orgs.py:1896` |
+| runtime 执行 | `src/synapse/orgs/runtime.py:627 (_activate_and_run_inner)` |
+| Agent 取消 | `src/synapse/core/agent.py:5072 (cancel_current_task)` |
+| ReAct 取消检查 | `src/synapse/core/reasoning_engine.py:667` |
+| 状态更新工具 | `src/synapse/orgs/tool_handler.py:158 (_link_project_task)` |
 | 前端看板 | `apps/setup-center/src/components/OrgProjectBoard.tsx` |

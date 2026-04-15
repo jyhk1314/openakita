@@ -1,4 +1,4 @@
-# OpenAkita 全面 AI 探索性测试报告
+# Synapse 全面 AI 探索性测试报告
 
 **日期**: 2026-04-05  
 **版本**: 1.27.7+unknown  
@@ -237,9 +237,9 @@
 | ERROR（测试期间） | 45 条 | 主要是 Memory Extractor/Encoder LLM 调用失败 |
 | WARNING（测试期间） | 301 条 | Budget 截断、Skill 长度警告、LLM ReadError |
 
-**主要 ERROR 模式**: `openakita.memory.extractor - ERROR - Conversation extraction failed: All endpoints failed: dashscope-deepseek-r1: Request failed: ReadError(ReadError(''))`
+**主要 ERROR 模式**: `synapse.memory.extractor - ERROR - Conversation extraction failed: All endpoints failed: dashscope-deepseek-r1: Request failed: ReadError(ReadError(''))`
 
-**日志位置**: `C:\Users\Peilong_Hong\.cursor\projects\d-OpenAkita\terminals\345625.txt`，行号范围 L3574-L4292
+**日志位置**: `C:\Users\Peilong_Hong\.cursor\projects\d-Synapse\terminals\345625.txt`，行号范围 L3574-L4292
 
 ---
 
@@ -276,7 +276,7 @@
 
 - **现象**: 使用 `{"instruction": "..."}` 和 `{"message": "..."}` 作为 body 字段，实际需要 `{"content": "..."}`
 - **严重程度**: LOW（不是代码 bug，是 API 文档/命名一致性问题）
-- **位置**: `src/openakita/api/routes/orgs.py` L574-577, L659-661
+- **位置**: `src/synapse/api/routes/orgs.py` L574-577, L659-661
 - **建议**: 考虑在 API 文档中明确标注参数名，或添加 Pydantic 模型约束
 
 ### 问题 #5: `delegate_parallel` 工具缺少 context 参数 [HIGH]

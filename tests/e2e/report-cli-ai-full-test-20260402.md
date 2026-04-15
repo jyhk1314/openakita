@@ -1,8 +1,8 @@
-# OpenAkita CLI AI 探索性完整测试报告
+# Synapse CLI AI 探索性完整测试报告
 
 - **测试日期**: 2026-04-02
 - **测试准则**: `ai-exploratory-testing.mdc`
-- **运行形态**: CLI 安装态 (openakita serve)
+- **运行形态**: CLI 安装态 (synapse serve)
 - **服务版本**: 1.27.7+3d648e7
 - **PID**: 47416
 - **LLM 模型**: dashscope-deepseek-r1 / qwen3.5-plus
@@ -91,10 +91,10 @@ POST /api/chat/clear {"conversation_id": "test_env_check_20260402"} → 200
 
 | 编号 | 检查项 | 结果 | 文件位置 |
 |------|--------|------|----------|
-| 1.1 | StreamEventType 枚举 22 种 | ✅ | `src/openakita/events.py` L14-55 |
+| 1.1 | StreamEventType 枚举 22 种 | ✅ | `src/synapse/events.py` L14-55 |
 | 1.1 | TS 端 1:1 同步 | ✅ | `apps/setup-center/src/streamEvents.ts` L8-48 |
 | 1.1 | 枚举类型 str,Enum | ✅ | `events.py` L14 |
-| 1.2 | classify_error() | ✅ | `src/openakita/utils/errors.py` L25 |
+| 1.2 | classify_error() | ✅ | `src/synapse/utils/errors.py` L25 |
 | 1.2 | format_user_friendly_error() | ✅ | `utils/errors.py` L72 |
 | 1.2 | 7 大错误分类 | ✅ | `utils/errors.py` L13-22 |
 | 1.2 | CLI stream_renderer 引用 | ✅ | `cli/stream_renderer.py` L18, L232 |
@@ -117,14 +117,14 @@ POST /api/chat/clear {"conversation_id": "test_env_check_20260402"} → 200
 ### 失败项详情
 
 **问题 #P1-1: Cancel 端点无 generation check**
-- **位置**: `src/openakita/api/routes/chat.py` L884
+- **位置**: `src/synapse/api/routes/chat.py` L884
 - **现状**: `await get_lifecycle_manager().finish(_conv_id)` 无 generation 参数
 - **对比**: `_stream_chat` finally 块 L746 使用 `finish(_conv_id, generation=busy_generation)`
 - **影响**: Cancel 请求与正在进行的 stream 存在理论竞态窗口
 - **建议**: 添加 generation 参数保持一致性
 
 **问题 #P1-2: Pool 模式缺 conversation_id 未返回 400**
-- **位置**: `src/openakita/api/routes/chat.py` L782
+- **位置**: `src/synapse/api/routes/chat.py` L782
 - **现状**: 空 conversation_id 被自动替换为 `api_{uuid}`
 - **影响**: Pool 模式下每次请求创建新 Agent 实例，可能导致实例泄漏
 - **建议**: 当 agent_pool 启用时，空 conversation_id 返回 400
@@ -253,8 +253,8 @@ POST /api/chat/clear {"conversation_id": "test_env_check_20260402"} → 200
 | 1 | **中文消息编码损坏** — 通过 API 发送的中文消息在存入会话历史后，中文字符全部被替换为 `?`，LLM 无法理解用户意图 | **P0** | `data/llm_debug/llm_request_20260402_120306_*.json` messages 字段; 怀疑 `sessions/manager.py` 或 FastAPI body 解析路径存在 cp936 → UTF-8 编码冲突 | 所有中文用户的所有对话 | 排查 PyInstaller bundle 中 sys.getdefaultencoding() 和 locale 设置; 检查 session 持久化路径的文件编码; 确保 JSON body 始终以 UTF-8 解码 |
 | 2 | **会话强制 Ask(只读)模式** — 通过 API 创建的会话被设置为 Ask 模式，tools 列表为空，导致所有工具调用不可用 | **P1** | `data/llm_debug/llm_request_20260402_120306_*.json` system 字段含 `<system-reminder>Ask 模式 — 只读</system-reminder>`; `"tools": []` | 所有 API 发起的对话无法使用任何工具 | 检查 `mode` 参数在 `api/routes/chat.py` 中的传递逻辑; 确保 `mode: "agent"` 覆盖默认的 Ask 模式 |
 | 3 | **/clear API 对 API 创建的会话返回 session not found** | **P1** | `/api/chat/clear` 返回 `{"ok": false, "error": "session not found"}`; 原始 conv_id `ai_test_8568a69c` 被系统包装为 `desktop_ai_test_8568a69c_20260402120301_25b8b78c` | API 客户端无法清除自己创建的会话 | 在 clear 端点中支持原始 conv_id 查找，或返回包装后的实际 session_id |
-| 4 | **Cancel 端点无 generation check** | **P1** | `src/openakita/api/routes/chat.py` L884: `finish(_conv_id)` 无 generation 参数 | Cancel 与 stream 存在理论竞态 | 添加 generation 参数 |
-| 5 | **Pool 模式缺 conv_id 未返回 400** | **P1** | `src/openakita/api/routes/chat.py` L782: 空 conv_id 自动生成 `api_{uuid}` | Agent 实例泄漏风险 | Pool 启用时对空 conv_id 返回 400 |
+| 4 | **Cancel 端点无 generation check** | **P1** | `src/synapse/api/routes/chat.py` L884: `finish(_conv_id)` 无 generation 参数 | Cancel 与 stream 存在理论竞态 | 添加 generation 参数 |
+| 5 | **Pool 模式缺 conv_id 未返回 400** | **P1** | `src/synapse/api/routes/chat.py` L782: 空 conv_id 自动生成 `api_{uuid}` | Agent 实例泄漏风险 | Pool 启用时对空 conv_id 返回 400 |
 | 6 | **缺少 iteration_start 等事件** — 23 轮 SSE 流中仅观察到 3 种事件类型，缺少 iteration_start, thinking_*, tool_call_* | **P2** | 所有轮次 terminal 输出日志; `tests/e2e/ai_test_results.json` | SSE 消费方无法感知思考/工具/迭代状态 | 确认 qwen3.5-plus 模型是否支持 thinking 事件; 检查事件发射条件 |
 | 7 | **命令注册表缺少 /status** | **P2** | `GET /api/commands?scope=desktop` 返回 11 个命令，无 `/status` | CLI `/status` 命令可能未注册到 desktop scope | 检查 status 命令的 scope 配置 |
 | 8 | **/clear 对不存在会话返回 200 非 404** | **P2** | `POST /api/chat/clear {"conversation_id": "test_env_check_20260402"}` → 200 | HTTP 语义不清晰 | 不存在的会话返回 404 |

@@ -1,7 +1,7 @@
 # 任务终止与状态流转测试报告（复测 + 修复）
 
 **日期**: 2026-04-09  
-**环境**: 本地开发（Windows 10，D:\OpenAkita，源码 v1.27.9）  
+**环境**: 本地开发（Windows 10，D:\Synapse，源码 v1.27.9）  
 **后端**: http://127.0.0.1:18900  
 **前端**: http://localhost:5173/web/  
 **测试目标**: 复测任务终止功能，全面验证状态流转，定位根因，**实施修复并验证**
@@ -21,8 +21,8 @@
 | 前端终止按钮 | ✅ 已有 | ✅ 已有 |
 
 **修复涉及 2 个文件：**
-1. `src/openakita/orgs/runtime.py` — 修复 org 工具执行路径
-2. `src/openakita/api/routes/chat.py` — Chat Cancel 路由到 OrgRuntime
+1. `src/synapse/orgs/runtime.py` — 修复 org 工具执行路径
+2. `src/synapse/api/routes/chat.py` — Chat Cancel 路由到 OrgRuntime
 
 ---
 
@@ -276,15 +276,15 @@ OrgProjectBoard.tsx 代码分析：
 ```
 
 **文件定位**:
-- 补丁位置: `src/openakita/orgs/runtime.py:2148`
+- 补丁位置: `src/synapse/orgs/runtime.py:2148`
   ```python
   executor.execute_tool = _patched_execute  # ← 补丁了 execute_tool
   ```
-- 实际路径: `src/openakita/core/tool_executor.py:536`
+- 实际路径: `src/synapse/core/tool_executor.py:536`
   ```python
   return await self._execute_tool_impl(tool_name, tool_input)  # ← 直接调 impl
   ```
-- 未知工具检查: `src/openakita/core/tool_executor.py:437-442`
+- 未知工具检查: `src/synapse/core/tool_executor.py:437-442`
   ```python
   if self._handler_registry.has_tool(tool_name):
       result = await self._handler_registry.execute_by_tool(...)
@@ -337,10 +337,10 @@ Org Agent 实际位置:
 ```
 
 **文件定位**:
-- Chat cancel: `src/openakita/api/routes/chat.py:1005-1027`
-- Org cancel (正确): `src/openakita/api/routes/orgs.py:1935-2001`
-- Agent pool: `src/openakita/api/routes/chat.py` 中的 `_get_existing_agent`
-- Org cache: `src/openakita/orgs/runtime.py` 中的 `_agent_cache`
+- Chat cancel: `src/synapse/api/routes/chat.py:1005-1027`
+- Org cancel (正确): `src/synapse/api/routes/orgs.py:1935-2001`
+- Agent pool: `src/synapse/api/routes/chat.py` 中的 `_get_existing_agent`
+- Org cache: `src/synapse/orgs/runtime.py` 中的 `_agent_cache`
 
 ---
 
@@ -365,7 +365,7 @@ Org Agent 实际位置:
 
 **修复方案 A（推荐 — 最小改动）**: 补丁 `_execute_tool_impl` 而不是 `execute_tool`
 
-**文件**: `src/openakita/orgs/runtime.py:2110-2148`
+**文件**: `src/synapse/orgs/runtime.py:2110-2148`
 
 ```python
 def _register_org_tool_handler(self, agent, org_id, node_id):
@@ -407,7 +407,7 @@ def _register_org_tool_handler(self, agent, org_id, node_id):
 
 ### Fix 2（P1）：Chat Cancel 路由到 Org Runtime
 
-**文件**: `src/openakita/api/routes/chat.py:1005-1027`
+**文件**: `src/synapse/api/routes/chat.py:1005-1027`
 
 ```python
 @router.post("/api/chat/cancel")
@@ -433,7 +433,7 @@ async def chat_cancel(request: Request, body: ChatControlRequest):
 
 在 `_activate_and_run_inner` 的成功路径中，自动将关联的 ProjectTask 状态更新为 delivered：
 
-**文件**: `src/openakita/orgs/runtime.py` (`_activate_and_run_inner` 完成后)
+**文件**: `src/synapse/orgs/runtime.py` (`_activate_and_run_inner` 完成后)
 
 ```python
 # 在 agent.chat 成功完成后
@@ -479,15 +479,15 @@ if chain_id and chain_id.startswith("dispatch:"):
 
 | 关键路径 | 文件 | 行号 |
 |----------|------|------|
-| **Org 工具补丁（问题所在）** | `src/openakita/orgs/runtime.py` | 2110-2148 |
-| **实际工具执行路径** | `src/openakita/core/tool_executor.py` | 482-536 |
-| **未知工具检查** | `src/openakita/core/tool_executor.py` | 437-442 |
-| Org Cancel API | `src/openakita/api/routes/orgs.py` | 1935-2001 |
-| Chat Cancel API | `src/openakita/api/routes/chat.py` | 1005-1027 |
-| 任务派发 | `src/openakita/api/routes/orgs.py` | 1894-1932 |
-| runtime 执行 | `src/openakita/orgs/runtime.py` | 700-835 |
-| Org 工具定义 | `src/openakita/orgs/tools.py` | 10+ |
-| Org 工具处理器 | `src/openakita/orgs/tool_handler.py` | 361-380 |
+| **Org 工具补丁（问题所在）** | `src/synapse/orgs/runtime.py` | 2110-2148 |
+| **实际工具执行路径** | `src/synapse/core/tool_executor.py` | 482-536 |
+| **未知工具检查** | `src/synapse/core/tool_executor.py` | 437-442 |
+| Org Cancel API | `src/synapse/api/routes/orgs.py` | 1935-2001 |
+| Chat Cancel API | `src/synapse/api/routes/chat.py` | 1005-1027 |
+| 任务派发 | `src/synapse/api/routes/orgs.py` | 1894-1932 |
+| runtime 执行 | `src/synapse/orgs/runtime.py` | 700-835 |
+| Org 工具定义 | `src/synapse/orgs/tools.py` | 10+ |
+| Org 工具处理器 | `src/synapse/orgs/tool_handler.py` | 361-380 |
 | 前端终止按钮 | `apps/setup-center/src/components/OrgProjectBoard.tsx` | 1098-1110, 1221-1233 |
 | 前端 cancelTask | `apps/setup-center/src/components/OrgProjectBoard.tsx` | 296-302 |
 
@@ -504,7 +504,7 @@ if chain_id and chain_id.startswith("dispatch:"):
 
 ### 8.1 Fix 1: 修复 org 工具执行路径
 
-**文件**: `src/openakita/orgs/runtime.py` 第 2110-2148 行
+**文件**: `src/synapse/orgs/runtime.py` 第 2110-2148 行
 
 **改动**: 将 `_register_org_tool_handler` 的补丁目标从 `executor.execute_tool` 改为 `executor.execute_tool_with_policy`
 
@@ -523,7 +523,7 @@ executor.execute_tool_with_policy = _patched_with_policy
 
 ### 8.2 Fix 2: Chat Cancel 路由到 OrgRuntime
 
-**文件**: `src/openakita/api/routes/chat.py` 第 1005-1027 行
+**文件**: `src/synapse/api/routes/chat.py` 第 1005-1027 行
 
 **改动**: 在 `chat_cancel` 函数开头检测 `org:*` 格式的 `conversation_id`，直接路由到 `OrgRuntime.cancel_node_task`
 
@@ -643,10 +643,10 @@ ALL TESTS PASSED!
 
 | # | 问题 | 修复位置 | 状态 |
 |---|------|---------|------|
-| 1 | Org 工具"未知工具"错误 | `src/openakita/orgs/runtime.py` — patch `execute_tool_with_policy` | ✅ |
-| 2 | Chat Cancel 路由不到 org agent | `src/openakita/api/routes/chat.py` — 识别 `org:` 前缀路由 | ✅ |
-| 3 | `delivered_at`/`started_at` 未自动设置 | `src/openakita/orgs/project_store.py` — `update_task` 自动时间戳 | ✅ |
-| 4 | `progress=100%` 不自动标记 delivered | `src/openakita/orgs/tool_handler.py` — `org_report_progress` 自动状态 | ✅ |
+| 1 | Org 工具"未知工具"错误 | `src/synapse/orgs/runtime.py` — patch `execute_tool_with_policy` | ✅ |
+| 2 | Chat Cancel 路由不到 org agent | `src/synapse/api/routes/chat.py` — 识别 `org:` 前缀路由 | ✅ |
+| 3 | `delivered_at`/`started_at` 未自动设置 | `src/synapse/orgs/project_store.py` — `update_task` 自动时间戳 | ✅ |
+| 4 | `progress=100%` 不自动标记 delivered | `src/synapse/orgs/tool_handler.py` — `org_report_progress` 自动状态 | ✅ |
 
 ### 核心功能验证结果：
 

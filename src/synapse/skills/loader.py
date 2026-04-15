@@ -35,7 +35,7 @@ def _resolve_user_workspace_skills() -> Path:
         root = os.environ.get("SYNAPSE_ROOT", "").strip()
         if root:
             return Path(root) / "workspaces" / "default" / "skills"
-        return Path.home() / ".openakita" / "workspaces" / "default" / "skills"
+        return Path.home() / ".synapse" / "workspaces" / "default" / "skills"
 
 
 def _builtin_skills_root() -> Path | None:
@@ -43,7 +43,7 @@ def _builtin_skills_root() -> Path | None:
     返回内置技能目录（随 wheel 分发）。
 
     期望结构：
-    openakita/
+    synapse/
       builtin_skills/
         system/<tool-name>/SKILL.md
     """
@@ -73,8 +73,8 @@ SYSTEM_SKILL_DIRECTORIES = [
 # 用户通过前端面板手动勾选后会创建 skills.json，之后以用户选择为准。
 DEFAULT_DISABLED_SKILLS: frozenset[str] = frozenset(
     {
-        "openakita/skills@algorithmic-art",
-        "openakita/skills@apify-scraper",
+        "synapse/skills@algorithmic-art",
+        "synapse/skills@apify-scraper",
         "jimliu/baoyu-skills@baoyu-article-illustrator",
         "jimliu/baoyu-skills@baoyu-comic",
         "jimliu/baoyu-skills@baoyu-cover-image",
@@ -83,27 +83,27 @@ DEFAULT_DISABLED_SKILLS: frozenset[str] = frozenset(
         "jimliu/baoyu-skills@baoyu-infographic",
         "jimliu/baoyu-skills@baoyu-slide-deck",
         "jimliu/baoyu-skills@baoyu-url-to-markdown",
-        "openakita/skills@bilibili-watcher",
-        "openakita/skills@brand-guidelines",
-        "openakita/skills@changelog-generator",
-        "openakita/skills@chinese-novelist",
-        "openakita/skills@chinese-writing",
-        "openakita/skills@code-reviewer",
-        "openakita/skills@douyin-tool",
-        "openakita/skills@frontend-design",
-        "openakita/skills@github-automation",
-        "openakita/skills@gmail-automation",
-        "openakita/skills@google-calendar-automation",
-        "openakita/skills@image-understander",
-        "openakita/skills@internal-comms",
-        "openakita/skills@knowledge-capture",
-        "openakita/skills@moltbook",
-        "openakita/skills@notebooklm",
-        "openakita/skills@obsidian-skills",
-        "openakita/skills@ppt-creator",
-        "openakita/skills@pretty-mermaid",
-        "openakita/skills@slack-gif-creator",
-        "openakita/skills@summarizer",
+        "synapse/skills@bilibili-watcher",
+        "synapse/skills@brand-guidelines",
+        "synapse/skills@changelog-generator",
+        "synapse/skills@chinese-novelist",
+        "synapse/skills@chinese-writing",
+        "synapse/skills@code-reviewer",
+        "synapse/skills@douyin-tool",
+        "synapse/skills@frontend-design",
+        "synapse/skills@github-automation",
+        "synapse/skills@gmail-automation",
+        "synapse/skills@google-calendar-automation",
+        "synapse/skills@image-understander",
+        "synapse/skills@internal-comms",
+        "synapse/skills@knowledge-capture",
+        "synapse/skills@moltbook",
+        "synapse/skills@notebooklm",
+        "synapse/skills@obsidian-skills",
+        "synapse/skills@ppt-creator",
+        "synapse/skills@pretty-mermaid",
+        "synapse/skills@slack-gif-creator",
+        "synapse/skills@summarizer",
         "obra/superpowers@brainstorming",
         "obra/superpowers@dispatching-parallel-agents",
         "obra/superpowers@executing-plans",
@@ -118,53 +118,53 @@ DEFAULT_DISABLED_SKILLS: frozenset[str] = frozenset(
         "obra/superpowers@verification-before-completion",
         "obra/superpowers@writing-plans",
         "obra/superpowers@writing-skills",
-        "openakita/skills@theme-factory",
-        "openakita/skills@todoist-task",
-        "openakita/skills@translate-pdf",
-        "openakita/skills@video-downloader",
-        "openakita/skills@webapp-testing",
-        "openakita/skills@wechat-article",
-        "openakita/skills@xiaohongshu-creator",
-        "openakita/skills@youtube-summarizer",
-        "openakita/skills@yuque-skills",
+        "synapse/skills@theme-factory",
+        "synapse/skills@todoist-task",
+        "synapse/skills@translate-pdf",
+        "synapse/skills@video-downloader",
+        "synapse/skills@webapp-testing",
+        "synapse/skills@wechat-article",
+        "synapse/skills@xiaohongshu-creator",
+        "synapse/skills@youtube-summarizer",
+        "synapse/skills@yuque-skills",
         # IM 办公 CLI
-        "openakita/skills@feishu-cli",
-        "openakita/skills@wecom-cli",
-        "openakita/skills@dingtalk-cli",
+        "synapse/skills@feishu-cli",
+        "synapse/skills@wecom-cli",
+        "synapse/skills@dingtalk-cli",
         # AI 视频生成
-        "openakita/skills@seedance-video",
+        "synapse/skills@seedance-video",
         # 出行与地图
-        "openakita/skills@amap-maps",
-        "openakita/skills@fliggy-travel",
-        "openakita/skills@didi-ride",
+        "synapse/skills@amap-maps",
+        "synapse/skills@fliggy-travel",
+        "synapse/skills@didi-ride",
         # 腾讯生态
-        "openakita/skills@qq-channel",
-        "openakita/skills@tencent-meeting",
-        "openakita/skills@tencent-survey",
-        "openakita/skills@tencent-news",
-        "openakita/skills@tencent-ima",
+        "synapse/skills@qq-channel",
+        "synapse/skills@tencent-meeting",
+        "synapse/skills@tencent-survey",
+        "synapse/skills@tencent-news",
+        "synapse/skills@tencent-ima",
         # 百度系 Skills
-        "openakita/skills@baidu-search",
-        "openakita/skills@baidu-netdisk",
-        "openakita/skills@baidu-baike",
-        "openakita/skills@baidu-maps",
-        "openakita/skills@baidu-scholar",
-        "openakita/skills@miaoda-app-builder",
-        "openakita/skills@baidu-paddleocr-doc",
-        "openakita/skills@baidu-paddleocr-text",
-        "openakita/skills@baidu-deep-research",
-        "openakita/skills@baidu-ecommerce",
-        "openakita/skills@baidu-marketing",
-        "openakita/skills@baidu-picture-book",
-        "openakita/skills@baidu-ppt-gen",
-        "openakita/skills@baidu-video-notes",
-        "openakita/skills@baidu-yijian",
-        "openakita/skills@baidu-famou",
-        "openakita/skills@xiaodu-control",
+        "synapse/skills@baidu-search",
+        "synapse/skills@baidu-netdisk",
+        "synapse/skills@baidu-baike",
+        "synapse/skills@baidu-maps",
+        "synapse/skills@baidu-scholar",
+        "synapse/skills@miaoda-app-builder",
+        "synapse/skills@baidu-paddleocr-doc",
+        "synapse/skills@baidu-paddleocr-text",
+        "synapse/skills@baidu-deep-research",
+        "synapse/skills@baidu-ecommerce",
+        "synapse/skills@baidu-marketing",
+        "synapse/skills@baidu-picture-book",
+        "synapse/skills@baidu-ppt-gen",
+        "synapse/skills@baidu-video-notes",
+        "synapse/skills@baidu-yijian",
+        "synapse/skills@baidu-famou",
+        "synapse/skills@xiaodu-control",
         # 电商工具
-        "openakita/skills@taobaoke-tool",
+        "synapse/skills@taobaoke-tool",
         # 网易云音乐
-        "openakita/skills@netease-music",
+        "synapse/skills@netease-music",
     }
 )
 
@@ -402,7 +402,7 @@ class SkillLoader:
     def _load_i18n(self, skill_dir: Path, metadata: SkillMetadata) -> None:
         """加载国际化数据到 metadata。
 
-        优先 agents/openai.yaml 的 i18n 字段，回退 .openakita-i18n.json。
+        优先 agents/openai.yaml 的 i18n 字段，回退 .synapse-i18n.json。
         """
         from .i18n import read_i18n
 

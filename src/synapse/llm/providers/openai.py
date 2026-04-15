@@ -562,7 +562,7 @@ class OpenAIProvider(LLMProvider):
         }
 
         if "openrouter" in self.base_url.lower():
-            headers["HTTP-Referer"] = "https://github.com/openakita"
+            headers["HTTP-Referer"] = "https://github.com/synapse"
             headers["X-Title"] = "Synapse"
 
         return headers

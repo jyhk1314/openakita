@@ -148,6 +148,8 @@ class SkillEntry:
     execution_context: str = "inline"
     agent_profile: str | None = None
     paths: list[str] = field(default_factory=list)
+    # 当声明的工具集不可用时作为回退加载的技能（与 parser SkillMetadata 一致）
+    fallback_for_toolsets: list[str] = field(default_factory=list)
     hooks: dict = field(default_factory=dict)
     model: str | None = None
 
@@ -262,6 +264,7 @@ class SkillEntry:
             execution_context=meta.execution_context,
             agent_profile=meta.agent_profile,
             paths=list(meta.paths),
+            fallback_for_toolsets=list(meta.fallback_for_toolsets),
             hooks=dict(meta.hooks) if meta.hooks else {},
             model=meta.model,
             trust_level=trust_level,

@@ -2,7 +2,7 @@
 
 ## 什么是 AI 对话
 
-OpenAkita 的聊天不是简单的问答——它运行 **ReAct 循环**（Reasoning + Acting）：
+Synapse 的聊天不是简单的问答——它运行 **ReAct 循环**（Reasoning + Acting）：
 
 1. **推理（Reasoning）**：Agent 分析你的问题，拆解意图
 2. **行动（Acting）**：调用工具完成实际操作（搜索文件、执行代码、查询数据库……）
@@ -24,7 +24,7 @@ OpenAkita 的聊天不是简单的问答——它运行 **ReAct 循环**（Reaso
 
 ## 会话管理
 
-OpenAkita 支持多会话管理，每个会话独立保存上下文。
+Synapse 支持多会话管理，每个会话独立保存上下文。
 
 - **新建会话**：点击侧边栏 `+` 按钮或使用 `/clear` 命令
 - **切换会话**：在侧边栏点击历史会话

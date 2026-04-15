@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OpenAkita Python Backend Build Script
+Synapse Python Backend Build Script
 
 Usage:
   python build/build_backend.py --mode core    # Core package (~100-150MB)
@@ -15,9 +15,9 @@ import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SPEC_FILE = PROJECT_ROOT / "build" / "openakita.spec"
+SPEC_FILE = PROJECT_ROOT / "build" / "synapse.spec"
 DIST_DIR = PROJECT_ROOT / "dist"
-OUTPUT_DIR = DIST_DIR / "openakita-server"
+OUTPUT_DIR = DIST_DIR / "synapse-server"
 
 
 def run_cmd(cmd: list[str], env: dict | None = None, **kwargs) -> subprocess.CompletedProcess:
@@ -140,7 +140,7 @@ def create_stdlib_zip(output_dir: Path) -> Path | None:
     """Create python3XX.zip containing stdlib for the standalone interpreter.
 
     PyInstaller stores collected pure-Python modules in a PYZ archive that is
-    only accessible through its own bootloader (openakita-server.exe).  The
+    only accessible through its own bootloader (synapse-server.exe).  The
     standalone python.exe in _internal/ cannot read the PYZ, so it has no
     access to stdlib modules like __future__, pathlib, etc.
 
@@ -294,7 +294,7 @@ def clean_dist():
         shutil.rmtree(DIST_DIR)
 
     # Clean build temp directory
-    build_tmp = PROJECT_ROOT / "build" / "openakita-server"
+    build_tmp = PROJECT_ROOT / "build" / "synapse-server"
     if build_tmp.exists():
         shutil.rmtree(build_tmp)
 
@@ -305,7 +305,7 @@ def clean_dist():
         shutil.rmtree(pyinstaller_work)
 
     # Clean legacy PyInstaller analysis cache (from builds that used default workpath)
-    legacy_cache = PROJECT_ROOT / "build" / "openakita"
+    legacy_cache = PROJECT_ROOT / "build" / "synapse"
     if legacy_cache.exists():
         print(f"  Cleaning legacy PyInstaller cache: {legacy_cache}")
         shutil.rmtree(legacy_cache)
@@ -352,7 +352,7 @@ def build_backend(mode: str, fast: bool = False):
     """Execute PyInstaller packaging"""
     label = f"{mode.upper()}" + (" [FAST]" if fast else "")
     print(f"\n{'='*60}")
-    print(f"  OpenAkita Backend Build - Mode: {label}")
+    print(f"  Synapse Backend Build - Mode: {label}")
     print(f"{'='*60}\n")
 
     print("[1/5] Checking dependencies...")
@@ -365,9 +365,9 @@ def build_backend(mode: str, fast: bool = False):
     clean_dist()
 
     print("\n[4/5] Running PyInstaller...")
-    env = {"OPENAKITA_BUILD_MODE": mode}
+    env = {"SYNAPSE_BUILD_MODE": mode}
     if fast:
-        env["OPENAKITA_NO_UPX"] = "1"
+        env["SYNAPSE_NO_UPX"] = "1"
 
     cmd = [
         sys.executable, "-m", "PyInstaller",
@@ -384,9 +384,9 @@ def build_backend(mode: str, fast: bool = False):
     print("\n[5/5] Verifying build output...")
     
     if sys.platform == "win32":
-        exe_path = OUTPUT_DIR / "openakita-server.exe"
+        exe_path = OUTPUT_DIR / "synapse-server.exe"
     else:
-        exe_path = OUTPUT_DIR / "openakita-server"
+        exe_path = OUTPUT_DIR / "synapse-server"
 
     if not exe_path.exists():
         print(f"  [ERROR] Executable not found: {exe_path}")
@@ -420,7 +420,7 @@ def build_backend(mode: str, fast: bool = False):
     web_dist = web_src / "dist-web"
     _build_web_frontend(web_src, web_dist)
     if web_dist.exists() and (web_dist / "index.html").exists():
-        web_dest = OUTPUT_DIR / "_internal" / "openakita" / "web"
+        web_dest = OUTPUT_DIR / "_internal" / "synapse" / "web"
         if web_dest.exists():
             shutil.rmtree(web_dest)
         shutil.copytree(web_dist, web_dest)
@@ -439,7 +439,7 @@ def build_backend(mode: str, fast: bool = False):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="OpenAkita backend build script")
+    parser = argparse.ArgumentParser(description="Synapse backend build script")
     parser.add_argument(
         "--mode",
         choices=["core", "full"],

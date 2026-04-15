@@ -1,5 +1,5 @@
 ---
-name: openakita/skills@baidu-search
+name: synapse/skills@baidu-search
 description: "Baidu Web Search skill for real-time Chinese web information retrieval. Breaks through static knowledge base limitations to get the latest news and information. Use when user needs to search the Chinese web for current information."
 license: MIT
 metadata:

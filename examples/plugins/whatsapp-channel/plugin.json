@@ -9,7 +9,7 @@
   "entry": "plugin.py",
   "permissions": ["channel.register", "hooks.basic", "config.read", "config.write", "log", "routes.register"],
   "requires": {
-    "openakita": ">=1.27.0",
+    "synapse": ">=1.27.0",
     "plugin_api": "~1",
     "python": ">=3.11"
   },

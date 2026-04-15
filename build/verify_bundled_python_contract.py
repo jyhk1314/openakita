@@ -2,8 +2,8 @@
 """Verify Contract A for packaged backend resources.
 
 Contract A requires on all platforms:
-1) backend executable exists in openakita-server/
-2) bundled interpreter exists in openakita-server/_internal/python*
+1) backend executable exists in synapse-server/
+2) bundled interpreter exists in synapse-server/_internal/python*
 3) bundled interpreter can import pip
 """
 
@@ -55,7 +55,7 @@ def main() -> int:
     parser.add_argument(
         "--backend-dir",
         required=True,
-        help="Path to openakita-server directory",
+        help="Path to synapse-server directory",
     )
     args = parser.parse_args()
 
@@ -64,7 +64,7 @@ def main() -> int:
         print(f"[ERROR] backend dir not found: {backend_dir}")
         return 1
 
-    exe = backend_dir / ("openakita-server.exe" if sys.platform == "win32" else "openakita-server")
+    exe = backend_dir / ("synapse-server.exe" if sys.platform == "win32" else "synapse-server")
     if not exe.exists():
         print(f"[ERROR] backend executable missing: {exe}")
         return 1

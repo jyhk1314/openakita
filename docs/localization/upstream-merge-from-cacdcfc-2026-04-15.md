@@ -29,7 +29,7 @@
    批量策略为 **`git checkout --ours`**，优先保留 fork 桌面端功能（产品工作台、引导、GitNexus 等）。上游不再跟踪的 **`dist-web/`** 静态产物按上游删除；若个别文件被误删，已从 **`HEAD`** 恢复 **`ToastContainer.tsx`**（与 `DIFF.md` 中「仅本仓库存在」组件一致）。
 
 5. **自动化脚本**  
-   `scripts/resolve_upstream_merge_openakita.py`：用于在类似合并中批量处理 `src/openakita` 删除、`src/synapse` theirs+品牌化、setup-center 优先 ours、以及接受上游删除的 `dist-web` 路径。后续合并可复用并根据 `DIFF.md` 调整保护列表。
+   `scripts/resolve_upstream_merge_synapse.py`：用于在类似合并中批量处理 `src/openakita` 删除、`src/synapse` theirs+品牌化、setup-center 优先 ours、以及接受上游删除的 `dist-web` 路径。后续合并可复用并根据 `DIFF.md` 调整保护列表。
 
 6. **测试**  
    - `tests/unit/test_prompt_guard.py`：上游已删除该文件；合并结果跟随删除。  

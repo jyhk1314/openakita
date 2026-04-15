@@ -1,5 +1,5 @@
 ---
-name: openakita/skills@feishu-cli
+name: synapse/skills@feishu-cli
 description: "Feishu/Lark CLI - official open-source CLI tool from Feishu for AI Agents. Provides 200+ commands across 12 business domains: IM, Docs, Sheets, Base (Bitable), Calendar, Video Meeting, Mail, Tasks, Wiki, Drive, Contacts, Search. Supports both user identity and bot identity authentication. Use when user wants to operate Feishu/Lark resources."
 license: MIT
 metadata:

@@ -1,5 +1,5 @@
 /**
- * OpenAkita WhatsApp Web Bridge
+ * Synapse WhatsApp Web Bridge
  *
  * Connects to WhatsApp via Baileys (WhatsApp Web multi-device protocol)
  * and exposes a simple HTTP API for the Python adapter.

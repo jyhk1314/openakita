@@ -1,9 +1,9 @@
 ---
-name: openakita/skills@qq-channel
+name: synapse/skills@qq-channel
 description: "QQ Channel (Tencent Channel) bot management skill. Manage channels, sub-channels, members, messages, announcements, and schedules via QQ Bot API. Use when user wants to operate QQ channels, send messages to channels, or manage channel members."
 license: MIT
 metadata:
-  author: openakita
+  author: synapse
   version: "1.0.0"
 ---
 

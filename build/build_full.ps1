@@ -1,4 +1,4 @@
-# OpenAkita Full Package Build Script (Windows PowerShell)
+# Synapse Full Package Build Script (Windows PowerShell)
 # Output: Installer with all dependencies and models (~1GB)
 # Usage: .\build_full.ps1 [-Fast]
 
@@ -15,11 +15,11 @@ $ResourceDir = Join-Path $SetupCenterDir "src-tauri\resources"
 
 if ($Fast) {
     Write-Host "============================================" -ForegroundColor Cyan
-    Write-Host "  OpenAkita Full Package Build [FAST MODE]" -ForegroundColor Cyan
+    Write-Host "  Synapse Full Package Build [FAST MODE]" -ForegroundColor Cyan
     Write-Host "============================================" -ForegroundColor Cyan
 } else {
     Write-Host "============================================" -ForegroundColor Cyan
-    Write-Host "  OpenAkita Full Package Build" -ForegroundColor Cyan
+    Write-Host "  Synapse Full Package Build" -ForegroundColor Cyan
     Write-Host "============================================" -ForegroundColor Cyan
 }
 
@@ -37,9 +37,9 @@ if ($LASTEXITCODE -ne 0) { throw "Module pre-bundling failed" }
 
 # Step 3: Copy to Tauri resources
 Write-Host "`n[3/4] Copying backend and modules to Tauri resources..." -ForegroundColor Yellow
-$DistServerDir = Join-Path $ProjectRoot "dist\openakita-server"
+$DistServerDir = Join-Path $ProjectRoot "dist\synapse-server"
 $ModulesDir = Join-Path $ScriptDir "modules"
-$TargetServerDir = Join-Path $ResourceDir "openakita-server"
+$TargetServerDir = Join-Path $ResourceDir "synapse-server"
 $TargetModulesDir = Join-Path $ResourceDir "modules"
 
 if (Test-Path $TargetServerDir) { Remove-Item -Recurse -Force $TargetServerDir }
@@ -57,7 +57,7 @@ Write-Host "`n[4/4] Building Tauri app..." -ForegroundColor Yellow
 Push-Location $SetupCenterDir
 try {
     # Full package needs additional modules resource directory
-    $env:TAURI_CONFIG = '{"bundle":{"resources":["resources/openakita-server/","resources/modules/"]}}'
+    $env:TAURI_CONFIG = '{"bundle":{"resources":["resources/synapse-server/","resources/modules/"]}}'
     npx tauri build
     if ($LASTEXITCODE -ne 0) { throw "Tauri build failed" }
 } finally {

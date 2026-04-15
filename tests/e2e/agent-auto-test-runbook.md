@@ -1,4 +1,4 @@
-# OpenAkita Agent 自动测试 Runbook
+# Synapse Agent 自动测试 Runbook
 
 > 来源: `tests/interaction-refactor-test-plan.md` + `ai-exploratory-testing.mdc`  
 > 目标: 让 Agent 可独立执行的自动化测试流程（不依赖人工 UI 点点点）

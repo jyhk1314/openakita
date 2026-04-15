@@ -57,7 +57,7 @@ class WecomOnboard:
                 auth_url: str  — 二维码扫码链接
                 scode: str     — 用于后续轮询的标识
         """
-        params = {"source": "openakita", "plat": str(_get_plat_code())}
+        params = {"source": "synapse", "plat": str(_get_plat_code())}
         data = await self._get(QC_GENERATE_PATH, params=params)
         resp_data = data.get("data", data)
         scode = resp_data.get("scode", "")

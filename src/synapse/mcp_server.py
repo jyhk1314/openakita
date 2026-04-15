@@ -5,14 +5,14 @@ MCP Server 模式
 允许其他 AI Agent（如 Claude Desktop、Cursor 等）通过 MCP 协议调用。
 
 暴露的工具:
-- openakita_chat: 与 Synapse 对话
-- openakita_memory_search: 搜索记忆
-- openakita_schedule_task: 创建定时任务
-- openakita_list_skills: 列出可用技能
-- openakita_execute_skill: 执行技能
+- synapse_chat: 与 Synapse 对话
+- synapse_memory_search: 搜索记忆
+- synapse_schedule_task: 创建定时任务
+- synapse_list_skills: 列出可用技能
+- synapse_execute_skill: 执行技能
 
 启动方式:
-    python -m openakita.mcp_server [--port 8765]
+    python -m synapse.mcp_server [--port 8765]
 """
 
 from __future__ import annotations
@@ -25,12 +25,12 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-MCP_SERVER_NAME = "openakita"
+MCP_SERVER_NAME = "synapse"
 MCP_SERVER_VERSION = "1.0.0"
 
 EXPOSED_TOOLS = [
     {
-        "name": "openakita_chat",
+        "name": "synapse_chat",
         "description": "Send a message to Synapse and get a response",
         "inputSchema": {
             "type": "object",
@@ -41,7 +41,7 @@ EXPOSED_TOOLS = [
         },
     },
     {
-        "name": "openakita_memory_search",
+        "name": "synapse_memory_search",
         "description": "Search Synapse's memory for relevant information",
         "inputSchema": {
             "type": "object",
@@ -53,7 +53,7 @@ EXPOSED_TOOLS = [
         },
     },
     {
-        "name": "openakita_list_skills",
+        "name": "synapse_list_skills",
         "description": "List available Synapse skills",
         "inputSchema": {
             "type": "object",
@@ -140,14 +140,14 @@ class MCPServer:
     async def _execute_tool(self, tool_name: str, arguments: dict) -> str:
         await self._ensure_agent()
 
-        if tool_name == "openakita_chat":
+        if tool_name == "synapse_chat":
             message = arguments.get("message", "")
             if not message:
                 return "Error: message is required"
             response = await self._agent.chat(message)
             return response
 
-        elif tool_name == "openakita_memory_search":
+        elif tool_name == "synapse_memory_search":
             query = arguments.get("query", "")
             limit = arguments.get("limit", 5)
             mm = getattr(self._agent, "memory_manager", None)
@@ -156,7 +156,7 @@ class MCPServer:
             results = await mm.search(query, limit=limit)
             return json.dumps(results, ensure_ascii=False, indent=2)
 
-        elif tool_name == "openakita_list_skills":
+        elif tool_name == "synapse_list_skills":
             registry = getattr(self._agent, "skill_registry", None)
             if not registry:
                 return "Skill system not available"

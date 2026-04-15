@@ -879,7 +879,7 @@ async def chat(request: Request, body: ChatRequest):
     to support concurrent streaming without shared-state corruption.
 
     Returns Server-Sent Events with the following event types
-    (canonical definitions in openakita.events.StreamEventType):
+    (canonical definitions in synapse.events.StreamEventType):
     - heartbeat / iteration_start
     - thinking_start / thinking_delta / thinking_end / chain_text
     - text_delta

@@ -2,10 +2,10 @@
 
 ## 概述
 
-本页面介绍如何在服务器上正式部署 OpenAkita。适用于需要长期运行、多人访问、高可用的场景。
+本页面介绍如何在服务器上正式部署 Synapse。适用于需要长期运行、多人访问、高可用的场景。
 
 ::: tip 快速选择
-- **个人本地使用** → 无需看本页，直接桌面应用或 `openakita` 启动即可
+- **个人本地使用** → 无需看本页，直接桌面应用或 `synapse` 启动即可
 - **团队局域网共享** → 参考 [多端访问](/network/multi-access) 的场景 2
 - **正式生产环境** → 继续阅读本页
 :::
@@ -18,9 +18,9 @@
 
 ```yaml
 services:
-  openakita:
-    image: openakita/openakita:latest
-    container_name: openakita
+  synapse:
+    image: synapse/synapse:latest
+    container_name: synapse
     restart: unless-stopped
     ports:
       - "18900:18900"
@@ -49,7 +49,7 @@ docker compose up -d
 ### 查看日志
 
 ```bash
-docker compose logs -f openakita
+docker compose logs -f synapse
 ```
 
 ## 环境变量清单
@@ -103,14 +103,14 @@ docker compose logs -f openakita
 
 ### Prometheus + Grafana
 
-OpenAkita 暴露 `/metrics` 端点，兼容 Prometheus 格式。
+Synapse 暴露 `/metrics` 端点，兼容 Prometheus 格式。
 
 ```yaml
 # prometheus.yml
 scrape_configs:
-  - job_name: 'openakita'
+  - job_name: 'synapse'
     static_configs:
-      - targets: ['openakita:18900']
+      - targets: ['synapse:18900']
     metrics_path: /metrics
     scrape_interval: 30s
 ```
@@ -119,11 +119,11 @@ scrape_configs:
 
 | 指标 | 说明 |
 |------|------|
-| `openakita_requests_total` | API 请求总数 |
-| `openakita_llm_tokens_total` | LLM Token 消耗总量 |
-| `openakita_llm_latency_seconds` | LLM 请求延迟 |
-| `openakita_active_sessions` | 当前活跃会话数 |
-| `openakita_tool_calls_total` | 工具调用总数 |
+| `synapse_requests_total` | API 请求总数 |
+| `synapse_llm_tokens_total` | LLM Token 消耗总量 |
+| `synapse_llm_latency_seconds` | LLM 请求延迟 |
+| `synapse_active_sessions` | 当前活跃会话数 |
+| `synapse_tool_calls_total` | 工具调用总数 |
 
 Grafana Dashboard 可通过导入 `monitoring/grafana/dashboards.yml` 快速配置。
 
@@ -152,11 +152,11 @@ LOG_LEVEL=info  # debug / info / warning / error
 
 ```bash
 #!/bin/bash
-BACKUP_DIR="/backups/openakita"
+BACKUP_DIR="/backups/synapse"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 mkdir -p "$BACKUP_DIR"
-tar czf "$BACKUP_DIR/openakita_$TIMESTAMP.tar.gz" \
+tar czf "$BACKUP_DIR/synapse_$TIMESTAMP.tar.gz" \
     data/ identity/ skills/ .env
 
 find "$BACKUP_DIR" -name "*.tar.gz" -mtime +30 -delete
@@ -166,13 +166,13 @@ find "$BACKUP_DIR" -name "*.tar.gz" -mtime +30 -delete
 
 ```bash
 # 每天凌晨 3 点自动备份
-0 3 * * * /opt/openakita/backup.sh
+0 3 * * * /opt/synapse/backup.sh
 ```
 
 ### 恢复
 
 ```bash
-tar xzf openakita_20260318_030000.tar.gz -C /opt/openakita/
+tar xzf synapse_20260318_030000.tar.gz -C /opt/synapse/
 docker compose restart
 ```
 
@@ -202,4 +202,4 @@ docker compose restart
 - [多端访问指南](/network/multi-access) — 各场景的访问配置
 - [网络基础科普](/network/basics) — 网络概念入门
 - [高级设置](/advanced/advanced) — 网络与安全配置项
-- [CLI 命令参考](/advanced/cli) — `openakita serve` 等服务端命令
+- [CLI 命令参考](/advanced/cli) — `synapse serve` 等服务端命令

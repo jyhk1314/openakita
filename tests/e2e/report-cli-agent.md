@@ -1,4 +1,4 @@
-# OpenAkita CLI 测试报告（Agent 执行）
+# Synapse CLI 测试报告（Agent 执行）
 
 > 测试形态: CLI 安装态  
 > 执行日期: 2026-04-01  
@@ -8,7 +8,7 @@
 
 ## 1. 执行概览
 
-- 后端启动方式: `openakita serve --dev`
+- 后端启动方式: `synapse serve --dev`
 - 健康检查: `GET /api/health` 返回 `200`，`agent_initialized=true`
 - 命令注册表: `GET /api/commands?scope=desktop` 返回有效命令列表
 - `/clear` 端点: 对不存在会话返回 `200` + `{"ok":false,"error":"session not found"}`（优雅处理）
@@ -65,15 +65,15 @@ py -3.11 tests/e2e/test_api_comprehensive.py
 
 已执行:
 
-- `openakita --help` ✅
-- `openakita init --help` ✅
-- `openakita status` ✅（可执行）
-- `openakita run "现在几点了"` ❌
+- `synapse --help` ✅
+- `synapse init --help` ✅
+- `synapse status` ✅（可执行）
+- `synapse run "现在几点了"` ❌
 
-`openakita run` 失败详情:
+`synapse run` 失败详情:
 
 - 异常: `AttributeError: 'str' object has no attribute 'success'`
-- 定位线索: `src/openakita/main.py` 的 `run()` 路径中对 `result.success` 的访问
+- 定位线索: `src/synapse/main.py` 的 `run()` 路径中对 `result.success` 的访问
 - 结论: `run` 命令返回值类型与调用方期望不一致，属于 CLI 主路径缺陷
 
 ---
@@ -82,7 +82,7 @@ py -3.11 tests/e2e/test_api_comprehensive.py
 
 ### P1（发版前建议修复）
 
-1. `openakita run` 崩溃（返回值类型不匹配）  
+1. `synapse run` 崩溃（返回值类型不匹配）  
 2. LLM 请求在部分场景触发 `content field is required`（导致多用例失败）
 
 ### P2（可并行排期）
@@ -102,12 +102,12 @@ py -3.11 tests/e2e/test_api_comprehensive.py
 
 ## 6. 阶段收尾（按计划执行到 Step 5）
 
-- 已执行 `openakita selfcheck`（结果整体 healthy，但存在 `API key missing` 自检提示项）。
+- 已执行 `synapse selfcheck`（结果整体 healthy，但存在 `API key missing` 自检提示项）。
 - 已尝试发起第二轮回归脚本（`test_context_retention_live.py`、`test_api_comprehensive.py`），为进入 EXE 阶段前切换环境，进程在长时间运行后手动停止。
 - 已完成 CLI 卸载：
-  - `py -3.11 -m pip uninstall -y openakita` 成功
-  - `openakita --help` 已不可用（符合卸载预期）
-  - `py -3.11 -m pip show openakita` 显示未安装
+  - `py -3.11 -m pip uninstall -y synapse` 成功
+  - `synapse --help` 已不可用（符合卸载预期）
+  - `py -3.11 -m pip show synapse` 显示未安装
 
 ---
 
@@ -123,14 +123,14 @@ py -3.11 tests/e2e/test_api_comprehensive.py
   - `data/llm_debug/llm_request_*.json`
   - `data/llm_debug/llm_response_*.json`
 - 服务与运行日志（排查超时/异常堆栈）  
-  - `logs/openakita.log`
+  - `logs/synapse.log`
   - `logs/error.log`
-  - `logs/openakita-serve.log`
+  - `logs/synapse-serve.log`
   - `logs/frontend.log`
 
 建议排查顺序：
 
 1. 先看 `tests/e2e/api_test_results.json` 找失败 case id  
 2. 按时间戳对齐 `data/llm_debug/llm_request_*.json` 与 `llm_response_*.json`  
-3. 再到 `logs/error.log` / `logs/openakita.log` 对照异常栈与请求时段
+3. 再到 `logs/error.log` / `logs/synapse.log` 对照异常栈与请求时段
 

@@ -19,7 +19,7 @@
 - ❌ 缺少速率限制
 - ❌ 依赖第三方库（python-jose）
 
-#### 2. `src/openakita/api/auth.py` - Web 访问认证
+#### 2. `src/synapse/api/auth.py` - Web 访问认证
 **技术栈**: 标准库零依赖（hmac+hashlib+jwt）
 
 **优点**:
@@ -152,7 +152,7 @@ Response:
 
 ## 📁 文件结构
 ```
-src/openakita/
+src/synapse/
 ├── core/
 │   └── auth/
 │       ├── jwt.py              # JWT 核心实现

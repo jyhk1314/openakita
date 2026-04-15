@@ -1,4 +1,4 @@
-# OpenAkita 全面 AI 探索性测试报告
+# Synapse 全面 AI 探索性测试报告
 
 **日期**: 2026-04-06
 **版本**: 1.27.7+eb939d4
@@ -373,7 +373,7 @@
 
 - **现象**: 多个 API 路径与直觉命名不一致（详见第五部分 5.4）
 - **严重程度**: MEDIUM
-- **位置**: `src/openakita/api/routes/orgs.py`
+- **位置**: `src/synapse/api/routes/orgs.py`
 - **受影响端点**: avatar-presets, save-as-template, duplicate, export(POST), audit-log, from-template, nodes/status
 - **建议**: 在 API 文档中明确标注所有端点路径；或添加兼容别名
 
@@ -397,7 +397,7 @@
 
 - **现象**: 创建任务需要 `trigger_type`/`trigger_config`/`task_type` 字段，使用 `type`/`config` 等常见缩写会失败（返回 200 但 body 含 error）
 - **严重程度**: LOW
-- **位置**: `src/openakita/api/routes/scheduler.py` TaskCreateRequest
+- **位置**: `src/synapse/api/routes/scheduler.py` TaskCreateRequest
 - **建议**: (1) 在错误响应中返回 4xx 状态码而非 200；(2) 添加参数验证的友好提示
 
 ---

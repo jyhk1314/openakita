@@ -1,4 +1,4 @@
-# OpenAkita AI 探索性测试报告 v4
+# Synapse AI 探索性测试报告 v4
 
 - **测试时间**: 2026-04-02 23:25 ~ 2026-04-03 00:10
 - **测试人**: AI Agent（Cursor）
@@ -334,8 +334,8 @@ POST /api/chat/clear {"conversation_id": "test_env_check_20260402"} → 404
 - **严重程度**: 高 — Plan/Todo 功能核心能力完全失效
 - **复现率**: 100%
 - **影响范围**: 所有通过 `/api/chat` 创建的 Todo 计划
-- **代码位置**: `src/openakita/tools/handlers/todo_handler.py` → `PlanHandler._get_current_todo()`
-- **相关文件**: `src/openakita/tools/handlers/todo_store.py`, `src/openakita/tools/handlers/todo_state.py`
+- **代码位置**: `src/synapse/tools/handlers/todo_handler.py` → `PlanHandler._get_current_todo()`
+- **相关文件**: `src/synapse/tools/handlers/todo_store.py`, `src/synapse/tools/handlers/todo_state.py`
 - **建议**: 优先排查 TodoStore 的持久化是否正确，以及 `_session_handlers` 在跨请求时是否丢失引用
 
 ### ⚠️ BUG-01: 消息历史重复（中优先级 P1）
@@ -365,7 +365,7 @@ POST /api/chat/clear {"conversation_id": "test_env_check_20260402"} → 404
 ### 💡 BUG-05: 插件配置端点对不存在的插件返回 200（低优先级 P2）
 
 - **严重程度**: 低 — 仅影响 API 调用者的判断
-- **代码位置**: `src/openakita/api/routes/plugins.py` → `get_plugin_config()`
+- **代码位置**: `src/synapse/api/routes/plugins.py` → `get_plugin_config()`
 - **建议**: 在返回配置前检查 `plugin_dir.is_dir()`
 
 ---

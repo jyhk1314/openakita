@@ -53,12 +53,12 @@
 | N01 | 读文件 | "帮我看一下 pyproject.toml 的内容" | 无 | read_file+glob | **PASS** |
 | N02 | 写代码 | "写一个 Python 快速排序函数" | 无 | write_file+run_shell | **PASS** |
 | N03 | 查 git | "帮我看看最近的 git 提交记录" | 无 | run_shell ×2 | **PASS** |
-| N04 | 列目录 | "帮我列一下 src/openakita/core/ 下有哪些文件" | 无 | list_directory ×2 | **PASS** |
+| N04 | 列目录 | "帮我列一下 src/synapse/core/ 下有哪些文件" | 无 | list_directory ×2 | **PASS** |
 | N05 | 搜索代码 | "帮我搜一下代码里哪些地方用到了 ask_user" | 无 | grep ×2 | **PASS** |
 | N06 | 解释概念 | "帮我解释一下什么是微服务架构" | 无 | 无(直接回复1182ch) | **PASS** |
 | N07 | 简单问答 | "Python 的 GIL 是什么" | 无 | 无(直接回复1944ch) | **PASS** |
 
-**注**: 打包版 CWD 为 `C:\Users\..\.openakita\workspaces\default`，非源码目录，N01/N03/N04 找不到项目文件是预期行为，关键是**没有被误拦截**。
+**注**: 打包版 CWD 为 `C:\Users\..\.synapse\workspaces\default`，非源码目录，N01/N03/N04 找不到项目文件是预期行为，关键是**没有被误拦截**。
 
 ---
 
@@ -115,7 +115,7 @@
 ## 六、LLM Debug 日志审查
 
 ### 打包版 IA 模型: qwen3.5-plus
-从 `~/.openakita/workspaces/default/data/llm_debug/` 抽样验证：
+从 `~/.synapse/workspaces/default/data/llm_debug/` 抽样验证：
 
 | 场景 | LLM 输出 | 正确性 |
 |------|---------|--------|

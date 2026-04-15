@@ -1,5 +1,5 @@
 ---
-name: openakita/skills@xiaodu-control
+name: synapse/skills@xiaodu-control
 description: "Xiaodu smart device control skill via MCP protocol. Control Xiaodu devices and ecosystem hardware for smart home IoT tasks, scene automation, and physical interaction. Use when user wants to control smart home devices or IoT equipment."
 license: MIT
 metadata:

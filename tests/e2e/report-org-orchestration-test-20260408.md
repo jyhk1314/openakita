@@ -1,7 +1,7 @@
 # 组织编排功能 E2E 测试报告
 
 **测试日期**: 2026-04-08  
-**测试版本**: OpenAkita 1.27.9 (editable mode)  
+**测试版本**: Synapse 1.27.9 (editable mode)  
 **后端地址**: http://127.0.0.1:18900  
 **前端地址**: http://localhost:5173/  
 **测试组织**: `org_e473c8c6715e` (E2E-Orchestration-Test)
@@ -174,10 +174,10 @@ T+480s (8分钟) 组织被手动停止, dev/qa 仍为 busy
    ```
 
 **涉及代码**:
-- `src/openakita/orgs/runtime.py` → `_auto_send_result()` (L1360-1383)
-- `src/openakita/orgs/runtime.py` → `_activate_and_run_inner()` (L1174)
-- `src/openakita/orgs/messenger.py` → `send()` (L261-310), task_affinity 路由逻辑 (L266-273)
-- `src/openakita/orgs/runtime.py` → `_post_task_hook()` (L2346+)
+- `src/synapse/orgs/runtime.py` → `_auto_send_result()` (L1360-1383)
+- `src/synapse/orgs/runtime.py` → `_activate_and_run_inner()` (L1174)
+- `src/synapse/orgs/messenger.py` → `send()` (L261-310), task_affinity 路由逻辑 (L266-273)
+- `src/synapse/orgs/runtime.py` → `_post_task_hook()` (L2346+)
 
 **影响**: 
 - 节点无法回到 idle 状态 (用户报告的核心问题)
@@ -200,7 +200,7 @@ T+480s (8分钟) 组织被手动停止, dev/qa 仍为 busy
 
 **根因**: `reasoning_engine.py` 中 IntentTag 逻辑将节点的简短完成回复误判为"声称有动作但没有工具调用", 强制要求使用工具。这在组织节点处理"任务结果确认"这类消息时是不合理的, 因为确认消息只需文本回复。
 
-**涉及代码**: `src/openakita/core/reasoning_engine.py` → IntentTag / ForceToolCall retry 逻辑
+**涉及代码**: `src/synapse/core/reasoning_engine.py` → IntentTag / ForceToolCall retry 逻辑
 
 **影响**: 
 - 增加不必要的 LLM 迭代次数 (qa 节点 11 次迭代才完成)
@@ -239,7 +239,7 @@ T+480s (8分钟) 组织被手动停止, dev/qa 仍为 busy
 
 **根因**: 当节点完成任务后, `_auto_send_result` 和 `_post_task_hook` 几乎同时触发新的消息处理, 导致竞态条件。节点在 `idle → busy` 的瞬间同时收到自引用消息和 mailbox 消息, 超过了并发限制。
 
-**涉及代码**: `src/openakita/orgs/runtime.py` → `_post_task_hook()` 和 `_handle_new_message()`
+**涉及代码**: `src/synapse/orgs/runtime.py` → `_post_task_hook()` 和 `_handle_new_message()`
 
 ---
 
@@ -315,5 +315,5 @@ async def send(self, msg):
 - `tests/e2e/_create_test_org.json` — 测试组织创建 payload
 - `tests/e2e/_test_command1.json` — 测试命令 payload
 - `tests/e2e/_cmd1_final.json` — 命令状态快照 (含完整 progress_events)
-- 后端日志: terminal 136889 (openakita serve --dev)
+- 后端日志: terminal 136889 (synapse serve --dev)
 - 事件日志: `data/orgs/org_e473c8c6715e/events/` 目录下 JSONL 文件

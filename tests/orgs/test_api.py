@@ -172,7 +172,7 @@ class TestLifecycleRoutes:
         from .conftest import make_org
         org = manager.create(make_org().to_dict())
 
-        with patch("openakita.orgs.templates.ensure_builtin_templates"):
+        with patch("synapse.orgs.templates.ensure_builtin_templates"):
             await runtime.start()
 
         try:
@@ -188,7 +188,7 @@ class TestLifecycleRoutes:
 class TestInboxRoutes:
     async def test_global_inbox(self, app_client):
         client, manager, runtime = app_client
-        with patch("openakita.orgs.templates.ensure_builtin_templates"):
+        with patch("synapse.orgs.templates.ensure_builtin_templates"):
             await runtime.start()
         try:
             resp = await client.get("/api/org-inbox")
@@ -200,7 +200,7 @@ class TestInboxRoutes:
 
     async def test_unread_count(self, app_client):
         client, _, runtime = app_client
-        with patch("openakita.orgs.templates.ensure_builtin_templates"):
+        with patch("synapse.orgs.templates.ensure_builtin_templates"):
             await runtime.start()
         try:
             resp = await client.get("/api/org-inbox/unread-count")

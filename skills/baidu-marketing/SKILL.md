@@ -1,5 +1,5 @@
 ---
-name: openakita/skills@baidu-marketing
+name: synapse/skills@baidu-marketing
 description: "Baidu Intelligent Cloud marketing skill for generating marketing notes, videos, and optimized copy. Supports immediate and delayed call triggers. Use when user needs marketing content generation or campaign optimization."
 license: MIT
 metadata:

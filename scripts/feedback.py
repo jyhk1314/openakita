@@ -9,7 +9,7 @@ Usage:
     python scripts/feedback.py cleanup --days N [--yes]
     python scripts/feedback.py stats [--days N]
 
-Credentials are read from environment variables or ~/.openakita/feedback.env:
+Credentials are read from environment variables or ~/.synapse/feedback.env:
     OSS_ENDPOINT, OSS_BUCKET, OSS_ACCESS_KEY_ID, OSS_ACCESS_KEY_SECRET
 """
 
@@ -34,8 +34,8 @@ FEEDBACK_PREFIX = "feedback/"
 
 
 def _load_env() -> None:
-    """Load credentials from ~/.openakita/feedback.env if it exists."""
-    env_file = Path.home() / ".openakita" / "feedback.env"
+    """Load credentials from ~/.synapse/feedback.env if it exists."""
+    env_file = Path.home() / ".synapse" / "feedback.env"
     if not env_file.exists():
         return
     for line in env_file.read_text(encoding="utf-8").splitlines():
@@ -56,7 +56,7 @@ def _get_bucket() -> oss2.Bucket:
     missing = [k for k in required if not os.environ.get(k)]
     if missing:
         print(f"Error: missing environment variables: {', '.join(missing)}", file=sys.stderr)
-        print("Set them or create ~/.openakita/feedback.env", file=sys.stderr)
+        print("Set them or create ~/.synapse/feedback.env", file=sys.stderr)
         sys.exit(1)
 
     auth = oss2.Auth(os.environ["OSS_ACCESS_KEY_ID"], os.environ["OSS_ACCESS_KEY_SECRET"])

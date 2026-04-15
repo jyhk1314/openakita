@@ -1,5 +1,5 @@
 ---
-name: openakita/skills@baidu-paddleocr-text
+name: synapse/skills@baidu-paddleocr-text
 description: "PaddleOCR text recognition skill using PP-OCRv5 lightweight model. Supports natural scene and complex document text detection and recognition. Use when user needs OCR text extraction from images."
 license: MIT
 metadata:

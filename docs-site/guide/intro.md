@@ -1,12 +1,12 @@
 # 产品介绍
 
-本页说明 OpenAkita 是什么、能做什么、以及如何沿着文档一步步上手。
+本页说明 Synapse 是什么、能做什么、以及如何沿着文档一步步上手。
 
 ---
 
-## OpenAkita 是什么？
+## Synapse 是什么？
 
-OpenAkita 是一款开源多 Agent AI 助手，部署在你自己的环境中。它不只是一个聊天机器人——而是一个帮你把事情做完的 **AI 团队**。你可以通过 CLI、桌面应用、Web 浏览器或日常使用的 IM 软件与它对话；多个 Agent 各司其职，自动协作完成从信息查询到复杂工作流的各类任务。项目基于 Python 3.11+、FastAPI 后端与 React + Tauri 桌面端构建，当前版本 **v1.26.5**。
+Synapse 是一款开源多 Agent AI 助手，部署在你自己的环境中。它不只是一个聊天机器人——而是一个帮你把事情做完的 **AI 团队**。你可以通过 CLI、桌面应用、Web 浏览器或日常使用的 IM 软件与它对话；多个 Agent 各司其职，自动协作完成从信息查询到复杂工作流的各类任务。项目基于 Python 3.11+、FastAPI 后端与 React + Tauri 桌面端构建，当前版本 **v1.26.5**。
 
 ---
 
@@ -14,7 +14,7 @@ OpenAkita 是一款开源多 Agent AI 助手，部署在你自己的环境中。
 
 ### 1. 多通道 IM 接入
 
-接入 Telegram、飞书、钉钉、企业微信、QQ、OneBot 等主流聊天软件，在你最常用的 App 里直接与 AI 对话，无需切换窗口。一个 OpenAkita 实例可同时接入多个通道。
+接入 Telegram、飞书、钉钉、企业微信、QQ、OneBot 等主流聊天软件，在你最常用的 App 里直接与 AI 对话，无需切换窗口。一个 Synapse 实例可同时接入多个通道。
 
 👉 [配置消息通道](/web/#/im) · 详见 [消息通道（IM）](/features/im-channels)
 
@@ -69,13 +69,13 @@ OpenAkita 是一款开源多 Agent AI 助手，部署在你自己的环境中。
 
 ```bash
 # 交互式 CLI
-openakita
+synapse
 
 # 执行单个任务
-openakita run "帮我整理本周会议纪要"
+synapse run "帮我整理本周会议纪要"
 
 # 启动 API 服务
-openakita serve
+synapse serve
 
 # 桌面应用（Tauri）
 # 下载安装后双击启动
@@ -102,7 +102,7 @@ openakita serve
   - `MEMORY.md` — 持久化记忆
 - **Memory（记忆）** — 三层记忆系统，见上文。
 - **MCP** — Model Context Protocol，连接外部工具的标准协议。
-- **Ralph Loop** — OpenAkita 的核心执行循环，遇到失败会分析原因并重试，永不放弃。
+- **Ralph Loop** — Synapse 的核心执行循环，遇到失败会分析原因并重试，永不放弃。
 
 ---
 
@@ -118,4 +118,4 @@ openakita serve
 8. **[多 Agent 入门](/multi-agent/overview)** — 多 Agent 协作
 9. **[身份配置](/features/identity)** — 自定义 Agent 人格
 
-按需配置，无需全部阅读。遇到问题可随时在 [GitHub Issues](https://github.com/openakita/openakita/issues) 反馈。
+按需配置，无需全部阅读。遇到问题可随时在 [GitHub Issues](https://github.com/synapse/synapse/issues) 反馈。

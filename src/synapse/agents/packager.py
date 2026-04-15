@@ -409,12 +409,12 @@ class AgentInstaller:
 
     # ── Skill version helpers ──
 
-    _ORIGIN_FILE = ".openakita-origin.json"
+    _ORIGIN_FILE = ".synapse-origin.json"
 
     def _read_installed_version(self, skill_dir: Path) -> str | None:
         """Read the version of an already-installed skill.
 
-        Checks (in order): .openakita-origin.json → SKILL.md frontmatter version.
+        Checks (in order): .synapse-origin.json → SKILL.md frontmatter version.
         """
         origin = skill_dir / self._ORIGIN_FILE
         if origin.exists():
@@ -463,7 +463,7 @@ class AgentInstaller:
         origin_type: str,
         agent_id: str = "",
     ) -> None:
-        """Write .openakita-origin.json sidecar to track provenance."""
+        """Write .synapse-origin.json sidecar to track provenance."""
         data = {
             "source": source,
             "version": version or "",

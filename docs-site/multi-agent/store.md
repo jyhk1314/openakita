@@ -2,7 +2,7 @@
 
 ## 什么是 Store
 
-Store 是 OpenAkita 的**社区市场**——你可以在这里发现、安装和分享 Agent 与技能。
+Store 是 Synapse 的**社区市场**——你可以在这里发现、安装和分享 Agent 与技能。
 
 - **Agent Store** — 预配置好的 Agent 角色，安装即用
 - **Skill Store** — 独立的技能包，为 Agent 增加新能力

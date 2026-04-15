@@ -4,7 +4,7 @@ Web Search MCP 服务器
 基于 DuckDuckGo 的网络搜索服务，无需 API Key。
 
 启动方式：
-    python -m openakita.mcp_servers.web_search
+    python -m synapse.mcp_servers.web_search
 
 工具：
     - web_search: 搜索网页

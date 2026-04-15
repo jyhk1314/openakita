@@ -1,5 +1,5 @@
 ---
-name: openakita/skills@tencent-news
+name: synapse/skills@tencent-news
 description: "Tencent News content subscription skill. Provides 7x24 news updates with hot news, morning/evening briefings, real-time feeds, rankings, topic news, and subject queries. Use when user wants news, headlines, briefings, or current events from Chinese sources."
 license: MIT
 metadata:

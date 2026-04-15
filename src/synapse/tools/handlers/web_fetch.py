@@ -57,7 +57,7 @@ class WebFetchHandler:
                 headers={
                     "User-Agent": (
                         "Mozilla/5.0 (compatible; Synapse/1.0; "
-                        "+https://github.com/openakita/openakita)"
+                        "+https://github.com/synapse/synapse)"
                     ),
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 },

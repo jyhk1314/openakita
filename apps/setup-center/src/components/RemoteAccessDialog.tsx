@@ -44,7 +44,7 @@ export function RemoteAccessDialog({
   const [faqOpen, setFaqOpen] = useState(true);
 
   const externalEnabled = envDraft.API_HOST === "0.0.0.0";
-  const webPwdSet = !!(envDraft.OPENAKITA_WEB_PASSWORD || "").trim();
+  const webPwdSet = !!(envDraft.SYNAPSE_WEB_PASSWORD || "").trim();
   const port = new URL(apiBaseUrl || "http://127.0.0.1:18900").port || "18900";
   const activeIp = selectedIp || localIp;
   const accessUrl = activeIp ? `http://${activeIp}:${port}/web` : "";

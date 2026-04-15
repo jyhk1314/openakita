@@ -96,7 +96,7 @@
 - 最近的错误日志
 - LLM 连接状态
 
-导出为 `.json` 文件，可直接附到 [GitHub Issue](https://github.com/openakita/openakita/issues) 中。
+导出为 `.json` 文件，可直接附到 [GitHub Issue](https://github.com/synapse/synapse/issues) 中。
 
 ## 系统重置
 

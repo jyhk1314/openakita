@@ -1,4 +1,4 @@
-# OpenAkita 用户交互全面重构 - 综合测试计划
+# Synapse 用户交互全面重构 - 综合测试计划
 
 - **基于计划**: 用户交互全面重构 (73 项改进, 11 批次)
 - **测试规约**: ai-exploratory-testing.mdc
@@ -10,7 +10,7 @@
 
 本计划目标是让 AI 可以自动化发现真实对话中的 bug（不仅是关键词断言），并覆盖两种运行形态：
 
-- **形态 A（CLI 安装态）**: 通过 `pipx/pip` 安装并运行 `openakita`，重点验证核心后端能力、CLI 交互、SSE 对话质量。
+- **形态 A（CLI 安装态）**: 通过 `pipx/pip` 安装并运行 `synapse`，重点验证核心后端能力、CLI 交互、SSE 对话质量。
 - **形态 B（Desktop EXE 打包态）**: 通过 Setup Center/打包后的 Desktop 运行同一套后端接口与前端联调，重点验证打包环境差异（进程拉起、路径、配置、权限、跨端通信）。
 
 **结论**:
@@ -118,7 +118,7 @@ Content-Type: application/json
 ### 1.1 事件类型统一 (Batch 1: 3.1)
 
 **代码审查验证**:
-- `src/openakita/events.py` 的 `StreamEventType` 枚举包含所有 22 种事件
+- `src/synapse/events.py` 的 `StreamEventType` 枚举包含所有 22 种事件
 - `apps/setup-center/src/streamEvents.ts` 与 Python 端 1:1 同步
 - 枚举值类型为 `str, Enum` (可直接字符串比较)
 
@@ -138,14 +138,14 @@ Content-Type: application/json
 ### 1.2 错误处理统一 (Batch 1: 3.2)
 
 **代码审查验证**:
-- `src/openakita/utils/errors.py` 存在且导出 `classify_error()` 和 `format_user_friendly_error()`
+- `src/synapse/utils/errors.py` 存在且导出 `classify_error()` 和 `format_user_friendly_error()`
 - 错误分类覆盖: content_filter, auth, quota, timeout, network, server, unknown
 - CLI (`stream_renderer.py`) 和 gateway 均引用此模块
 
 ### 1.3 后端 Policy 健壮性 (Batch 7: 8.5)
 
 **代码审查验证**:
-- `src/openakita/core/policy.py` 中 `_pending_ui_confirms` 有 TTL 清理机制
+- `src/synapse/core/policy.py` 中 `_pending_ui_confirms` 有 TTL 清理机制
 - 存在 `_cleanup_expired_confirms()` 方法
 - `cleanup_session()` 方法存在, 可在 session 结束时调用
 - `timeout_seconds` / `default_on_timeout` 配置已实现
@@ -191,7 +191,7 @@ Content-Type: application/json
 **人工操作步骤**:
 
 1. 打开新终端窗口
-2. 运行 `openakita` 进入交互模式
+2. 运行 `synapse` 进入交互模式
 3. 输入: `你好，请简单介绍一下你自己`
 4. **观察并报告**:
    - [ ] 是否看到逐字流式输出 (而非等待后一次性显示)
@@ -260,7 +260,7 @@ Content-Type: application/json
 
 **人工操作步骤**:
 
-1. 运行 `openakita init --quick` (或 `-q`)
+1. 运行 `synapse init --quick` (或 `-q`)
    - [ ] 是否显示 "Quick Setup Mode" 面板
    - [ ] 是否只有 3 步: Provider, API Key, Model
    - [ ] 风险须知是否使用 y/N 确认 (非精确文字匹配)
@@ -273,7 +273,7 @@ Content-Type: application/json
 
 **人工操作步骤**:
 
-1. 运行 `openakita init` (完整模式)
+1. 运行 `synapse init` (完整模式)
    - [ ] 欢迎页和风险确认是否纳入步骤计数 (如 "Step 1/N")
    - [ ] 风险确认页是否用 Confirm.ask 而非精确文字
 2. 进入 LLM 配置步骤后:
@@ -553,16 +553,16 @@ Content-Type: application/json
 
 **人工操作** (Desktop 应用):
 
-1. 最小化 OpenAkita 窗口, 切换到其他应用
+1. 最小化 Synapse 窗口, 切换到其他应用
 2. 按 Ctrl+Shift+A
-   - [ ] OpenAkita 窗口是否弹出并聚焦
+   - [ ] Synapse 窗口是否弹出并聚焦
    - [ ] 输入框是否获得焦点
 
 ### 3.26 系统托盘 (Batch 10: 9.8)
 
 **人工操作** (Desktop 应用):
 
-1. 关闭 OpenAkita 主窗口
+1. 关闭 Synapse 主窗口
    - [ ] 是否最小化到托盘 (而非退出)
 2. 查看托盘图标
    - [ ] 图标颜色是否反映服务状态 (绿/黄/红)

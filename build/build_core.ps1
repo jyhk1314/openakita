@@ -1,4 +1,4 @@
-# OpenAkita Core Package Build Script (Windows PowerShell)
+# Synapse Core Package Build Script (Windows PowerShell)
 # Output: Installer with core dependencies only (~180MB)
 # Usage: .\build_core.ps1 [-Fast]
 
@@ -15,11 +15,11 @@ $ResourceDir = Join-Path $SetupCenterDir "src-tauri\resources"
 
 if ($Fast) {
     Write-Host "============================================" -ForegroundColor Cyan
-    Write-Host "  OpenAkita Core Package Build [FAST MODE]" -ForegroundColor Cyan
+    Write-Host "  Synapse Core Package Build [FAST MODE]" -ForegroundColor Cyan
     Write-Host "============================================" -ForegroundColor Cyan
 } else {
     Write-Host "============================================" -ForegroundColor Cyan
-    Write-Host "  OpenAkita Core Package Build" -ForegroundColor Cyan
+    Write-Host "  Synapse Core Package Build" -ForegroundColor Cyan
     Write-Host "============================================" -ForegroundColor Cyan
 }
 
@@ -32,8 +32,8 @@ if ($LASTEXITCODE -ne 0) { throw "Python backend packaging failed" }
 
 # Step 2: Copy package result to Tauri resources
 Write-Host "`n[2/3] Copying backend to Tauri resources..." -ForegroundColor Yellow
-$DistServerDir = Join-Path $ProjectRoot "dist\openakita-server"
-$TargetDir = Join-Path $ResourceDir "openakita-server"
+$DistServerDir = Join-Path $ProjectRoot "dist\synapse-server"
+$TargetDir = Join-Path $ResourceDir "synapse-server"
 
 if (Test-Path $TargetDir) { Remove-Item -Recurse -Force $TargetDir }
 New-Item -ItemType Directory -Force -Path $ResourceDir | Out-Null

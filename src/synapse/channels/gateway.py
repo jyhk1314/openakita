@@ -808,7 +808,7 @@ class RestartCommandHandler:
     # ---------- 重启触发 ----------
 
     async def _trigger_restart(self) -> None:
-        from openakita import config as cfg
+        from synapse import config as cfg
 
         cfg._restart_requested = True
         if self._shutdown_event is not None:

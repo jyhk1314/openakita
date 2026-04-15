@@ -1,7 +1,7 @@
-# OpenAkita 调度器功能专项测试报告 (2026-04-03)
+# Synapse 调度器功能专项测试报告 (2026-04-03)
 
 - **测试范围**: Arch1 / Feat5 / Feat8a-e / Feat8-i18n / Bug1-2
-- **后端**: `http://127.0.0.1:18900` — `openakita.exe serve --dev` (v1.27.7, PID 21368)
+- **后端**: `http://127.0.0.1:18900` — `synapse.exe serve --dev` (v1.27.7, PID 21368)
 - **前端**: `http://localhost:5173/web/`
 - **驱动脚本**: `tests/e2e/_scheduler_test_v1.py`
 - **运行日志**: `tests/e2e/_scheduler_test_v1.run.log`

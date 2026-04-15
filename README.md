@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="https://openakita.ai"><img src="https://img.shields.io/badge/🌐_Website-openakita.ai-orange?style=for-the-badge" alt="Official Website" height="28" /></a>
+  <a href="https://synapse.ai"><img src="https://img.shields.io/badge/🌐_Website-synapse.ai-orange?style=for-the-badge" alt="Official Website" height="28" /></a>
   &nbsp;
-  <a href="https://openakita.ai/download"><img src="https://img.shields.io/badge/📥_Download-Desktop_App-blue?style=for-the-badge" alt="Download" height="28" /></a>
+  <a href="https://synapse.ai/download"><img src="https://img.shields.io/badge/📥_Download-Desktop_App-blue?style=for-the-badge" alt="Download" height="28" /></a>
   &nbsp;
   <a href="https://discord.gg/vFwxNVNH"><img src="https://img.shields.io/badge/💬_Discord-Join_Community-5865F2?style=for-the-badge" alt="Discord" height="28" /></a>
 </p>
@@ -19,10 +19,10 @@
 <p align="center">
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg?style=flat-square" alt="License" height="20" />
   <img src="https://img.shields.io/badge/python-3.11+-blue.svg?style=flat-square" alt="Python Version" height="20" />
-  <img src="https://img.shields.io/github/v/release/openakita/openakita?color=green&style=flat-square" alt="Version" height="20" />
-  <img src="https://img.shields.io/pypi/v/openakita?color=green&style=flat-square" alt="PyPI" height="20" />
-  <img src="https://img.shields.io/github/actions/workflow/status/openakita/openakita/ci.yml?branch=main&style=flat-square" alt="Build Status" height="20" />
-  <img src="https://img.shields.io/github/stars/openakita/openakita?style=flat-square" alt="Stars" height="20" />
+  <img src="https://img.shields.io/github/v/release/synapse/synapse?color=green&style=flat-square" alt="Version" height="20" />
+  <img src="https://img.shields.io/pypi/v/synapse?color=green&style=flat-square" alt="PyPI" height="20" />
+  <img src="https://img.shields.io/github/actions/workflow/status/synapse/synapse/ci.yml?branch=main&style=flat-square" alt="Build Status" height="20" />
+  <img src="https://img.shields.io/github/stars/synapse/synapse?style=flat-square" alt="Stars" height="20" />
 </p>
 
 <p align="center">
@@ -53,9 +53,9 @@ Synapse is an open-source, all-in-one AI assistant — multiple AI Agents work t
 **Fully GUI-based setup. Ready in 5 minutes. Zero command line required.**
 
 <p align="center">
-  🌐 <a href="https://openakita.ai"><b>Website openakita.ai</b></a> &nbsp;|&nbsp;
-  📥 <a href="https://openakita.ai/download"><b>Download Desktop App</b></a> &nbsp;|&nbsp;
-  📖 <a href="https://openakita.ai/docs"><b>Documentation</b></a> &nbsp;|&nbsp;
+  🌐 <a href="https://synapse.ai"><b>Website synapse.ai</b></a> &nbsp;|&nbsp;
+  📥 <a href="https://synapse.ai/download"><b>Download Desktop App</b></a> &nbsp;|&nbsp;
+  📖 <a href="https://synapse.ai/docs"><b>Documentation</b></a> &nbsp;|&nbsp;
   💬 <a href="https://discord.gg/vFwxNVNH"><b>Discord Community</b></a>
 </p>
 
@@ -67,7 +67,7 @@ Synapse is an open-source, all-in-one AI assistant — multiple AI Agents work t
 
 **No installation required** — download the desktop app and start chatting:
 
-1. **Download** the installer from [GitHub Releases](https://openakita.ai/download)
+1. **Download** the installer from [GitHub Releases](https://synapse.ai/download)
 2. **Install** and follow the onboarding wizard
 3. **Enter your API Key** (get one from [Anthropic](https://console.anthropic.com/) or [DeepSeek](https://platform.deepseek.com/))
 4. **Try your first task**: Type "Create a calculator" and watch it work
@@ -76,13 +76,13 @@ Synapse is an open-source, all-in-one AI assistant — multiple AI Agents work t
 
 ```bash
 # Install
-pip install openakita[all]
+pip install synapse[all]
 
 # Quick setup (interactive wizard)
-openakita init
+synapse init
 
 # Run your first task
-openakita run "Build a weather scraper"
+synapse run "Build a weather scraper"
 ```
 
 ### ✨ What You Can Do Right Away
@@ -193,37 +193,37 @@ Fragment memory + MDRM relational graph (causal chains · timelines · entity gr
 - Chinese users get automatic mirror switching
 - Models, IM channels, skills, schedules — all configured in the GUI
 
-> **Download**: [GitHub Releases](https://openakita.ai/download) — Windows (.exe) / macOS (.dmg) / Linux (.deb)
+> **Download**: [GitHub Releases](https://synapse.ai/download) — Windows (.exe) / macOS (.dmg) / Linux (.deb)
 >
-> Learn more at **[openakita.ai](https://openakita.ai)**
+> Learn more at **[synapse.ai](https://synapse.ai)**
 
 ### Option 2: pip Install
 
 ```bash
-pip install openakita[all]    # Install with all optional features
-openakita init                # Run setup wizard
-openakita                     # Launch interactive CLI
+pip install synapse[all]    # Install with all optional features
+synapse init                # Run setup wizard
+synapse                     # Launch interactive CLI
 ```
 
 ### Option 3: Source Install
 
 ```bash
-git clone https://github.com/openakita/openakita.git
-cd openakita
+git clone https://github.com/synapse/synapse.git
+cd synapse
 python -m venv venv && source venv/bin/activate
 pip install -e ".[all]"
-openakita init
+synapse init
 ```
 
 ### Commands
 
 ```bash
-openakita                              # Interactive chat
-openakita run "Build a calculator"     # Execute a single task
-openakita serve                        # Service mode (IM channels)
-openakita serve --dev                  # Dev mode with hot reload
-openakita daemon start                 # Background daemon
-openakita status                       # Check status
+synapse                              # Interactive chat
+synapse run "Build a calculator"     # Execute a single task
+synapse serve                        # Service mode (IM channels)
+synapse serve --dev                  # Dev mode with hot reload
+synapse daemon start                 # Background daemon
+synapse status                       # Check status
 ```
 
 ---
@@ -668,16 +668,16 @@ Tracing  ─── AgentTracer(12 SpanTypes) · DecisionTrace · TokenStats
 </table>
 
 <p align="center">
-  🌐 <a href="https://openakita.ai">Website</a> · 
+  🌐 <a href="https://synapse.ai">Website</a> · 
   💬 <a href="https://discord.gg/vFwxNVNH">Discord</a> · 
-  🐦 <a href="https://x.com/openakita">X (Twitter)</a> · 
+  🐦 <a href="https://x.com/synapse">X (Twitter)</a> · 
   📧 <a href="mailto:zacon365@gmail.com">Email</a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/openakita/openakita/issues">Issues</a> · 
-  <a href="https://github.com/openakita/openakita/discussions">Discussions</a> · 
-  <a href="https://github.com/openakita/openakita">⭐ Star</a>
+  <a href="https://github.com/synapse/synapse/issues">Issues</a> · 
+  <a href="https://github.com/synapse/synapse/discussions">Discussions</a> · 
+  <a href="https://github.com/synapse/synapse">⭐ Star</a>
 </p>
 
 ---
@@ -702,11 +702,11 @@ Third-party licenses: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
 ## Star History
 
-<a href="https://star-history.com/#openakita/openakita&Date">
+<a href="https://star-history.com/#synapse/synapse&Date">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=openakita/openakita&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=openakita/openakita&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=openakita/openakita&type=Date" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=synapse/synapse&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=synapse/synapse&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=synapse/synapse&type=Date" />
  </picture>
 </a>
 
@@ -714,5 +714,5 @@ Third-party licenses: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
 <p align="center">
   <strong>Synapse — Open-Source Multi-Agent AI Assistant That Gets Things Done</strong><br/>
-  <a href="https://openakita.ai">openakita.ai</a>
+  <a href="https://synapse.ai">synapse.ai</a>
 </p>

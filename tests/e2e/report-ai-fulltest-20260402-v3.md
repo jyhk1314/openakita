@@ -1,4 +1,4 @@
-# OpenAkita AI 探索性全面自测报告 v3
+# Synapse AI 探索性全面自测报告 v3
 
 - **日期**: 2026-04-02 17:47 — 18:25
 - **版本**: 1.27.7+unknown (CLI editable install, pip install -e)
@@ -135,7 +135,7 @@
 6. 形成不可退出的循环
 
 **日志位置**:
-- Supervisor 强制工具调用逻辑: `src/openakita/core/reasoning_engine.py` L3890-L3928
+- Supervisor 强制工具调用逻辑: `src/synapse/core/reasoning_engine.py` L3890-L3928
 - 循环检测逻辑: 同文件 L3937 之后
 - 委派优先原则: System prompt `## 协作优先原则（最高优先级）`
 
@@ -194,14 +194,14 @@
 
 | 问题 | 修复方案 | 涉及文件 |
 |------|----------|----------|
-| **ForceToolCall 导致委派死循环** | 当 LLM 返回有效文本且无 intent tag 时，直接返回文本而不强制工具调用。增加判断：如果 stripped_text 长度 > 100 字符且看起来是合理回答，应视为有效回复 | `src/openakita/core/reasoning_engine.py` L3886-3928 |
+| **ForceToolCall 导致委派死循环** | 当 LLM 返回有效文本且无 intent tag 时，直接返回文本而不强制工具调用。增加判断：如果 stripped_text 长度 > 100 字符且看起来是合理回答，应视为有效回复 | `src/synapse/core/reasoning_engine.py` L3886-3928 |
 
 ### P2 — 短期优化
 
 | 问题 | 修复方案 | 涉及文件 |
 |------|----------|----------|
 | R01 过度工具调用 | 限制单轮 update_user_profile/add_memory 调用频率 | Agent 工具调用限制逻辑 |
-| 不必要的工具调用 | System prompt 中明确纯知识问答不需要工具 | `src/openakita/prompt/builder.py` |
+| 不必要的工具调用 | System prompt 中明确纯知识问答不需要工具 | `src/synapse/prompt/builder.py` |
 | 工具集过大(86个) | API 通道按需裁剪工具，不注入 browser/desktop | 工具注册逻辑 |
 
 ### P3 — 长期改进
