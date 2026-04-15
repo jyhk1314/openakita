@@ -78,4 +78,3 @@ class KimiInternationalRegistry(ProviderRegistry):
                 )
             )
         return sorted(out, key=lambda x: x.id)
-

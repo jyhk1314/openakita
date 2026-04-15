@@ -51,7 +51,7 @@ class TestGetResources:
         assert "description" in agent
 
     def test_returns_templates(self, handler, tmp_data_dir):
-        with patch("synapse.config.settings") as mock_settings:
+        with patch("openakita.config.settings") as mock_settings:
             mock_settings.data_dir = tmp_data_dir
             result = json.loads(handler._get_resources())
         assert "templates" in result
@@ -219,7 +219,7 @@ class TestCreate:
 
     @pytest.mark.asyncio
     async def test_create_success(self, handler, tmp_data_dir):
-        with patch("synapse.config.settings") as mock_settings:
+        with patch("openakita.config.settings") as mock_settings:
             mock_settings.data_dir = tmp_data_dir
             result = await handler._create({
                 "name": "测试组织",
@@ -258,7 +258,7 @@ class TestCreateFromTemplate:
 
     @pytest.mark.asyncio
     async def test_nonexistent_template(self, handler, tmp_data_dir):
-        with patch("synapse.config.settings") as mock_settings:
+        with patch("openakita.config.settings") as mock_settings:
             mock_settings.data_dir = tmp_data_dir
             result = await handler._create_from_template({"template_id": "nonexistent"})
         assert "❌" in result
@@ -395,14 +395,14 @@ class TestListOrgs:
     """Test action=list_orgs."""
 
     def test_list_empty(self, handler, tmp_data_dir):
-        with patch("synapse.config.settings") as ms:
+        with patch("openakita.config.settings") as ms:
             ms.data_dir = tmp_data_dir
             result = handler._list_orgs()
         assert "没有任何组织" in result
 
     def test_list_returns_existing(self, handler, tmp_data_dir, created_org):
         org_id, data_dir = created_org
-        with patch("synapse.config.settings") as ms:
+        with patch("openakita.config.settings") as ms:
             ms.data_dir = data_dir
             result = handler._list_orgs()
         assert "测试修改组织" in result
@@ -418,7 +418,7 @@ class TestGetOrg:
         assert "❌" in result
 
     def test_get_org_not_found(self, handler, tmp_data_dir):
-        with patch("synapse.config.settings") as ms:
+        with patch("openakita.config.settings") as ms:
             ms.data_dir = tmp_data_dir
             result = handler._get_org({"org_id": "nonexistent"})
         assert "❌" in result
@@ -426,7 +426,7 @@ class TestGetOrg:
 
     def test_get_org_returns_structure(self, handler, tmp_data_dir, created_org):
         org_id, data_dir = created_org
-        with patch("synapse.config.settings") as ms:
+        with patch("openakita.config.settings") as ms:
             ms.data_dir = data_dir
             result = handler._get_org({"org_id": org_id})
         assert "测试修改组织" in result
@@ -439,7 +439,7 @@ class TestGetOrg:
 
     def test_get_org_shows_agent(self, handler, tmp_data_dir, created_org):
         org_id, data_dir = created_org
-        with patch("synapse.config.settings") as ms:
+        with patch("openakita.config.settings") as ms:
             ms.data_dir = data_dir
             result = handler._get_org({"org_id": org_id})
         assert "architect" in result
@@ -456,7 +456,7 @@ class TestUpdateOrg:
 
     @pytest.mark.asyncio
     async def test_update_nonexistent_org(self, handler, tmp_data_dir):
-        with patch("synapse.config.settings") as ms:
+        with patch("openakita.config.settings") as ms:
             ms.data_dir = tmp_data_dir
             result = await handler._update_org({"org_id": "nonexistent"})
         assert "❌" in result
@@ -466,7 +466,7 @@ class TestUpdateOrg:
     async def test_update_modify_node_by_id(self, handler, tmp_data_dir, created_org):
         """Modify an existing node by node_id — should preserve ID."""
         org_id, data_dir = created_org
-        with patch("synapse.config.settings") as ms:
+        with patch("openakita.config.settings") as ms:
             ms.data_dir = data_dir
             result = await handler._update_org({
                 "org_id": org_id,
@@ -491,7 +491,7 @@ class TestUpdateOrg:
     async def test_update_modify_node_by_title(self, handler, tmp_data_dir, created_org):
         """Modify an existing node by role_title match."""
         org_id, data_dir = created_org
-        with patch("synapse.config.settings") as ms:
+        with patch("openakita.config.settings") as ms:
             ms.data_dir = data_dir
             result = await handler._update_org({
                 "org_id": org_id,
@@ -513,7 +513,7 @@ class TestUpdateOrg:
     async def test_update_add_new_node(self, handler, tmp_data_dir, created_org):
         """Add a new node to an existing org."""
         org_id, data_dir = created_org
-        with patch("synapse.config.settings") as ms:
+        with patch("openakita.config.settings") as ms:
             ms.data_dir = data_dir
             result = await handler._update_org({
                 "org_id": org_id,
@@ -545,7 +545,7 @@ class TestUpdateOrg:
     async def test_update_remove_node(self, handler, tmp_data_dir, created_org):
         """Remove a node and verify edges are cleaned up."""
         org_id, data_dir = created_org
-        with patch("synapse.config.settings") as ms:
+        with patch("openakita.config.settings") as ms:
             ms.data_dir = data_dir
             result = await handler._update_org({
                 "org_id": org_id,
@@ -563,7 +563,7 @@ class TestUpdateOrg:
     async def test_update_remove_node_by_id(self, handler, tmp_data_dir, created_org):
         """Remove a node by ID."""
         org_id, data_dir = created_org
-        with patch("synapse.config.settings") as ms:
+        with patch("openakita.config.settings") as ms:
             ms.data_dir = data_dir
             result = await handler._update_org({
                 "org_id": org_id,
@@ -578,7 +578,7 @@ class TestUpdateOrg:
     async def test_update_org_fields(self, handler, tmp_data_dir, created_org):
         """Update top-level org fields."""
         org_id, data_dir = created_org
-        with patch("synapse.config.settings") as ms:
+        with patch("openakita.config.settings") as ms:
             ms.data_dir = data_dir
             result = await handler._update_org({
                 "org_id": org_id,
@@ -597,7 +597,7 @@ class TestUpdateOrg:
     async def test_update_no_changes(self, handler, tmp_data_dir, created_org):
         """No modifications should report no changes."""
         org_id, data_dir = created_org
-        with patch("synapse.config.settings") as ms:
+        with patch("openakita.config.settings") as ms:
             ms.data_dir = data_dir
             result = await handler._update_org({"org_id": org_id})
         assert "未检测到" in result
@@ -606,7 +606,7 @@ class TestUpdateOrg:
     async def test_update_preserves_unmentioned_nodes(self, handler, tmp_data_dir, created_org):
         """Nodes not mentioned in update_nodes should be preserved."""
         org_id, data_dir = created_org
-        with patch("synapse.config.settings") as ms:
+        with patch("openakita.config.settings") as ms:
             ms.data_dir = data_dir
             await handler._update_org({
                 "org_id": org_id,
@@ -624,7 +624,7 @@ class TestUpdateOrg:
     async def test_update_combined_add_remove_modify(self, handler, tmp_data_dir, created_org):
         """Combine add + remove + modify in one call."""
         org_id, data_dir = created_org
-        with patch("synapse.config.settings") as ms:
+        with patch("openakita.config.settings") as ms:
             ms.data_dir = data_dir
             result = await handler._update_org({
                 "org_id": org_id,
@@ -660,7 +660,7 @@ class TestDeleteOrg:
 
     @pytest.mark.asyncio
     async def test_delete_nonexistent(self, handler, tmp_data_dir):
-        with patch("synapse.config.settings") as ms:
+        with patch("openakita.config.settings") as ms:
             ms.data_dir = tmp_data_dir
             result = await handler._delete_org({"org_id": "nonexistent"})
         assert "❌" in result
@@ -669,7 +669,7 @@ class TestDeleteOrg:
     @pytest.mark.asyncio
     async def test_delete_success(self, handler, tmp_data_dir, created_org):
         org_id, data_dir = created_org
-        with patch("synapse.config.settings") as ms:
+        with patch("openakita.config.settings") as ms:
             ms.data_dir = data_dir
             result = await handler._delete_org({"org_id": org_id})
         assert "✅" in result
@@ -682,7 +682,7 @@ class TestHandleDispatch:
 
     @pytest.mark.asyncio
     async def test_dispatch_list_orgs(self, handler, tmp_data_dir):
-        with patch("synapse.config.settings") as ms:
+        with patch("openakita.config.settings") as ms:
             ms.data_dir = tmp_data_dir
             result = await handler.handle("setup_organization", {"action": "list_orgs"})
         assert "没有任何组织" in result or "现有组织" in result

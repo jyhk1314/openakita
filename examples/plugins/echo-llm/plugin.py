@@ -3,7 +3,7 @@
 Registers both a LLMProvider (for chat/chat_stream) and a ProviderRegistry
 (for model listing), exercising the full LLM plugin registration pipeline.
 
-All synapse.llm imports are deferred to on_load() to avoid circular imports
+All openakita.llm imports are deferred to on_load() to avoid circular imports
 when the plugin module is loaded before the full system is initialized.
 """
 

@@ -4,7 +4,7 @@ Web Search MCP 服务器
 基于 DuckDuckGo 的网络搜索服务，无需 API Key。
 
 启动方式：
-    python -m synapse.mcp_servers.web_search
+    python -m openakita.mcp_servers.web_search
 
 工具：
     - web_search: 搜索网页
@@ -91,6 +91,7 @@ def web_search(
         from ddgs import DDGS
     except ImportError:
         from synapse.tools._import_helper import import_or_hint
+
         return f"错误：{import_or_hint('ddgs')}"
 
     # 限制结果数量
@@ -133,6 +134,7 @@ def news_search(
         from ddgs import DDGS
     except ImportError:
         from synapse.tools._import_helper import import_or_hint
+
         return f"错误：{import_or_hint('ddgs')}"
 
     # 限制结果数量

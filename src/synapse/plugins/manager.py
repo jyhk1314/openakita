@@ -104,7 +104,7 @@ class PluginManager:
     # --- Version checking ---
 
     @staticmethod
-    def _check_synapse_version(manifest: PluginManifest) -> bool:
+    def _check_openakita_version(manifest: PluginManifest) -> bool:
         """Check plugin compatibility (system version, API version, Python, SDK)."""
         result = check_compatibility(manifest)
         for w in result.warnings:
@@ -190,7 +190,7 @@ class PluginManager:
             self._failed[cid] = msg
 
         for plugin_dir, manifest in sorted_plugins:
-            if not self._check_synapse_version(manifest):
+            if not self._check_openakita_version(manifest):
                 continue
 
             if not self._state.is_enabled(manifest.id):
@@ -309,7 +309,7 @@ class PluginManager:
         if not entry_path.exists():
             raise FileNotFoundError(f"Plugin entry '{manifest.entry}' not found in {plugin_dir}")
 
-        module_name = f"synapse_plugin_{manifest.id.replace('-', '_')}"
+        module_name = f"openakita_plugin_{manifest.id.replace('-', '_')}"
         spec = importlib.util.spec_from_file_location(module_name, entry_path)
         if spec is None or spec.loader is None:
             raise ImportError(f"Cannot load {entry_path}")

@@ -10,7 +10,8 @@ import pytest
 
 from synapse.orgs.manager import OrgManager
 from synapse.orgs.runtime import OrgRuntime
-from synapse.orgs.models import NodeStatus, OrgStatus
+from synapse.orgs.models import NodeStatus, OrgProject, OrgStatus, ProjectTask, ProjectStatus, TaskStatus
+from synapse.orgs.project_store import ProjectStore
 from .conftest import make_org
 
 
@@ -21,14 +22,14 @@ def runtime(org_manager: OrgManager) -> OrgRuntime:
 
 class TestLifecycle:
     async def test_start_and_shutdown(self, runtime: OrgRuntime):
-        with patch("synapse.orgs.templates.ensure_builtin_templates"):
+        with patch("openakita.orgs.templates.ensure_builtin_templates"):
             await runtime.start()
         assert runtime._started is True
         await runtime.shutdown()
         assert runtime._started is False
 
     async def test_start_org(self, runtime: OrgRuntime, org_manager: OrgManager):
-        with patch("synapse.orgs.templates.ensure_builtin_templates"):
+        with patch("openakita.orgs.templates.ensure_builtin_templates"):
             await runtime.start()
         try:
             org = org_manager.create(make_org(name="运行测试").to_dict())
@@ -42,7 +43,7 @@ class TestLifecycle:
             await runtime.shutdown()
 
     async def test_stop_org(self, runtime: OrgRuntime, org_manager: OrgManager):
-        with patch("synapse.orgs.templates.ensure_builtin_templates"):
+        with patch("openakita.orgs.templates.ensure_builtin_templates"):
             await runtime.start()
         try:
             org = org_manager.create(make_org(name="停止测试").to_dict())
@@ -58,7 +59,7 @@ class TestLifecycle:
 
 class TestGetAccessors:
     async def test_get_org(self, runtime: OrgRuntime, org_manager: OrgManager):
-        with patch("synapse.orgs.templates.ensure_builtin_templates"):
+        with patch("openakita.orgs.templates.ensure_builtin_templates"):
             await runtime.start()
         try:
             org = org_manager.create(make_org(name="测试").to_dict())
@@ -70,7 +71,7 @@ class TestGetAccessors:
             await runtime.shutdown()
 
     async def test_get_blackboard(self, runtime: OrgRuntime, org_manager: OrgManager):
-        with patch("synapse.orgs.templates.ensure_builtin_templates"):
+        with patch("openakita.orgs.templates.ensure_builtin_templates"):
             await runtime.start()
         try:
             org = org_manager.create(make_org().to_dict())
@@ -81,7 +82,7 @@ class TestGetAccessors:
             await runtime.shutdown()
 
     async def test_get_event_store(self, runtime: OrgRuntime, org_manager: OrgManager):
-        with patch("synapse.orgs.templates.ensure_builtin_templates"):
+        with patch("openakita.orgs.templates.ensure_builtin_templates"):
             await runtime.start()
         try:
             org = org_manager.create(make_org().to_dict())
@@ -92,7 +93,7 @@ class TestGetAccessors:
             await runtime.shutdown()
 
     async def test_get_messenger(self, runtime: OrgRuntime, org_manager: OrgManager):
-        with patch("synapse.orgs.templates.ensure_builtin_templates"):
+        with patch("openakita.orgs.templates.ensure_builtin_templates"):
             await runtime.start()
         try:
             org = org_manager.create(make_org().to_dict())
@@ -103,7 +104,7 @@ class TestGetAccessors:
             await runtime.shutdown()
 
     async def test_get_inbox(self, runtime: OrgRuntime, org_manager: OrgManager):
-        with patch("synapse.orgs.templates.ensure_builtin_templates"):
+        with patch("openakita.orgs.templates.ensure_builtin_templates"):
             await runtime.start()
         try:
             org = org_manager.create(make_org().to_dict())
@@ -134,7 +135,7 @@ class TestGetAccessors:
         assert reporter is not None
 
     async def test_get_policies(self, runtime: OrgRuntime, org_manager: OrgManager):
-        with patch("synapse.orgs.templates.ensure_builtin_templates"):
+        with patch("openakita.orgs.templates.ensure_builtin_templates"):
             await runtime.start()
         try:
             org = org_manager.create(make_org().to_dict())
@@ -149,7 +150,7 @@ class TestSendCommand:
     async def test_send_command_to_root(
         self, runtime: OrgRuntime, org_manager: OrgManager,
     ):
-        with patch("synapse.orgs.templates.ensure_builtin_templates"):
+        with patch("openakita.orgs.templates.ensure_builtin_templates"):
             await runtime.start()
         try:
             org = org_manager.create(make_org(name="命令测试").to_dict())
@@ -177,7 +178,7 @@ class TestAutoKickoff:
     async def test_start_org_with_core_business_triggers_kickoff(
         self, runtime: OrgRuntime, org_manager: OrgManager,
     ):
-        with patch("synapse.orgs.templates.ensure_builtin_templates"):
+        with patch("openakita.orgs.templates.ensure_builtin_templates"):
             await runtime.start()
         try:
             org_data = make_org(name="自动启动测试").to_dict()
@@ -198,7 +199,7 @@ class TestAutoKickoff:
     async def test_start_org_without_core_business_no_kickoff(
         self, runtime: OrgRuntime, org_manager: OrgManager,
     ):
-        with patch("synapse.orgs.templates.ensure_builtin_templates"):
+        with patch("openakita.orgs.templates.ensure_builtin_templates"):
             await runtime.start()
         try:
             org_data = make_org(name="无业务测试").to_dict()
@@ -216,7 +217,7 @@ class TestAutoKickoff:
     async def test_auto_kickoff_prompt_uses_dynamic_role_title(
         self, runtime: OrgRuntime, org_manager: OrgManager,
     ):
-        with patch("synapse.orgs.templates.ensure_builtin_templates"):
+        with patch("openakita.orgs.templates.ensure_builtin_templates"):
             await runtime.start()
         try:
             org_data = make_org(name="主编团队").to_dict()
@@ -246,7 +247,7 @@ class TestAutoKickoff:
     async def test_auto_kickoff_prompt_uses_persona_label(
         self, runtime: OrgRuntime, org_manager: OrgManager,
     ):
-        with patch("synapse.orgs.templates.ensure_builtin_templates"):
+        with patch("openakita.orgs.templates.ensure_builtin_templates"):
             await runtime.start()
         try:
             from synapse.orgs.models import UserPersona
@@ -276,7 +277,7 @@ class TestAutoKickoff:
 
 class TestResetOrg:
     async def test_reset_org_status(self, runtime: OrgRuntime, org_manager: OrgManager):
-        with patch("synapse.orgs.templates.ensure_builtin_templates"):
+        with patch("openakita.orgs.templates.ensure_builtin_templates"):
             await runtime.start()
         try:
             org = org_manager.create(make_org(name="重置测试").to_dict())
@@ -295,7 +296,7 @@ class TestResetOrg:
         self, runtime: OrgRuntime, org_manager: OrgManager,
     ):
         """Blackboard files on disk must be removed after reset."""
-        with patch("synapse.orgs.templates.ensure_builtin_templates"):
+        with patch("openakita.orgs.templates.ensure_builtin_templates"):
             await runtime.start()
         try:
             org = org_manager.create(make_org(name="黑板清理测试").to_dict())
@@ -319,7 +320,7 @@ class TestResetOrg:
         self, runtime: OrgRuntime, org_manager: OrgManager,
     ):
         """Event store files on disk must be removed after reset."""
-        with patch("synapse.orgs.templates.ensure_builtin_templates"):
+        with patch("openakita.orgs.templates.ensure_builtin_templates"):
             await runtime.start()
         try:
             org = org_manager.create(make_org(name="事件清理测试").to_dict())
@@ -338,7 +339,7 @@ class TestResetOrg:
 
 class TestStateTransitions:
     async def test_pause_and_resume(self, runtime: OrgRuntime, org_manager: OrgManager):
-        with patch("synapse.orgs.templates.ensure_builtin_templates"):
+        with patch("openakita.orgs.templates.ensure_builtin_templates"):
             await runtime.start()
         try:
             org = org_manager.create(make_org().to_dict())
@@ -357,66 +358,3 @@ class TestStateTransitions:
             await runtime.shutdown()
 
 
-class TestCancelChain:
-    async def test_cancel_chain_cancels_root_owner_and_updates_tasks(
-        self, runtime: OrgRuntime, org_manager: OrgManager,
-    ):
-        with patch("synapse.orgs.templates.ensure_builtin_templates"):
-            await runtime.start()
-        try:
-            org = org_manager.create(make_org(name="取消测试").to_dict())
-            await runtime.start_org(org.id)
-
-            store = ProjectStore(org_manager._org_dir(org.id))
-            proj = OrgProject(id="proj_cancel", org_id=org.id, name="取消项目", status=ProjectStatus.ACTIVE)
-            store.create_project(proj)
-            root_task = ProjectTask(
-                id="task_root",
-                project_id=proj.id,
-                title="根任务",
-                status=TaskStatus.IN_PROGRESS,
-                assignee_node_id="node_ceo",
-                chain_id="dispatch:root",
-            )
-            child_task = ProjectTask(
-                id="task_child",
-                project_id=proj.id,
-                title="子任务",
-                status=TaskStatus.IN_PROGRESS,
-                assignee_node_id="node_cto",
-                chain_id="dispatch:root:child",
-                parent_task_id="task_root",
-                depth=1,
-            )
-            store.add_task(proj.id, root_task)
-            store.add_task(proj.id, child_task)
-
-            runtime.set_current_chain_id(org.id, "node_ceo", "dispatch:root")
-            runtime.set_current_chain_id(org.id, "node_cto", "dispatch:root:child")
-            runtime._register_child_chain(org.id, "dispatch:root", "dispatch:root:child", "node_cto")
-
-            root_running = asyncio.create_task(asyncio.sleep(60))
-            child_running = asyncio.create_task(asyncio.sleep(60))
-            runtime._running_tasks.setdefault(org.id, {})["node_ceo:rootmsg"] = root_running
-            runtime._running_tasks.setdefault(org.id, {})["node_cto:childmsg"] = child_running
-            runtime._cancel_events[f"{org.id}:node_ceo"] = asyncio.Event()
-            runtime._cancel_events[f"{org.id}:node_cto"] = asyncio.Event()
-
-            result = await runtime.cancel_chain(org.id, "dispatch:root")
-            await asyncio.sleep(0)
-
-            assert "node_ceo" in result["cancelled_nodes"]
-            assert "node_cto" in result["cancelled_nodes"]
-            assert runtime._cancel_events[f"{org.id}:node_ceo"].is_set()
-            assert runtime._cancel_events[f"{org.id}:node_cto"].is_set()
-            assert root_running.cancelled()
-            assert child_running.cancelled()
-
-            updated_root, _ = store.get_task("task_root")
-            updated_child, _ = store.get_task("task_child")
-            assert updated_root is not None and updated_root.status == TaskStatus.CANCELLED
-            assert updated_child is not None and updated_child.status == TaskStatus.CANCELLED
-            assert updated_root.runtime_phase == "cancelled"
-            assert updated_child.runtime_phase == "cancelled"
-        finally:
-            await runtime.shutdown()

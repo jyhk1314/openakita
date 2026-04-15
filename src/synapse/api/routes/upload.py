@@ -30,7 +30,7 @@ def get_upload_dir() -> Path:
         import os
 
         root = os.environ.get("SYNAPSE_ROOT", "").strip()
-        base = Path(root) if root else Path.home() / ".synapse"
+        base = Path(root) if root else Path.home() / ".openakita"
         UPLOAD_DIR = base / "uploads"
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     return UPLOAD_DIR

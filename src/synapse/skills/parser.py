@@ -53,7 +53,7 @@ class SkillMetadata:
     tool_name: str | None = None  # 原工具名称（用于兼容）
     category: str | None = None  # 工具分类
 
-    # metadata.synapse structured fields
+    # metadata.openakita structured fields
     supported_os: list[str] = field(default_factory=list)
     required_bins: list[str] = field(default_factory=list)
     required_env: list[str] = field(default_factory=list)
@@ -73,8 +73,9 @@ class SkillMetadata:
     paths: list[str] = field(default_factory=list)
     hooks: dict = field(default_factory=dict)
     model: str | None = None
+    fallback_for_toolsets: list[str] = field(default_factory=list)
 
-    # 国际化（由 agents/openai.yaml i18n 字段注入，兼容旧的 .synapse-i18n.json）
+    # 国际化（由 agents/openai.yaml i18n 字段注入，兼容旧的 .openakita-i18n.json）
     # key 为语言代码 (如 "zh")，value 为该语言的显示名/描述
     name_i18n: dict[str, str] = field(default_factory=dict)
     description_i18n: dict[str, str] = field(default_factory=dict)
@@ -320,24 +321,24 @@ class SkillParser:
                         }
                     )
 
-        # Extract metadata.synapse structured fields
+        # Extract metadata.openakita structured fields
         raw_metadata = data.get("metadata", {})
-        synapse_meta = raw_metadata.get("synapse", {}) if isinstance(raw_metadata, dict) else {}
-        if not isinstance(synapse_meta, dict):
-            synapse_meta = {}
+        akita_meta = raw_metadata.get("openakita", {}) if isinstance(raw_metadata, dict) else {}
+        if not isinstance(akita_meta, dict):
+            akita_meta = {}
 
         supported_os: list[str] = []
         required_bins: list[str] = []
         required_env: list[str] = []
 
-        if synapse_meta:
-            os_val = synapse_meta.get("os", [])
+        if akita_meta:
+            os_val = akita_meta.get("os", [])
             if isinstance(os_val, list):
                 supported_os = [str(o) for o in os_val]
             elif isinstance(os_val, str):
                 supported_os = [o.strip() for o in os_val.split(",") if o.strip()]
 
-            requires = synapse_meta.get("requires", {})
+            requires = akita_meta.get("requires", {})
             if isinstance(requires, dict):
                 bins_val = requires.get("bins", [])
                 if isinstance(bins_val, list):
@@ -371,6 +372,10 @@ class SkillParser:
         hooks_raw = data.get("hooks", {})
         hooks = hooks_raw if isinstance(hooks_raw, dict) else {}
         model = data.get("model") or None
+        fbt_raw = data.get("fallback-for-toolsets", [])
+        fallback_for_toolsets = (
+            [str(t) for t in fbt_raw] if isinstance(fbt_raw, list) else []
+        )
 
         return SkillMetadata(
             name=name,
@@ -398,6 +403,7 @@ class SkillParser:
             paths=paths,
             hooks=hooks,
             model=model if isinstance(model, str) else None,
+            fallback_for_toolsets=fallback_for_toolsets,
         )
 
     def parse_directory(self, skill_dir: Path) -> ParsedSkill:

@@ -71,6 +71,7 @@ def _is_server_environment() -> bool:
     # Windows: 远程桌面会话
     try:
         import ctypes
+
         SM_REMOTESESSION = 0x1000
         if ctypes.windll.user32.GetSystemMetrics(SM_REMOTESESSION) != 0:
             return True
@@ -80,6 +81,7 @@ def _is_server_environment() -> bool:
     # Windows: 通过注册表检测 Windows Server 版本
     try:
         import winreg
+
         key = winreg.OpenKey(
             winreg.HKEY_LOCAL_MACHINE,
             r"SOFTWARE\Microsoft\Windows NT\CurrentVersion",
@@ -149,6 +151,7 @@ def _find_bundled_browser_executable() -> str | None:
     import sys
 
     from synapse.runtime_env import IS_FROZEN
+
     if not IS_FROZEN:
         return None
 
@@ -251,7 +254,7 @@ class _IsolatedBrowserContext:
     """Lightweight wrapper around a dedicated BrowserContext for parallel sub-agents.
 
     Implements the same minimal interface as BrowserManager so that
-    PlaywrightTools can work unchanged.
+    PlaywrightTools / BrowserUseRunner can work unchanged.
     """
 
     def __init__(self, parent: BrowserManager, context: Any, page: Any):
@@ -343,6 +346,7 @@ class BrowserManager:
 
         # Chrome 检测
         from .chrome_finder import detect_chrome_installation
+
         self._chrome_path, self._chrome_user_data = detect_chrome_installation()
 
         # 内置 Chromium 检测（PyInstaller 打包环境）
@@ -503,6 +507,7 @@ class BrowserManager:
             from playwright.async_api import async_playwright
         except ImportError:
             from synapse.tools._import_helper import import_or_hint
+
             hint = import_or_hint("playwright")
             logger.error(f"Playwright 导入失败: {hint}")
             self.state = BrowserState.ERROR
@@ -651,7 +656,7 @@ class BrowserManager:
                         return
 
         _root = os.environ.get("SYNAPSE_ROOT", "").strip()
-        _base = Path(_root) if _root else Path.home() / ".synapse"
+        _base = Path(_root) if _root else Path.home() / ".openakita"
         browsers_dir = _base / "modules" / "browser" / "browsers"
         if browsers_dir.is_dir():
             os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(browsers_dir)
@@ -737,8 +742,9 @@ class BrowserManager:
             raise RuntimeError("Chrome executable not found")
 
         if use_oa_profile:
-            from .chrome_finder import get_synapse_chrome_profile, sync_chrome_cookies
-            user_data = get_synapse_chrome_profile()
+            from .chrome_finder import get_openakita_chrome_profile, sync_chrome_cookies
+
+            user_data = get_openakita_chrome_profile()
             if self._chrome_user_data:
                 sync_chrome_cookies(self._chrome_user_data, user_data)
             label = "Synapse profile"
@@ -878,6 +884,7 @@ class BrowserManager:
     ) -> bool:
         """用 launch_persistent_context 原子启动浏览器 + 页面。"""
         import tempfile
+
         user_data = tempfile.mkdtemp(prefix="oa_chromium_")
 
         kwargs: dict[str, Any] = {

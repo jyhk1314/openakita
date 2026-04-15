@@ -1,5 +1,5 @@
 ---
-name: synapse/skills@miaoda-app-builder
+name: openakita/skills@miaoda-app-builder
 description: "Miaoda App Builder - create web apps, WeChat mini-programs, games, AI tools, SaaS products, and dashboards through natural language conversations. Full workflow from code generation to deployment."
 license: MIT
 metadata:

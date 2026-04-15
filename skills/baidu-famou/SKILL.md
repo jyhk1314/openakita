@@ -1,5 +1,5 @@
 ---
-name: synapse/skills@baidu-famou
+name: openakita/skills@baidu-famou
 description: "Baidu FaMou algorithm skills for efficient algorithm self-evolution. Provides experiment management and visualization capabilities to help optimize complex algorithms. Use when user needs algorithm optimization or experiment management."
 license: MIT
 metadata:

@@ -1,5 +1,5 @@
 ---
-name: synapse/skills@baidu-netdisk
+name: openakita/skills@baidu-netdisk
 description: "Baidu Netdisk (Baidu Cloud) file management skill. Upload, download, transfer, share, and list files. Use when user wants to manage files on Baidu Netdisk cloud storage."
 license: MIT
 metadata:

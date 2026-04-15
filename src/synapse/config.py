@@ -6,7 +6,7 @@ import logging
 import os
 from pathlib import Path
 
-os.environ.setdefault("SYNAPSE", "1")
+os.environ.setdefault("OPENAKITA", "1")
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
@@ -70,15 +70,15 @@ class Settings(BaseSettings):
     # 当模型在“可能需要工具”的任务中只给文本不调用工具时，Agent 可追问 1 次以推动工具调用。
     # 设为 0 可完全关闭该行为（推荐 IM 闲聊/客服式对话场景）。
     force_tool_call_max_retries: int = Field(
-        default=1,
+        default=2,
         description="当模型未调用工具时，最多追问要求调用工具的次数（0=禁用，信任模型自主判断）",
     )
     force_tool_call_im_floor: int = Field(
-        default=1,
+        default=2,
         description="IM 通道的 ForceToolCall 最低重试次数（0=与全局一致，不强制下限）",
     )
     confirmation_text_max_retries: int = Field(
-        default=1,
+        default=2,
         description="工具执行后无可见文本时的最大追问次数（0=禁用）",
     )
 
@@ -149,7 +149,7 @@ class Settings(BaseSettings):
     # === 日志配置 ===
     log_level: str = Field(default="INFO", description="日志级别")
     log_dir: str = Field(default="logs", description="日志目录")
-    log_file_prefix: str = Field(default="synapse", description="日志文件前缀")
+    log_file_prefix: str = Field(default="openakita", description="日志文件前缀")
     log_max_size_mb: int = Field(default=10, description="单个日志文件最大大小（MB）")
     log_backup_count: int = Field(default=30, description="保留的日志文件数量")
     log_retention_days: int = Field(default=30, description="日志保留天数")
@@ -396,6 +396,36 @@ class Settings(BaseSettings):
         description="当前激活的人格预设名称 (default/business/tech_expert/butler/girlfriend/boyfriend/family/jarvis)",
     )
 
+    # === 记忆回顾（Memory Nudge）配置 ===
+    memory_nudge_enabled: bool = Field(
+        default=True,
+        description="是否启用周期性记忆回顾（每 N 轮对话后用 LLM 审视对话并提取值得记忆的内容）",
+    )
+    memory_nudge_interval: int = Field(
+        default=10,
+        description="每隔多少轮对话触发一次记忆回顾（0 表示禁用）",
+    )
+
+    # === Smart Approval 配置 ===
+    smart_approval_enabled: bool = Field(
+        default=False,
+        description="是否启用 LLM 辅助风险评估（对 CONFIRM 级操作用 LLM 做预判）",
+    )
+
+    # === Docker 执行后端配置 ===
+    docker_backend_enabled: bool = Field(
+        default=False,
+        description="是否启用 Docker 容器执行后端（需要本机安装 Docker）",
+    )
+    docker_image: str = Field(
+        default="python:3.12-slim",
+        description="Docker 执行后端使用的镜像",
+    )
+    docker_network: str = Field(
+        default="none",
+        description="Docker 网络模式: none(断网) | bridge(默认桥接) | host",
+    )
+
     # === 活人感引擎配置 ===
     proactive_enabled: bool = Field(default=True, description="是否启用活人感模式")
     proactive_max_daily_messages: int = Field(default=3, description="每日最多主动消息数")
@@ -446,7 +476,7 @@ class Settings(BaseSettings):
     # 官方发行版需要预填默认值以实现开箱即用；
     # fork 用户可通过 .env 覆盖为自己的值，留空则禁用对应功能。
     bug_report_endpoint: str = Field(
-        default="https://feedback-synapse.fzstack.com",
+        default="https://feedback-openakita.fzstack.com",
         description="反馈上传端点 URL（阿里云 FC）。留空 = 禁用反馈功能。",
     )
     captcha_scene_id: str = Field(
@@ -464,7 +494,7 @@ class Settings(BaseSettings):
         description="启用 Synapse Platform 连接（Agent Hub / Skill Store）。关闭时不注册远程市场工具。",
     )
     hub_api_url: str = Field(
-        default="https://synapse.ai/api",
+        default="https://openakita.ai/api",
         description="Synapse Platform API base URL for Agent Hub and Skill Store",
     )
     hub_api_key: str = Field(
@@ -642,23 +672,23 @@ class Settings(BaseSettings):
         return self.project_root / self.sticker_data_dir
 
     @property
-    def synapse_home(self) -> Path:
-        """用户数据根目录，优先使用 SYNAPSE_ROOT 环境变量，默认 ~/.synapse"""
+    def openakita_home(self) -> Path:
+        """用户数据根目录，优先使用 SYNAPSE_ROOT 环境变量，默认 ~/.openakita"""
         import os
 
         env_root = os.environ.get("SYNAPSE_ROOT", "").strip()
         if env_root:
             return Path(env_root)
-        return Path.home() / ".synapse"
+        return Path.home() / ".openakita"
 
     @property
     def user_workspace_path(self) -> Path:
         """当前用户工作区路径。
 
-        如果 project_root 位于 synapse_home/workspaces/ 下（生产模式），
+        如果 project_root 位于 openakita_home/workspaces/ 下（生产模式），
         直接使用 project_root 作为工作区路径；否则（开发模式）回退到 default。
         """
-        ws_dir = self.synapse_home / "workspaces"
+        ws_dir = self.openakita_home / "workspaces"
         try:
             self.project_root.resolve().relative_to(ws_dir.resolve())
             return self.project_root.resolve()
@@ -667,7 +697,7 @@ class Settings(BaseSettings):
 
     @property
     def skills_path(self) -> Path:
-        """用户技能安装目录 (~/.synapse/workspaces/default/skills)
+        """用户技能安装目录 (~/.openakita/workspaces/default/skills)
 
         所有通过 install_skill / skill-creator 安装或创建的技能都存放在此目录。
         该目录位于用户 home 下，打包版本也有写权限。
@@ -725,7 +755,7 @@ class Settings(BaseSettings):
         """内置 MCP 配置目录（随项目分发，打包后可能只读）
 
         优先使用 project_root/mcps（开发模式），
-        若不存在则回退到 wheel 打包位置 site-packages/synapse/builtin_mcps/。
+        若不存在则回退到 wheel 打包位置 site-packages/openakita/builtin_mcps/。
         """
         dev_path = self.project_root / "mcps"
         if dev_path.exists():
@@ -747,6 +777,8 @@ class Settings(BaseSettings):
 # 需要持久化的 settings 字段名
 _PERSISTABLE_KEYS: list[str] = [
     "persona_name",
+    "memory_nudge_enabled",
+    "memory_nudge_interval",
     "proactive_enabled",
     "proactive_max_daily_messages",
     "proactive_min_interval_minutes",

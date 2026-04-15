@@ -47,7 +47,7 @@ def mcp_initialize(url: str) -> dict:
     return jsonrpc_call(url, "initialize", {
         "protocolVersion": "2024-11-05",
         "capabilities": {},
-        "clientInfo": {"name": "synapse-didi", "version": "1.0.0"},
+        "clientInfo": {"name": "openakita-didi", "version": "1.0.0"},
     }, req_id=0)
 
 

@@ -1,5 +1,5 @@
 ---
-name: synapse/skills@baidu-deep-research
+name: openakita/skills@baidu-deep-research
 description: "Qianfan Deep Research Agent for complex research tasks. Combines information retrieval, multi-source analysis, content synthesis, and report generation. Use when user needs in-depth research, analysis reports, or comprehensive investigation on complex topics."
 license: MIT
 metadata:

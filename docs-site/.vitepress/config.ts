@@ -9,8 +9,8 @@ const v = versionData.version;
 
 export default defineConfig({
   lang: "zh-CN",
-  title: "Synapse 文档",
-  description: "Synapse 用户使用文档 — 开源多 Agent AI 助手",
+  title: "OpenAkita 文档",
+  description: "OpenAkita 用户使用文档 — 开源多 Agent AI 助手",
   base: `/user-docs/v${v}/`,
 
   head: [["link", { rel: "icon", href: `/user-docs/v${v}/favicon.ico` }]],
@@ -23,7 +23,7 @@ export default defineConfig({
 
   themeConfig: {
     logo: "/logo.png",
-    siteTitle: "Synapse",
+    siteTitle: "OpenAkita",
 
     nav: [
       { text: "首页", link: "/" },
@@ -117,12 +117,12 @@ export default defineConfig({
     darkModeSwitchLabel: "主题",
 
     socialLinks: [
-      { icon: "github", link: "https://github.com/jyhk1314/synapse" },
+      { icon: "github", link: "https://github.com/openakita/openakita" },
     ],
 
     footer: {
       message: "基于 Apache-2.0 许可发布",
-      copyright: "Copyright © 2026-present Synapse",
+      copyright: "Copyright © 2024-present OpenAkita",
     },
   },
 });

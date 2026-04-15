@@ -344,6 +344,7 @@ def _convert_openai_content_to_blocks(content: list[dict]) -> list[ContentBlock]
             url = video_url.get("url", "")
             if url:
                 import re
+
                 match = re.match(r"data:([^;]+);base64,(.+)", url)
                 if match:
                     media_type = match.group(1)

@@ -562,7 +562,7 @@ class TestThinkingIndicator:
         }
 
         with patch.object(adapter, "_emit_message", new_callable=AsyncMock):
-            with patch("synapse.config.settings") as mock_settings:
+            with patch("openakita.config.settings") as mock_settings:
                 mock_settings.wework_ws_thinking_indicator = True
                 await adapter._route_frame(frame)
                 await asyncio.sleep(0.1)
@@ -603,7 +603,7 @@ class TestThinkingIndicator:
         }
 
         with patch.object(adapter, "_emit_message", new_callable=AsyncMock):
-            with patch("synapse.config.settings") as mock_settings:
+            with patch("openakita.config.settings") as mock_settings:
                 mock_settings.wework_ws_thinking_indicator = False
                 await adapter._route_frame(frame)
                 await asyncio.sleep(0.1)
@@ -832,7 +832,7 @@ class TestDownloadMedia:
         mock_resp.headers = {}
         mock_resp.raise_for_status = MagicMock()
 
-        with patch("synapse.channels.adapters.wework_ws.httpx") as mock_httpx:
+        with patch("openakita.channels.adapters.wework_ws.httpx") as mock_httpx:
             mock_client = AsyncMock()
             mock_client.get = AsyncMock(return_value=mock_resp)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -879,7 +879,7 @@ class TestDownloadMedia:
         mock_resp.headers = {"content-disposition": "filename*=UTF-8''photo%E5%9B%BE.jpg"}
         mock_resp.raise_for_status = MagicMock()
 
-        with patch("synapse.channels.adapters.wework_ws.httpx") as mock_httpx:
+        with patch("openakita.channels.adapters.wework_ws.httpx") as mock_httpx:
             mock_client = AsyncMock()
             mock_client.get = AsyncMock(return_value=mock_resp)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -909,7 +909,7 @@ class TestResponseUrlFallback:
         mock_resp = MagicMock()
         mock_resp.status_code = 200
 
-        with patch("synapse.channels.adapters.wework_ws.httpx") as mock_httpx:
+        with patch("openakita.channels.adapters.wework_ws.httpx") as mock_httpx:
             mock_client = AsyncMock()
             mock_client.post = AsyncMock(return_value=mock_resp)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)

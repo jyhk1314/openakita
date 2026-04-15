@@ -1,18 +1,19 @@
 ---
-name: synapse/skills@feishu-cli
+name: openakita/skills@feishu-cli
 description: "Feishu/Lark CLI - official open-source CLI tool from Feishu for AI Agents. Provides 200+ commands across 12 business domains: IM, Docs, Sheets, Base (Bitable), Calendar, Video Meeting, Mail, Tasks, Wiki, Drive, Contacts, Search. Supports both user identity and bot identity authentication. Use when user wants to operate Feishu/Lark resources."
 license: MIT
 metadata:
   author: larksuite
-  version: "1.0.0"
+  version: "1.0.8"
 ---
 
 # 飞书 CLI (lark-cli)
 
 飞书官方开源的命令行工具，为 AI Agent 提供连接飞书业务系统的标准化执行入口。安装后 Agent 可以直接读消息、查日历、写文档、建多维表格、发邮件，把任务真正落到飞书里完成。
 
-> 官方 GitHub: https://github.com/larksuite/cli
+> 官方 GitHub: https://github.com/larksuite/cli （7.3k+ Stars）
 > 官方介绍: https://www.feishu.cn/content/article/7623291503305083853
+> npm: https://www.npmjs.com/package/@larksuite/cli
 
 ## 安装
 

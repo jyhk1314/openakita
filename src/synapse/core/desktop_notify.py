@@ -42,7 +42,7 @@ def _notify_windows(title: str, body: str, sound: bool = True) -> bool:
         pass
 
     ps_script = f"""
-$aumid = 'com.synapse.setupcenter'
+$aumid = 'com.openakita.setupcenter'
 $rp = "HKCU:\\SOFTWARE\\Classes\\AppUserModelId\\$aumid"
 if (!(Test-Path $rp)) {{ New-Item $rp -Force | Out-Null; Set-ItemProperty $rp -Name DisplayName -Value 'Synapse Desktop' }}
 

@@ -9,7 +9,7 @@
   - apps/setup-center/package.json (version)
   - apps/setup-center/src-tauri/tauri.conf.json (version)
   - apps/setup-center/src-tauri/Cargo.toml ([package].version)
-  - apps/setup-center/src-tauri/Cargo.lock (synapse-setup-center package entry)
+  - apps/setup-center/src-tauri/Cargo.lock (openakita-setup-center package entry)
   - apps/setup-center/android/app/build.gradle (versionName + versionCode)
 - CI/Release 可用 `check` 阻止漏改。
 """
@@ -152,7 +152,7 @@ def _update_cargo_lock(version: str) -> bool:
             continue
         if in_pkg and line.startswith("name = "):
             name = line.split("=", 1)[1].strip().strip('"')
-            is_target_pkg = name == "synapse-setup-center"
+            is_target_pkg = name == "openakita-setup-center"
             continue
         if in_pkg and is_target_pkg and line.startswith("version = "):
             old_version = line.split("=", 1)[1].strip().strip('"')
@@ -171,12 +171,12 @@ def _update_cargo_lock(version: str) -> bool:
 
 def _update_bundled_version(version: str) -> bool:
     """Update _bundled_version.txt with clean version (no git hash; hash is appended at build time)."""
-    path = ROOT / "src" / "synapse" / "_bundled_version.txt"
+    path = ROOT / "src" / "openakita" / "_bundled_version.txt"
     old = path.read_text(encoding="utf-8").strip() if path.exists() else ""
     if old == version:
         return False
     path.write_text(version, encoding="utf-8", newline="\n")
-    print(f"src/synapse/_bundled_version.txt: {old} -> {version}")
+    print(f"src/openakita/_bundled_version.txt: {old} -> {version}")
     return True
 
 
@@ -285,9 +285,9 @@ def check(expected: str | None) -> int:
         mismatches.append("apps/setup-center/src-tauri/Cargo.toml")
 
     cargo_lock = _read_text(ROOT / "apps/setup-center/src-tauri/Cargo.lock")
-    # 找到 synapse-setup-center 这个 package 的 version
+    # 找到 openakita-setup-center 这个 package 的 version
     lm = re.search(
-        r'(?ms)^\[\[package\]\]\s*\nname\s*=\s*"synapse-setup-center"\s*\nversion\s*=\s*"([^"]+)"\s*$',
+        r'(?ms)^\[\[package\]\]\s*\nname\s*=\s*"openakita-setup-center"\s*\nversion\s*=\s*"([^"]+)"\s*$',
         cargo_lock,
     )
     if not lm or lm.group(1) != v:
@@ -302,8 +302,8 @@ def check(expected: str | None) -> int:
             mismatches.append("apps/setup-center/android/app/build.gradle")
 
     # Plugin SDK: version.py 和 pyproject.toml 必须一致（SDK 版本独立于主包）
-    sdk_pyproject = ROOT / "synapse-plugin-sdk" / "pyproject.toml"
-    sdk_version_py = ROOT / "synapse-plugin-sdk" / "src" / "synapse_plugin_sdk" / "version.py"
+    sdk_pyproject = ROOT / "openakita-plugin-sdk" / "pyproject.toml"
+    sdk_version_py = ROOT / "openakita-plugin-sdk" / "src" / "openakita_plugin_sdk" / "version.py"
     if sdk_pyproject.exists() and sdk_version_py.exists():
         sdk_pp_text = _read_text(sdk_pyproject)
         spm = re.search(r'(?ms)^\[project\]\s*\n.*?^version\s*=\s*"([^"]+)"\s*$', sdk_pp_text)
@@ -311,7 +311,7 @@ def check(expected: str | None) -> int:
         svm = re.search(r'SDK_VERSION\s*=\s*"([^"]+)"', sdk_vpy_text)
         if spm and svm and spm.group(1) != svm.group(1):
             mismatches.append(
-                f"synapse-plugin-sdk 版本不一致: "
+                f"openakita-plugin-sdk 版本不一致: "
                 f"pyproject.toml={spm.group(1)} vs version.py SDK_VERSION={svm.group(1)}"
             )
 

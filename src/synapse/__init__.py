@@ -37,6 +37,7 @@ def _resolve_version_info() -> tuple[str, str]:
     if pyproject_path.exists():
         try:
             import tomllib
+
             with open(pyproject_path, "rb") as f:
                 version = tomllib.load(f)["project"]["version"]
         except Exception:
@@ -46,13 +47,15 @@ def _resolve_version_info() -> tuple[str, str]:
     if version == "0.0.0-dev":
         try:
             from importlib.metadata import version as meta_version
-            version = meta_version("synapse")
+
+            version = meta_version("openakita")
         except Exception:
             pass
 
     # 开发模式下从 git 获取当前哈希
     try:
         import subprocess
+
         git_hash = subprocess.check_output(
             ["git", "-C", str(project_root), "rev-parse", "--short=7", "HEAD"],
             stderr=subprocess.DEVNULL,
@@ -67,8 +70,10 @@ def _resolve_version_info() -> tuple[str, str]:
 
 __version__, __git_hash__ = _resolve_version_info()
 
+
 def get_version_string() -> str:
     """返回完整版本标识，如 '1.22.7+823f46b'"""
     return f"{__version__}+{__git_hash__}"
+
 
 __author__ = "Synapse"

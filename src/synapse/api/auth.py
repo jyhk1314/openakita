@@ -1,5 +1,5 @@
 """
-Web access authentication for Synapse.
+Web access authentication for OpenAkita.
 
 Single-password mode with JWT tokens. Local requests (127.0.0.1) are exempt
 from authentication to preserve the desktop experience.
@@ -9,7 +9,6 @@ Storage: data/web_access.json
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import hmac
 import json
@@ -31,10 +30,10 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-ACCESS_TOKEN_TTL = 24 * 3600          # 24 hours
-REFRESH_TOKEN_TTL = 90 * 24 * 3600    # 90 days
+ACCESS_TOKEN_TTL = 24 * 3600  # 24 hours
+REFRESH_TOKEN_TTL = 90 * 24 * 3600  # 90 days
 REFRESH_COOKIE_NAME = "synapse_refresh"
-PASSWORD_ENV_VAR = "SYNAPSE_WEB_PASSWORD"
+PASSWORD_ENV_VAR = "OPENAKITA_WEB_PASSWORD"
 
 AUTH_EXEMPT_PATHS = frozenset(
     {
@@ -48,53 +47,6 @@ AUTH_EXEMPT_PATHS = frozenset(
     }
 )
 AUTH_EXEMPT_PREFIXES = ("/web/", "/web", "/ws/", "/docs", "/openapi.json", "/redoc", "/user-docs")
-
-# ---------------------------------------------------------------------------
-# Helpers: base64url encoding (JWT-compatible, no padding)
-# ---------------------------------------------------------------------------
-
-def _b64url_encode(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
-
-
-def _b64url_decode(s: str) -> bytes:
-    padding = 4 - len(s) % 4
-    if padding != 4:
-        s += "=" * padding
-    return base64.urlsafe_b64decode(s)
-
-
-# ---------------------------------------------------------------------------
-# Minimal JWT (HS256, stdlib only — no PyJWT dependency)
-# ---------------------------------------------------------------------------
-
-def _jwt_encode(payload: dict[str, Any], secret: str) -> str:
-    header = _b64url_encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
-    payload_b64 = _b64url_encode(json.dumps(payload).encode())
-    msg = f"{header}.{payload_b64}".encode()
-    sig = _b64url_encode(hmac.new(secret.encode(), msg, hashlib.sha256).digest())
-    return f"{header}.{payload_b64}.{sig}"
-
-
-def _jwt_decode(token: str, secret: str) -> dict[str, Any] | None:
-    """Decode and verify a JWT. Returns None on any failure."""
-    try:
-        parts = token.split(".")
-        if len(parts) != 3:
-            return None
-        header_b64, payload_b64, sig_b64 = parts
-        msg = f"{header_b64}.{payload_b64}".encode()
-        expected_sig = hmac.new(secret.encode(), msg, hashlib.sha256).digest()
-        actual_sig = _b64url_decode(sig_b64)
-        if not hmac.compare_digest(expected_sig, actual_sig):
-            return None
-        payload = json.loads(_b64url_decode(payload_b64))
-        if payload.get("exp", 0) < time.time():
-            return None
-        return payload
-    except Exception:
-        return None
-
 
 # ---------------------------------------------------------------------------
 # Password hashing (scrypt, stdlib)
@@ -134,6 +86,7 @@ def _verify_password(password: str, hash_hex: str, salt_hex: str) -> bool:
 # ---------------------------------------------------------------------------
 # Web Access config (data/web_access.json)
 # ---------------------------------------------------------------------------
+
 
 class WebAccessConfig:
     """Manages the web_access.json file."""
@@ -305,6 +258,7 @@ def _make_hint(password: str) -> str:
 # ---------------------------------------------------------------------------
 # Rate limiter (simple in-memory, per-IP)
 # ---------------------------------------------------------------------------
+
 
 class RateLimiter:
     """Simple sliding-window rate limiter."""

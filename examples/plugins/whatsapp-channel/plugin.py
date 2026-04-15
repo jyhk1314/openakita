@@ -71,7 +71,7 @@ class WhatsAppAdapter(ChannelAdapter):
         # Cloud API
         self._phone_number_id = creds.get("phone_number_id", "")
         self._access_token = creds.get("access_token", "")
-        self._verify_token = creds.get("verify_token", "synapse-verify")
+        self._verify_token = creds.get("verify_token", "openakita-verify")
         self._api_version = creds.get("api_version", "v21.0")
         self._webhook_port = int(creds.get("webhook_port", 9881))
         self._webhook_path = creds.get("webhook_path", "/whatsapp/webhook")
@@ -296,7 +296,7 @@ class WhatsAppAdapter(ChannelAdapter):
             return
 
         data_dir = self._bridge_data_dir or str(
-            Path(tempfile.gettempdir()) / "synapse-wa-bridge"
+            Path(tempfile.gettempdir()) / "openakita-wa-bridge"
         )
         os.makedirs(data_dir, exist_ok=True)
 

@@ -1,4 +1,4 @@
-# OpenAkita IM 通道增强修复计划
+# Synapse IM 通道增强修复计划
 
 > 调研时间：2026-04-07 | 项目版本：v1.27.9
 
@@ -14,7 +14,7 @@
 | **企业微信 HTTP** | `aiohttp>=3.9.0` | aiohttp **v3.13.5** (2026-03-31) | 平台侧新增长连接多媒体推送能力 | 🔴 高 |
 | **企业微信 WS** | `websockets>=15.0.1` | websockets **v16.0** (2026-01-10) | v16 要求 Python≥3.10，有新特性 | 🟡 中 |
 | **OneBot** | `websockets>=15.0.1` | websockets **v16.0** | NapCat 已至 v4.17.55，建议 ID 字段改 str | 🟡 中 |
-| **QQ 官方机器人** | `qq-botpy>=1.2.1` | **v1.2.1** (2024-03) | SDK 停更超一年，需评估替代方案 | 🟠 中高 |
+| **QQ 官方机器人** | `websockets + httpx` (自建) | ✅ 已去 botpy 化 | 自建 WS Gateway + REST，不再依赖 qq-botpy | ✅ 已完成 |
 | **WhatsApp 插件** | `@whiskeysockets/baileys ^6.7.0` | **v7.0.0-rc.9** (2025-11) | 7.0 大版本重构，LID 系统全面变更 | 🔴 高 |
 | **微信个人号** | httpx + pycryptodome（无独立 extra） | — | pyproject.toml 缺 `wechat` extra 定义 | 🟠 中高 |
 
@@ -80,7 +80,7 @@
 | 序号 | 任务 | 文件 | 说明 |
 |------|------|------|------|
 | F-1 | 升级版本约束 | `pyproject.toml` | `lark-oapi>=1.5.0` |
-| F-2 | 代理支持适配 | `feishu.py` | 利用 SDK 新增的代理配置能力，统一到 OpenAkita 的代理设置 |
+| F-2 | 代理支持适配 | `feishu.py` | 利用 SDK 新增的代理配置能力，统一到 Synapse 的代理设置 |
 | F-3 | 批量消息能力 | `feishu.py` | 评估并接入批量消息发送 API |
 | F-4 | 依赖冲突检查 | — | lark-oapi 1.5.x 自身依赖 `websockets`/`httpx`，需确保与项目其他依赖版本兼容 |
 

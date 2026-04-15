@@ -89,10 +89,8 @@ apps/**/.vite/
 apps/**/src-tauri/target/
 apps/**/tsconfig.tsbuildinfo
 # Tauri resources - 构建产物，不应提交（保留 .gitkeep 使空目录入库）
-apps/setup-center/src-tauri/resources/synapse-server/*
-!apps/setup-center/src-tauri/resources/synapse-server/.gitkeep
-apps/setup-center/src-tauri/resources/claude-code-releases/*
-!apps/setup-center/src-tauri/resources/claude-code-releases/.gitkeep
+apps/setup-center/src-tauri/resources/openakita-server/*
+!apps/setup-center/src-tauri/resources/openakita-server/.gitkeep
 apps/setup-center/src-tauri/resources/modules/
 
 # Data (keep structure)
@@ -127,6 +125,7 @@ tests/**/__pycache__/
 
 # Media files
 *.mp3
+*.mp4
 *.wav
 *.ogg
 *.oga
@@ -167,7 +166,7 @@ indentity_compiler.txt
 *_report*.py
 create_report*.py
 fix_report.py
-!src/synapse/api/routes/bug_report.py
+!src/openakita/api/routes/bug_report.py
 
 # Image classification scripts (temporary)
 classify_*.py
@@ -192,8 +191,8 @@ generate_vision_tasks.py
 
 # Temporary documents
 Microsoft_BitNet_*.docx
-SYNAPSE_PROJECT_STATUS.txt
-synapse_project_summary.md
+OPENAKITA_PROJECT_STATUS.txt
+openakita_project_summary.md
 CLASSIFICATION_SYSTEM.md
 classification_report.json
 skills_list.md
@@ -237,9 +236,8 @@ apps/setup-center/android/.gradle/
 apps/setup-center/android/app/src/main/assets/public/
 apps/setup-center/android/app/src/main/assets/capacitor.config.json
 $null
-botpy.log*
-SYNAPSE_RESEARCH_REPORT.md
-synapse-release.keystore
+OPENAKITA_RESEARCH_REPORT.md
+openakita-release.keystore
 ppt_build/
 
 # Claude Code reference materials
@@ -249,4 +247,5 @@ claude_code/
 .commitmsg
 .commitmsg_responses
 
-.VSCodeCounter/
+# QQ Bot SDK logs
+botpy.log*

@@ -1,5 +1,5 @@
 {
-  "name": "synapse-whatsapp-bridge",
+  "name": "openakita-whatsapp-bridge",
   "version": "1.0.0",
   "description": "Baileys-based WhatsApp Web bridge for Synapse",
   "main": "index.js",

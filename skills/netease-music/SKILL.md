@@ -1,5 +1,5 @@
 ---
-name: synapse/skills@netease-music
+name: openakita/skills@netease-music
 description: "NetEase Cloud Music skill for searching songs, managing playlists, getting personalized recommendations, and controlling playback via ncm-cli. Use when user wants to search music, play songs, manage playlists, or get music recommendations."
 license: MIT
 metadata:

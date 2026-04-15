@@ -1,4 +1,4 @@
-"""Tests for synapse.plugins.sandbox — safe_call, safe_call_sync, PluginErrorTracker."""
+"""Tests for openakita.plugins.sandbox — safe_call, safe_call_sync, PluginErrorTracker."""
 
 from __future__ import annotations
 

@@ -65,7 +65,7 @@ _init_tracing()
 
 # Typer 应用
 app = typer.Typer(
-    name="synapse",
+    name="openakita",
     help="Synapse - 全能自进化AI助手",
     add_completion=False,
 )
@@ -216,7 +216,7 @@ def _ensure_channel_deps() -> None:
     检查已启用的 IM 通道所需依赖，缺失的自动安装到隔离目录。
 
     安装策略：使用 ``pip install --target`` 将缺失依赖安装到
-    ``~/.synapse/modules/channel-deps/site-packages``，与外部 Python
+    ``~/.openakita/modules/channel-deps/site-packages``，与外部 Python
     环境完全隔离，避免版本冲突。该目录会被 ``inject_module_paths()``
     自动扫描并注入 sys.path。
 
@@ -1291,19 +1291,36 @@ async def run_interactive():
 
     async def _process_message(user_input: str):
         """Process a single user message (extracted for early-input replay)."""
-        session_messages: list[dict] = []
         _active_session = getattr(agent_or_master, "_cli_session", None)
+
         if _active_session:
+            _active_session.add_message("user", user_input)
             session_messages = _active_session.context.get_messages()
         elif hasattr(agent_or_master, "_context"):
             session_messages = agent_or_master._context.messages
+        else:
+            session_messages = []
+
         _sid = _active_session.id if _active_session else _cli_chat_id
         event_stream = agent_or_master.chat_with_session_stream(
             message=user_input,
             session_messages=session_messages,
             session_id=_sid,
+            session=_active_session,
         )
-        await render_stream(event_stream, console, agent_name=agent_name)
+        reply_text = await render_stream(event_stream, console, agent_name=agent_name)
+
+        if _active_session and reply_text:
+            _meta: dict = {}
+            try:
+                _ts = getattr(agent_or_master, "build_tool_trace_summary", None)
+                if _ts:
+                    _tool_summary = _ts()
+                    if _tool_summary:
+                        _meta["tool_summary"] = _tool_summary
+            except Exception:
+                pass
+            _active_session.add_message("assistant", reply_text, **_meta)
 
     try:
         while not shutdown_event.is_set():
@@ -1392,6 +1409,12 @@ async def run_interactive():
                                 agent_or_master._cli_session.context.clear_messages()
                         agent_or_master._conversation_history.clear()
                         agent_or_master._context.messages.clear()
+                        try:
+                            from .prompt.builder import clear_prompt_section_cache
+
+                            clear_prompt_section_cache()
+                        except Exception:
+                            pass
                         _cli_chat_id = _new_id
                         _cli_session_file.parent.mkdir(parents=True, exist_ok=True)
                         _cli_session_file.write_text(
@@ -1625,7 +1648,7 @@ def main(
         if not has_endpoint:
             console.print("[red]错误: 未配置任何 LLM 端点[/red]")
             console.print(
-                "请设置 ANTHROPIC_API_KEY，或运行 'synapse init' 配置 data/llm_endpoints.json"
+                "请设置 ANTHROPIC_API_KEY，或运行 'openakita init' 配置 data/llm_endpoints.json"
             )
             raise typer.Exit(1)
 
@@ -1650,9 +1673,9 @@ def init(
     - 目录结构创建
 
     示例:
-        synapse init
-        synapse init --quick
-        synapse init ./my-project
+        openakita init
+        openakita init --quick
+        openakita init ./my-project
     """
     from .setup import SetupWizard
 
@@ -1909,7 +1932,7 @@ def serve(
     import warnings
     from pathlib import Path
 
-    from synapse import config as cfg
+    from openakita import config as cfg
 
     # 压制 Windows asyncio 关闭时的 ResourceWarning
     warnings.filterwarnings("ignore", category=ResourceWarning, module="asyncio")
@@ -1942,7 +1965,7 @@ def serve(
         """写入一次心跳（原子写入：先写临时文件再重命名）"""
         try:
             _heartbeat_file.parent.mkdir(parents=True, exist_ok=True)
-            from synapse import __git_hash__, __version__
+            from openakita import __git_hash__, __version__
 
             data = {
                 "pid": os.getpid(),
@@ -1997,7 +2020,7 @@ def serve(
         shutdown_triggered = False
         _heartbeat_phase = "initializing"
 
-        from synapse import get_version_string
+        from openakita import get_version_string
 
         _version_str = get_version_string()
         logger.info(f"Synapse {_version_str} starting...")
@@ -2088,7 +2111,7 @@ def serve(
                 try:
                     from watchfiles import awatch
 
-                    src_dir = Path(__file__).resolve().parent  # src/synapse/
+                    src_dir = Path(__file__).resolve().parent  # src/openakita/
                     console.print(f"[dim]📂 监控目录: {src_dir}[/dim]")
                     async for changes in awatch(
                         src_dir,
@@ -2416,8 +2439,8 @@ def run_mcp_module(
     PyInstaller 打包环境中，python -m 无法访问冻结模块。
     此命令通过冻结主程序 import 并运行 FastMCP 实例，作为 stdio 子进程替代方案。
     """
-    if not module_path.startswith("synapse."):
-        print(f"Error: only synapse.* modules allowed, got: {module_path}", file=sys.stderr)
+    if not module_path.startswith("openakita."):
+        print(f"Error: only openakita.* modules allowed, got: {module_path}", file=sys.stderr)
         raise typer.Exit(1)
 
     try:

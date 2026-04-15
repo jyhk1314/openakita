@@ -208,7 +208,7 @@ risks_or_ambiguities: [风险或歧义点列表，如果没有则为空]
 - 不要解决任务
 - 不要给建议
 - 不要输出最终答案
-- 不要假设执行能力的限制（如"AI无法操作浏览器"等）
+- 不要编造能力：不得虚构「工具在用户本机执行」等事实；但若任务涉及**用户本机才可观测的效果**（本机 GUI、本机安装、游戏内 overlay 等），必须在 `constraints` 或 `risks_or_ambiguities` 中**如实**写出「默认仅在 Synapse 宿主执行、与用户聊天设备可能不同域」等部署边界——这与「假设能力限制」不同，是事实约束
 - 只输出 YAML 格式的结构化任务定义
 - 保持简洁，每项不超过一句话
 
@@ -250,7 +250,7 @@ class Agent:
     # 通过 from ..tools.definitions import BASE_TOOLS 导入
 
     # 说明：历史上这里用类变量保存 IM 上下文，存在并发串台风险。
-    # 现在改为使用 `synapse.core.im_context` 中的 contextvars（协程隔离）。
+    # 现在改为使用 `openakita.core.im_context` 中的 contextvars（协程隔离）。
     _current_im_session = None  # legacy: 保留字段避免外部引用崩溃（不再使用）
     _current_im_gateway = None  # legacy: 保留字段避免外部引用崩溃（不再使用）
 
@@ -624,7 +624,7 @@ class Agent:
         # 上下文管理器（委托自 _compress_context 等）
         self.context_manager = ContextManager(brain=self.brain)
 
-        # 响应处理器（委托自 _verify_task_completion 等）
+        # 响应处理器（任务完成度复核见 ResponseHandler.verify_task_completion，由 ReasoningEngine 调用）
         self.response_handler = ResponseHandler(
             brain=self.brain,
             memory_manager=self.memory_manager,
@@ -696,6 +696,10 @@ class Agent:
         if self._is_sub_agent_call:
             tools = [t for t in tools if t.get("name") not in self._agent_tool_names]
 
+        cron_disabled = getattr(self, "_cron_disabled_tools", None)
+        if cron_disabled:
+            tools = [t for t in tools if t.get("name") not in cron_disabled]
+
         intent = getattr(self, "_current_intent", None)
         intent_hints = set(intent.tool_hints) if intent and intent.tool_hints else set()
 
@@ -765,7 +769,7 @@ class Agent:
         underscores, strip source prefix), then uses infer_category() to resolve
         built-in tool categories.  Only produces hints for skills that correspond
         to built-in categories (e.g. browser-click -> Browser).  External skills
-        (synapse/skills@xxx) that don't match any category are silently skipped.
+        (openakita/skills@xxx) that don't match any category are silently skipped.
 
         Returns empty list when no profile or no category-mapped skills — this
         causes _effective_tools to skip intent filtering, keeping all tools.
@@ -1087,8 +1091,7 @@ class Agent:
             await self._start_scheduler()
 
         # 设置系统提示词 (包含技能清单、MCP 清单和相关记忆)
-        base_prompt = self.identity.get_system_prompt()
-        self._context.system = self._build_system_prompt(base_prompt, use_compiled=True)
+        self._context.system = self._build_system_prompt()
 
         if lightweight:
             self._initialized = True
@@ -1224,6 +1227,8 @@ class Agent:
 
         if hasattr(self, "reasoning_engine") and self.reasoning_engine:
             self.reasoning_engine._plugin_hooks = self._plugin_manager.hook_registry
+        if hasattr(self, "tool_executor") and self.tool_executor:
+            self.tool_executor._plugin_hooks = self._plugin_manager.hook_registry
 
         from ..plugins.catalog import PluginCatalog
 
@@ -1373,8 +1378,9 @@ class Agent:
 
         # F8: register conditional skills
         for skill in self.skill_registry.list_enabled():
-            if skill.paths:
+            if skill.paths or skill.fallback_for_toolsets:
                 self._skill_activation.register_conditional(skill)
+        self._sync_available_toolsets()
 
         # F9: start skill file watcher
         self._start_skill_watcher()
@@ -1386,6 +1392,17 @@ class Agent:
             notify_skills_changed(SkillEvent.LOAD)
         except Exception:
             pass
+
+    def _sync_available_toolsets(self) -> None:
+        """Collect tool category names from the active tool list and push them
+        into the activation manager so ``fallback_for_toolsets`` skills can
+        react to the current tool availability."""
+        categories: set[str] = set()
+        for tool_def in self._tools:
+            cat = tool_def.get("category") or ""
+            if cat:
+                categories.add(cat.lower())
+        self._skill_activation.update_available_toolsets(categories)
 
     def _start_skill_watcher(self) -> None:
         """F9: Start watching skill directories for hot-reload."""
@@ -1419,8 +1436,9 @@ class Agent:
             if hasattr(self, "_skill_activation"):
                 self._skill_activation.clear()
                 for skill in self.skill_registry.list_enabled():
-                    if skill.paths:
+                    if skill.paths or skill.fallback_for_toolsets:
                         self._skill_activation.register_conditional(skill)
+                self._sync_available_toolsets()
 
             from ..skills.events import SkillEvent, notify_skills_changed
 
@@ -1891,7 +1909,36 @@ class Agent:
         except Exception as e:
             logger.warning(f"Failed to register proactive_heartbeat task: {e}")
 
-        # 任务 4: 工作区定时备份（根据用户设置）
+        # 任务 4: 记忆回顾（Memory Nudge）
+        try:
+            nudge_task_id = "system_memory_nudge"
+            if settings.memory_nudge_enabled and settings.memory_nudge_interval > 0:
+                interval_min = max(5, settings.memory_nudge_interval * 3)
+                if nudge_task_id not in existing_ids:
+                    nudge_task = ScheduledTask(
+                        id=nudge_task_id,
+                        name="记忆回顾",
+                        trigger_type=TriggerType.INTERVAL,
+                        trigger_config={"interval_minutes": interval_min},
+                        action="system:memory_nudge_review",
+                        prompt="审视最近对话，提取遗漏的重要记忆",
+                        description=f"每 {interval_min} 分钟审视最近对话提取遗漏记忆",
+                        task_type=TaskType.TASK,
+                        enabled=True,
+                        deletable=False,
+                        metadata={"notify_on_start": False, "notify_on_complete": False},
+                    )
+                    await self.task_scheduler.add_task(nudge_task)
+                    logger.info(f"Registered system task: memory_nudge (every {interval_min} min)")
+            else:
+                existing_nudge = self.task_scheduler.get_task(nudge_task_id)
+                if existing_nudge and existing_nudge.enabled:
+                    await self.task_scheduler.disable_task(nudge_task_id)
+                    logger.info("Disabled memory_nudge task (feature disabled in settings)")
+        except Exception as e:
+            logger.warning(f"Failed to register memory_nudge task: {e}")
+
+        # 任务 5: 工作区定时备份（根据用户设置）
         try:
             from ..workspace.backup import read_backup_settings
 
@@ -1929,19 +1976,10 @@ class Agent:
 
     def _build_system_prompt(
         self,
-        base_prompt: str,
         task_description: str = "",
-        use_compiled: bool = False,
         session_type: str = "cli",
     ) -> str:
-        """
-        构建系统提示词。
-
-        .. deprecated::
-            非编译路径已废弃，所有路径现统一使用编译管线 (v2)。
-            工具指引已迁移至 prompt.builder._get_tools_guide_short()。
-            核心原则已迁移至 AGENT.md + SOUL.md + prompt.builder._CORE_RULES。
-        """
+        """构建系统提示词（统一使用编译管线 v2）。"""
         return self._build_system_prompt_compiled_sync(task_description, session_type=session_type)
 
     def _build_system_prompt_compiled_sync(
@@ -2036,6 +2074,13 @@ class Agent:
             elif intent.intent == IntentType.QUERY:
                 _skip_catalogs = True
 
+        from ..prompt.budget import estimate_tokens
+        from ..prompt.builder import PromptProfile, PromptTier, resolve_tier
+
+        _user_input_tokens = estimate_tokens(task_description) if task_description else 0
+        _prompt_profile = self._resolve_prompt_profile(intent, session_type)
+        _prompt_tier = resolve_tier(ctx_window)
+
         prompt = await self.prompt_assembler.build_system_prompt_compiled(
             task_description,
             session_type=session_type,
@@ -2048,11 +2093,27 @@ class Agent:
             mode=_effective_mode,
             model_id=_model_id,
             skip_catalogs=_skip_catalogs,
+            user_input_tokens=_user_input_tokens,
+            prompt_profile=_prompt_profile,
+            prompt_tier=_prompt_tier,
         )
         if self._custom_prompt_suffix:
             prompt += f"\n\n{self._custom_prompt_suffix}"
         prompt += self._build_multi_agent_prompt_section()
         return prompt
+
+    def _resolve_prompt_profile(self, intent: Any, session_type: str) -> "PromptProfile":
+        """Determine PromptProfile from intent and session type."""
+        from ..prompt.builder import PromptProfile
+
+        if session_type == "im":
+            return PromptProfile.IM_ASSISTANT
+        if intent:
+            from .intent_analyzer import IntentType
+
+            if intent.intent in (IntentType.CHAT, IntentType.QUERY):
+                return PromptProfile.CONSUMER_CHAT
+        return PromptProfile.LOCAL_AGENT
 
     def _build_multi_agent_prompt_section(self) -> str:
         """Generate a system prompt section describing the multi-agent system.
@@ -3389,6 +3450,10 @@ class Agent:
                         content = before + after[next_section:] if next_section != -1 else before
                 if content.startswith("[执行摘要]") or content.startswith("[子Agent工作总结]"):
                     content = ""
+                # 从 metadata 还原 tool_summary（跨轮工具上下文恢复）
+                _tool_summary = msg.get("tool_summary")
+                if _tool_summary and isinstance(_tool_summary, str) and content:
+                    content = content.rstrip() + "\n\n" + _tool_summary
             if role in ("user", "assistant") and content:
                 if ts and isinstance(content, str):
                     try:
@@ -3523,11 +3588,13 @@ class Agent:
                             try:
                                 stt_result = await stt_client.transcribe(local_path)
                                 if stt_result:
-                                    # 用在线 STT 结果替换输入
                                     if not compiled_message.strip() or "[语音:" in compiled_message:
                                         compiled_message = stt_result
                                     else:
                                         compiled_message = f"{compiled_message}\n\n[语音内容(在线识别): {stt_result}]"
+                                    media_ref = aud.get("_media_ref")
+                                    if media_ref is not None:
+                                        media_ref.transcription = stt_result
                                     logger.info(
                                         f"[Session:{session_id}] Audio → online STT: {stt_result[:50]}..."
                                     )
@@ -3770,6 +3837,7 @@ class Agent:
         # 仅真正的 IM 通道（telegram/wechat/feishu 等）使用 im 模式
         _channel = getattr(session, "channel", None) if session else None
         session_type = "im" if _channel and _channel not in ("cli", "desktop") else "cli"
+        self._current_session_type = session_type
 
         return messages, session_type, task_monitor, conversation_id, im_tokens
 
@@ -3881,6 +3949,7 @@ class Agent:
         """
         self._current_task_definition = ""
         self._current_task_query = ""
+        self._current_session_type = "cli"
         if im_tokens is not None:
             with contextlib.suppress(Exception):
                 from .im_context import reset_im_context
@@ -4094,6 +4163,8 @@ class Agent:
             from .intent_analyzer import IntentType as _IT
 
             _intent = getattr(self, "_current_intent", None)
+            _fast_usage = None
+            _fast_handled = False
 
             if _intent and _intent.intent == _IT.CHAT and getattr(_intent, "fast_reply", False):
                 # Ultra-fast path: rule-based greeting only, use lightweight model
@@ -4114,13 +4185,17 @@ class Agent:
                         prompt=message,
                         system=_fast_system,
                     )
+                    _fast_usage = _fast_resp.usage
                     response_text = (
                         clean_llm_response(_fast_resp.content if _fast_resp.content else "")
                         or "你好！有什么我可以帮你的吗？"
                     )
+                    _fast_handled = True
                 except Exception as e:
                     logger.error(f"[FastReply] Failed: {e}")
                     response_text = "你好！有什么我可以帮你的吗？"
+                    _fast_handled = True
+
             elif _intent and _intent.intent == _IT.QUERY and getattr(_intent, "fast_reply", False):
                 # Fast-path for simple factual queries (math, date, definitions)
                 # No tools passed → LLM answers directly
@@ -4152,15 +4227,19 @@ class Agent:
                         prompt=message,
                         system=_fast_system,
                     )
-                    response_text = (
-                        clean_llm_response(_fast_resp.content if _fast_resp.content else "")
-                        or "抱歉，我无法回答这个问题。"
+                    _fast_usage = _fast_resp.usage
+                    response_text = clean_llm_response(
+                        _fast_resp.content if _fast_resp.content else ""
                     )
+                    if response_text:
+                        _fast_handled = True
+                    else:
+                        logger.warning("[FastQuery] Empty response, falling back to full agent")
                 except Exception as e:
-                    logger.error(f"[FastQuery] Failed: {e}")
-                    response_text = "抱歉，我无法回答这个问题。"
-            else:
-                # All non-fast paths (CHAT/TASK/QUERY/COMMAND/FOLLOW_UP) → ReasoningEngine
+                    logger.warning(f"[FastQuery] Failed ({e}), falling back to full agent")
+
+            if not _fast_handled:
+                # All non-fast paths, or fast_reply fallback → ReasoningEngine
                 response_text = await self._chat_with_tools_and_context(
                     messages,
                     task_monitor=task_monitor,
@@ -4187,6 +4266,15 @@ class Agent:
                 session_id=session_id,
                 task_monitor=task_monitor,
             )
+
+            # fast_reply 不经过 ReasoningEngine，trace 为空导致 _last_usage_summary = {}。
+            # 从 Response.usage 补充。
+            if _fast_handled and not self._last_usage_summary and isinstance(_fast_usage, dict):
+                self._last_usage_summary = {
+                    "input_tokens": _fast_usage.get("input_tokens", 0),
+                    "output_tokens": _fast_usage.get("output_tokens", 0),
+                    "total_tokens": _fast_usage.get("input_tokens", 0) + _fast_usage.get("output_tokens", 0),
+                }
 
             return response_text
         finally:
@@ -4391,7 +4479,7 @@ class Agent:
                     pass
                 else:
                     _force_tool_retries = max(
-                        0, getattr(settings, "force_tool_call_max_retries", 1) - 1
+                        0, getattr(settings, "force_tool_call_max_retries", 2) - 1
                     )
 
             _agent_profile_id = "default"
@@ -4399,6 +4487,8 @@ class Agent:
                 _agent_profile_id = (
                     getattr(session.context, "agent_profile_id", "default") or "default"
                 )
+
+            _fast_usage = None
 
             if _intent and _intent.intent == _IT.CHAT and getattr(_intent, "fast_reply", False):
                 # Ultra-fast path: rule-based greeting only, use lightweight model
@@ -4419,6 +4509,7 @@ class Agent:
                         prompt=message,
                         system=_fast_system,
                     )
+                    _fast_usage = _fast_response.usage
                     _reply_text = clean_llm_response(
                         _fast_response.content if _fast_response.content else ""
                     )
@@ -4439,11 +4530,19 @@ class Agent:
                     session_id=session_id,
                     task_monitor=task_monitor,
                 )
+                if not self._last_usage_summary and isinstance(_fast_usage, dict):
+                    self._last_usage_summary = {
+                        "input_tokens": _fast_usage.get("input_tokens", 0),
+                        "output_tokens": _fast_usage.get("output_tokens", 0),
+                        "total_tokens": _fast_usage.get("input_tokens", 0) + _fast_usage.get("output_tokens", 0),
+                    }
                 return
 
             if _intent and _intent.intent == _IT.QUERY and getattr(_intent, "fast_reply", False):
                 # Fast-path for simple factual queries (math, date, definitions)
-                # No tools passed → LLM answers directly
+                # No tools passed → LLM answers directly; empty response falls through
+                # to full agent path below.
+                _query_ok = False
                 try:
                     _runtime_info = ""
                     try:
@@ -4472,27 +4571,33 @@ class Agent:
                         prompt=message,
                         system=_fast_system,
                     )
+                    _fast_usage = _fast_response.usage
                     _reply_text = clean_llm_response(
                         _fast_response.content if _fast_response.content else ""
                     )
                     if _reply_text:
                         yield {"type": "text_delta", "content": _reply_text}
+                        _query_ok = True
                     else:
-                        yield {"type": "text_delta", "content": "抱歉，我无法回答这个问题。"}
-                        _reply_text = "抱歉，我无法回答这个问题。"
+                        logger.warning("[FastQuery-Stream] Empty response, falling back to full agent")
                 except Exception as e:
-                    logger.error(f"[FastQuery-Stream] Failed: {e}")
-                    yield {"type": "text_delta", "content": "抱歉，我无法回答这个问题。"}
-                    _reply_text = "抱歉，我无法回答这个问题。"
-                yield {"type": "done"}
+                    logger.warning(f"[FastQuery-Stream] Failed ({e}), falling back to full agent")
 
-                await self._finalize_session(
-                    response_text=_reply_text,
-                    session=session,
-                    session_id=session_id,
-                    task_monitor=task_monitor,
-                )
-                return
+                if _query_ok:
+                    yield {"type": "done"}
+                    await self._finalize_session(
+                        response_text=_reply_text,
+                        session=session,
+                        session_id=session_id,
+                        task_monitor=task_monitor,
+                    )
+                    if not self._last_usage_summary and isinstance(_fast_usage, dict):
+                        self._last_usage_summary = {
+                            "input_tokens": _fast_usage.get("input_tokens", 0),
+                            "output_tokens": _fast_usage.get("output_tokens", 0),
+                            "total_tokens": _fast_usage.get("input_tokens", 0) + _fast_usage.get("output_tokens", 0),
+                        }
+                    return
 
             # LLM-classified CHAT (non-fast_reply) falls through to reason_stream
             # with force_tool_retries=0, so tools are available but not forced.
@@ -5110,25 +5215,8 @@ class Agent:
             return False
 
     def _get_last_user_request(self, messages: list[dict]) -> str:
-        """获取最后一条用户请求（当前任务的原始请求）"""
-        from .tool_executor import smart_truncate
-
-        for msg in reversed(messages):
-            if msg.get("role") == "user":
-                content = msg.get("content", "")
-                if isinstance(content, str) and not content.startswith("[系统]"):
-                    result, _ = smart_truncate(content, 3000, save_full=False, label="user_request")
-                    return result
-                elif isinstance(content, list):
-                    for part in content:
-                        if isinstance(part, dict) and part.get("type") == "text":
-                            text = part.get("text", "")
-                            if not text.startswith("[系统]"):
-                                result, _ = smart_truncate(
-                                    text, 3000, save_full=False, label="user_request"
-                                )
-                                return result
-        return ""
+        """获取最后一条用户请求（与 TaskVerify 同源，委托 ResponseHandler）。"""
+        return ResponseHandler.get_last_user_request(messages)
 
     @staticmethod
     def _build_tool_fallback_summary(
@@ -5154,147 +5242,6 @@ class Agent:
             return f"任务已执行完毕（使用了工具：{tool_summary}），但模型未生成文本总结。如需详情请重新提问。"
 
         return None
-
-    async def _verify_task_completion(
-        self,
-        user_request: str,
-        assistant_response: str,
-        executed_tools: list[str],
-        delivery_receipts: list[dict] | None = None,
-    ) -> bool:
-        """
-        任务完成度复核
-
-        让 LLM 判断当前响应是否真正完成了用户的意图，
-        而不是仅仅返回了中间状态的文本。
-
-        Args:
-            user_request: 用户原始请求
-            assistant_response: 助手当前响应
-            executed_tools: 已执行的工具列表
-
-        Returns:
-            True 如果任务已完成，False 如果需要继续执行
-        """
-        delivery_receipts = delivery_receipts or []
-
-        # === Quick completion check (evidence-based) ===
-        # 交付型任务：必须以 deliver_artifacts 的成功回执作为“已交付”证据，而不是仅凭工具名。
-        if "deliver_artifacts" in (executed_tools or []):
-            delivered = [r for r in delivery_receipts if r.get("status") == "delivered"]
-            if delivered:
-                logger.info(
-                    f"[TaskVerify] deliver_artifacts delivered={len(delivered)}, marking as completed"
-                )
-                return True
-
-        # Plan 明确完成：允许快速完成（避免卡在 verify）
-        if "complete_todo" in (executed_tools or []):
-            logger.info("[TaskVerify] complete_todo executed, marking as completed")
-            return True
-
-        # 如果响应宣称“已发送/已交付”，但没有任何交付证据，默认判定未完成（避免空口刷屏）
-        if (
-            any(
-                k in (assistant_response or "")
-                for k in ("已发送", "已交付", "已发给你", "已发给您")
-            )
-            and not delivery_receipts
-            and "deliver_artifacts" not in (executed_tools or [])
-        ):
-            logger.info("[TaskVerify] delivery claim without receipts/tools, marking as INCOMPLETE")
-            return False
-
-        # === Plan 步骤检查：如果有活跃 Plan 且有未完成步骤，强制继续执行 ===
-        from ..tools.handlers.plan import get_todo_handler_for_session, has_active_todo
-
-        conversation_id = getattr(self, "_current_conversation_id", None) or getattr(
-            self, "_current_session_id", None
-        )
-        if conversation_id and has_active_todo(conversation_id):
-            handler = get_todo_handler_for_session(conversation_id)
-            plan = handler.get_plan_for(conversation_id) if handler else None
-            if plan:
-                steps = plan.get("steps", [])
-                pending = [s for s in steps if s.get("status") in ("pending", "in_progress")]
-
-                if pending:
-                    pending_ids = [s.get("id", "?") for s in pending[:3]]
-                    logger.info(
-                        f"[TaskVerify] Plan has {len(pending)} pending steps: {pending_ids}, forcing continue"
-                    )
-                    return False
-
-                if plan.get("status") != "completed":
-                    logger.info(
-                        "[TaskVerify] All plan steps done but plan not formally completed, proceeding to LLM verification"
-                    )
-                    # 继续执行 LLM 验证，不强制返回 False
-
-        # 依赖 LLM 进行判断
-        from .tool_executor import smart_truncate
-
-        user_display, _ = smart_truncate(user_request, 3000, save_full=False, label="verify_user")
-        response_display, _ = smart_truncate(
-            assistant_response, 8000, save_full=False, label="verify_response"
-        )
-
-        verify_prompt = f"""请判断以下交互是否已经**完成**用户的意图。
-
-## 用户消息
-{user_display}
-
-## 助手响应
-{response_display}
-
-## 已执行的工具
-{", ".join(executed_tools) if executed_tools else "无"}
-
-## 附件交付回执（如有）
-{delivery_receipts if delivery_receipts else "无"}
-
-## 判断标准
-
-### 非任务类消息（直接判 COMPLETED）
-- 如果用户消息是**闲聊/问候**（如"在吗""你好""在不在""嗨""干嘛呢"），助手已礼貌回复 → **COMPLETED**
-- 如果用户消息是**简单确认/反馈**（如"好的""收到""嗯""哦"），助手已简短回应 → **COMPLETED**
-- 如果用户消息是**简单问答**（如"几点了""天气怎么样"），助手已给出回答 → **COMPLETED**
-
-### 任务类消息
-- 如果已执行 write_file 工具，说明文件已保存，保存任务完成
-- 如果已执行 browser_navigate/browser_click 等浏览器工具，说明浏览器操作已执行
-- 工具执行成功即表示该操作完成，不要求响应文本中包含文件内容
-- 如果响应只是说"现在开始..."、"让我..."且没有工具执行，说明任务还在进行中
-- 如果响应包含明确的操作确认（如"已完成"、"已发送"、"已保存"），任务完成
-
-## 回答要求
-请用以下格式回答：
-STATUS: COMPLETED 或 INCOMPLETE
-EVIDENCE: 完成的证据（如有）
-MISSING: 缺失的内容（如有）
-NEXT: 建议的下一步（如有）"""
-
-        try:
-            response = await self.brain.think_lightweight(
-                prompt=verify_prompt,
-                system="你是一个任务完成度判断助手。请分析任务是否完成，并说明证据和缺失项。",
-                max_tokens=512,
-            )
-
-            result = response.content.strip().upper() if response.content else ""
-            # 建议 33: 改进的完成度判断
-            is_completed = "STATUS: COMPLETED" in result or (
-                "COMPLETED" in result and "INCOMPLETE" not in result
-            )
-
-            logger.info(
-                f"[TaskVerify] user_request={user_request[:50]}... response={assistant_response[:50]}... result={result} -> {is_completed}"
-            )
-            return is_completed
-
-        except Exception as e:
-            logger.warning(f"[TaskVerify] Failed to verify: {e}, assuming INCOMPLETE")
-            return False  # 验证失败时不要默认完成，交由上层计数器做兜底退出
 
     async def _cancellable_llm_call(self, cancel_event: asyncio.Event, **kwargs) -> Any:
         """将 LLM 调用包装为可取消的 asyncio.Task，配合 cancel_event 竞速。
@@ -5589,7 +5536,7 @@ NEXT: 建议的下一步（如有）"""
             elif intent_result.force_tool:
                 pass  # None = use default from settings
             else:
-                force_tool_retries = max(0, getattr(settings, "force_tool_call_max_retries", 1) - 1)
+                force_tool_retries = max(0, getattr(settings, "force_tool_call_max_retries", 2) - 1)
 
         # === 委托给 ReasoningEngine ===
         return await self.reasoning_engine.run(
@@ -6240,7 +6187,7 @@ NEXT: 建议的下一步（如有）"""
 
         # 追问计数器：当 LLM 没有调用工具时，最多追问几次
         no_tool_call_count = 0
-        max_no_tool_retries = max(0, int(getattr(settings, "force_tool_call_max_retries", 1)))
+        max_no_tool_retries = max(0, int(getattr(settings, "force_tool_call_max_retries", 2)))
 
         # 获取 cancel_event（用于 LLM 调用竞速取消）
         _cancel_event = (

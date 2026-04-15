@@ -77,11 +77,11 @@ def _collect_system_info() -> dict:
 
     # Synapse version
     try:
-        from synapse import get_version_string
+        from openakita import get_version_string
 
-        info["synapse_version"] = get_version_string()
+        info["openakita_version"] = get_version_string()
     except Exception:
-        info["synapse_version"] = "unknown"
+        info["openakita_version"] = "unknown"
 
     # Key package versions
     packages: dict[str, str] = {}
@@ -262,18 +262,18 @@ def _resolve_data_dir() -> Path:
 
 
 def _resolve_global_logs_dir() -> Path:
-    """Return the global logs directory (Tauri-managed, under synapse_home).
+    """Return the global logs directory (Tauri-managed, under openakita_home).
 
-    Respects custom root via SYNAPSE_ROOT env var or settings.synapse_home."""
+    Respects custom root via SYNAPSE_ROOT env var or settings.openakita_home."""
     try:
         from synapse.config import settings
 
-        return settings.synapse_home / "logs"
+        return settings.openakita_home / "logs"
     except Exception:
         import os
 
         root = os.environ.get("SYNAPSE_ROOT", "").strip()
-        return Path(root) / "logs" if root else Path.home() / ".synapse" / "logs"
+        return Path(root) / "logs" if root else Path.home() / ".openakita" / "logs"
 
 
 def _recent_files(
@@ -356,7 +356,7 @@ def _collect_sanitized_config() -> dict:
     for k, v in sorted(os.environ.items()):
         if not k.startswith(
             (
-                "SYNAPSE",
+                "OPENAKITA",
                 "ANTHROPIC",
                 "OPENAI",
                 "FEISHU",
@@ -605,7 +605,7 @@ async def download_feedback_package(report_id: str):
     return FileResponse(
         path,
         media_type="application/zip",
-        filename=f"synapse-feedback-{safe_id}.zip",
+        filename=f"openakita-feedback-{safe_id}.zip",
     )
 
 
@@ -669,20 +669,20 @@ async def submit_bug_report(
                 logs_dir = settings.log_dir_path
             except Exception:
                 logs_dir = Path.cwd() / "logs"
-                main_log = logs_dir / "synapse.log"
+                main_log = logs_dir / "openakita.log"
                 error_log = logs_dir / "error.log"
 
             log_data = _tail_file(main_log, LOG_TAIL_BYTES)
             if log_data:
-                zf.writestr("logs/synapse.log", log_data)
+                zf.writestr("logs/openakita.log", log_data)
             err_data = _tail_file(error_log, LOG_TAIL_BYTES)
             if err_data:
                 zf.writestr("logs/error.log", err_data)
-            serve_data = _tail_file(logs_dir / "synapse-serve.log", LOG_TAIL_BYTES)
+            serve_data = _tail_file(logs_dir / "openakita-serve.log", LOG_TAIL_BYTES)
             if serve_data:
-                zf.writestr("logs/synapse-serve.log", serve_data)
+                zf.writestr("logs/openakita-serve.log", serve_data)
 
-            # frontend.log lives in the global ~/.synapse/logs/ dir (Tauri-managed)
+            # frontend.log lives in the global ~/.openakita/logs/ dir (Tauri-managed)
             global_logs = _resolve_global_logs_dir()
             fe_data = _tail_file(global_logs / "frontend.log", FRONTEND_LOG_TAIL_BYTES)
             if fe_data:
@@ -782,7 +782,7 @@ async def submit_bug_report(
             except Exception:
                 pass
 
-    sys_info_brief = f"OS: {sys_info.get('os', '?')} | Python: {sys_info.get('python', '?')} | Synapse: {sys_info.get('synapse_version', '?')}"
+    sys_info_brief = f"OS: {sys_info.get('os', '?')} | Python: {sys_info.get('python', '?')} | Synapse: {sys_info.get('openakita_version', '?')}"
     return await _try_upload_or_save(
         report_id=report_id,
         report_type="bug",

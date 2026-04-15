@@ -679,7 +679,7 @@ async def get_profile_memory_stats(profile_id: str):
 
     profile_dir = store.get_profile_dir(profile_id)
     memory_dir = profile_dir / "memory"
-    db_path = memory_dir / "synapse.db"
+    db_path = memory_dir / "openakita.db"
 
     if not db_path.exists():
         return {"exists": False, "semantic_count": 0, "db_size_bytes": 0}

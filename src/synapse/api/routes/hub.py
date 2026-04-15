@@ -487,7 +487,7 @@ async def hub_install_agent(request: Request, agent_id: str, force: bool = False
         profile.hub_source = {}
     profile.hub_source.update(
         {
-            "platform": "synapse",
+            "platform": "openakita",
             "agent_id": agent_id,
             "installed_at": datetime.now().isoformat(),
         }

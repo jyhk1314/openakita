@@ -1,4 +1,4 @@
-"""Tests for synapse.plugins.manifest — plugin.json parsing and validation."""
+"""Tests for openakita.plugins.manifest — plugin.json parsing and validation."""
 
 from __future__ import annotations
 

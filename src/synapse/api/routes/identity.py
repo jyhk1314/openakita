@@ -542,7 +542,7 @@ async def download_persona_template():
 async def import_persona_file(file: UploadFile = File(...)):
     """Import a persona MD file. Saves to identity/personas/ with the uploaded filename.
 
-    Filename may contain Unicode (e.g. Chinese); path separators and Windows-reserved characters are rejected.
+    No strict validation — the file is saved as-is.
     """
     if not file.filename:
         raise HTTPException(400, "文件名不能为空")

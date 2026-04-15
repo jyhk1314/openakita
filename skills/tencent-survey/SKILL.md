@@ -1,5 +1,5 @@
 ---
-name: synapse/skills@tencent-survey
+name: openakita/skills@tencent-survey
 description: "Tencent Survey (wj.qq.com) online survey platform skill. Supports survey creation, question management, answer collection, and data export. Use when user mentions surveys, questionnaires, forms, polls, exams, or assessments."
 license: MIT
 metadata:

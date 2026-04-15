@@ -129,6 +129,7 @@ class SkillStoreClient:
     def _get_version() -> str:
         try:
             from .._bundled_version import __version__
+
             return __version__
         except Exception:
             return "dev"
@@ -181,11 +182,11 @@ class SkillStoreClient:
                     fm = yaml.safe_load(m.group(1)) or {}
                     if fm.get("version"):
                         origin["version"] = fm["version"]
-            (skill_dir / ".synapse-origin.json").write_text(
+            (skill_dir / ".openakita-origin.json").write_text(
                 json.dumps(origin, ensure_ascii=False, indent=2), encoding="utf-8"
             )
-            # Also write .synapse-source for compatibility with bridge/frontend matching
-            (skill_dir / ".synapse-source").write_text(install_url, encoding="utf-8")
+            # Also write .openakita-source for compatibility with bridge/frontend matching
+            (skill_dir / ".openakita-source").write_text(install_url, encoding="utf-8")
         except Exception as e:
             logger.debug(f"Failed to write origin tracking: {e}")
 
@@ -309,7 +310,7 @@ class SkillStoreClient:
         if sys.platform == "win32":
             extra_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
-        tmp_parent = Path(tempfile.mkdtemp(prefix="synapse_skill_"))
+        tmp_parent = Path(tempfile.mkdtemp(prefix="openakita_skill_"))
         tmp_dir = tmp_parent / "repo"
         try:
             result = subprocess.run(

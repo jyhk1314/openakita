@@ -1,5 +1,5 @@
 ---
-name: synapse/skills@baidu-scholar
+name: openakita/skills@baidu-scholar
 description: "Baidu Scholar academic search skill. Search academic papers, journals, and knowledge resources. Use when user needs academic literature, research papers, or scholarly information."
 license: MIT
 metadata:

@@ -1,4 +1,4 @@
-"""Tests for synapse.plugins.hooks.HookRegistry."""
+"""Tests for openakita.plugins.hooks.HookRegistry."""
 
 from __future__ import annotations
 

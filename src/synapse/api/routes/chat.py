@@ -109,6 +109,13 @@ def _cleanup_chat_runtime_state(request: Request, conversation_id: str) -> None:
         pass
 
     try:
+        from ...prompt.builder import clear_prompt_section_cache
+
+        clear_prompt_section_cache()
+    except Exception:
+        pass
+
+    try:
         orchestrators = []
 
         app_orchestrator = getattr(request.app.state, "orchestrator", None)
@@ -872,7 +879,7 @@ async def chat(request: Request, body: ChatRequest):
     to support concurrent streaming without shared-state corruption.
 
     Returns Server-Sent Events with the following event types
-    (canonical definitions in synapse.events.StreamEventType):
+    (canonical definitions in openakita.events.StreamEventType):
     - heartbeat / iteration_start
     - thinking_start / thinking_delta / thinking_end / chain_text
     - text_delta
@@ -901,6 +908,12 @@ async def chat(request: Request, body: ChatRequest):
 
     conversation_id = body.conversation_id
     client_id = body.client_id or ""
+
+    if not (body.message or "").strip() and not body.attachments:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "empty_message", "message": "消息内容不能为空"},
+        )
 
     # ── Busy-lock check (via lifecycle manager) ──
     lifecycle = get_lifecycle_manager()

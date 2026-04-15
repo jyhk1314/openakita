@@ -1,9 +1,9 @@
 ---
-name: synapse/skills@seedance-video
+name: openakita/skills@seedance-video
 description: "Generate AI videos using ByteDance Seedance models via Volcengine Ark API. Supports text-to-video, image-to-video (first frame, first+last frame, reference images), audio generation, and draft mode. Use when user wants to generate, create, or produce AI videos from text prompts or images."
 license: MIT
 metadata:
-  author: synapse
+  author: openakita
   version: "1.0.0"
 ---
 

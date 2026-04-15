@@ -1,5 +1,5 @@
 ---
-name: synapse/skills@baidu-maps
+name: openakita/skills@baidu-maps
 description: "Baidu Maps skill for location search, nearby place search, geocoding, route planning, and weather queries. Use when user needs map services, location information, or navigation within China."
 license: MIT
 metadata:

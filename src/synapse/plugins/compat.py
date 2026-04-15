@@ -2,7 +2,7 @@
 
 Validates plugin manifest ``requires`` against the running system:
 
-- ``requires.synapse``  — minimum system version  (``>=1.27.0``)
+- ``requires.openakita``  — minimum system version  (``>=1.27.0``)
 - ``requires.plugin_api`` — compatible API major     (``~1``)
 - ``requires.sdk``        — minimum SDK version      (``>=0.1.0``, warn-only)
 - ``requires.python``     — minimum Python version   (``>=3.11``)
@@ -44,7 +44,7 @@ def check_compatibility(manifest: PluginManifest) -> CompatResult:
     if not requires:
         return result
 
-    _check_synapse(manifest.id, requires.get("synapse", ""), result)
+    _check_openakita(manifest.id, requires.get("openakita", ""), result)
     _check_plugin_api(manifest.id, requires.get("plugin_api", ""), result)
     _check_sdk(manifest.id, requires.get("sdk", ""), result)
     _check_python(manifest.id, requires.get("python", ""), result)
@@ -87,22 +87,22 @@ def _get_system_version() -> tuple[int, ...]:
     return (0, 0, 0)
 
 
-def _check_synapse(plugin_id: str, spec: str, result: CompatResult) -> None:
+def _check_openakita(plugin_id: str, spec: str, result: CompatResult) -> None:
     if not spec:
         return
     if not spec.startswith(">="):
-        result.warnings.append(f"Unrecognised synapse spec '{spec}' (expected >=X.Y.Z)")
+        result.warnings.append(f"Unrecognised openakita spec '{spec}' (expected >=X.Y.Z)")
         return
 
     min_ver = _parse_version(spec[2:])
     if min_ver is None:
-        result.warnings.append(f"Cannot parse synapse version in '{spec}'")
+        result.warnings.append(f"Cannot parse openakita version in '{spec}'")
         return
 
     current = _get_system_version()
     if current < min_ver:
         msg = (
-            f"Plugin '{plugin_id}' requires synapse {spec}, "
+            f"Plugin '{plugin_id}' requires openakita {spec}, "
             f"current is {'.'.join(str(x) for x in current)}"
         )
         result.errors.append(msg)
@@ -161,7 +161,7 @@ def _check_sdk(plugin_id: str, spec: str, result: CompatResult) -> None:
         return
 
     try:
-        from synapse_plugin_sdk.version import SDK_VERSION
+        from openakita_plugin_sdk.version import SDK_VERSION
 
         sdk = _parse_version(SDK_VERSION)
     except ImportError:
@@ -169,7 +169,7 @@ def _check_sdk(plugin_id: str, spec: str, result: CompatResult) -> None:
 
     if sdk is None:
         result.warnings.append(
-            f"Plugin '{plugin_id}' recommends SDK {spec}, but synapse-plugin-sdk is not installed"
+            f"Plugin '{plugin_id}' recommends SDK {spec}, but openakita-plugin-sdk is not installed"
         )
     elif sdk < req:
         result.warnings.append(

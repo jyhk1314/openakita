@@ -1,4 +1,4 @@
-"""Tests for synapse.plugins.manager — PluginManager lifecycle."""
+"""Tests for openakita.plugins.manager — PluginManager lifecycle."""
 
 from __future__ import annotations
 
@@ -394,4 +394,4 @@ class TestPartialRegistrationCleanup:
         await mgr.load_all()
         assert mgr.get_loaded("bad-syntax") is None
         assert str(d) not in sys.path
-        assert "synapse_plugin_bad_syntax" not in sys.modules
+        assert "openakita_plugin_bad_syntax" not in sys.modules

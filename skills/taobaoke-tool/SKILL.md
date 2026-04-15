@@ -1,5 +1,5 @@
 ---
-name: synapse/skills@taobaoke-tool
+name: openakita/skills@taobaoke-tool
 description: "Taobaoke all-in-one toolkit for Taobao, JD, and Pinduoduo affiliate marketing. Convert product links to affiliate links, cross-platform price comparison, one-click price protection, and commission tracking. Use for e-commerce affiliate operations."
 license: MIT
 metadata:

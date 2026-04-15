@@ -16,66 +16,45 @@ on:
       - 'v*'
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   RELEASE_TAG: ${{ (github.event_name == 'workflow_dispatch' && inputs.tag != '' && inputs.tag) || github.ref_name }}
   CHECKOUT_REF: ${{ (github.event_name == 'workflow_dispatch' && inputs.ref != '' && inputs.ref) || (github.event_name == 'workflow_dispatch' && inputs.tag != '' && inputs.tag) || github.ref_name }}
 
 jobs:
-  # ── Job 1: 创建 / 更新 Draft Release ──
+  # ── Job 1: 确保 Draft Release 存在（仅首次创建，重新打包时跳过） ──
   create_release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
     outputs:
       release_id: ${{ steps.gh_release.outputs.id }}
-      is_stable: ${{ steps.detect_channel.outputs.is_stable }}
-      channel: ${{ steps.detect_channel.outputs.channel }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ env.CHECKOUT_REF }}
           fetch-depth: 0
 
-      # ── 判断发布渠道（基于 .github/release-channels.json 配置） ──
-      - name: Detect release channel
-        id: detect_channel
+      - name: Check if release already exists
+        id: check_release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="${{ env.RELEASE_TAG }}"
-          MINOR=$(echo "$TAG" | sed 's/^v//' | cut -d. -f1,2)
-          CONFIG=".github/release-channels.json"
-          echo "Tag: $TAG, Minor: $MINOR"
-
-          CHANNEL="dev"
-          if [ -f "$CONFIG" ]; then
-            RELEASE_LINE=$(jq -r '.release // ""' "$CONFIG")
-            PREVIEW_LINE=$(jq -r '."pre-release" // ""' "$CONFIG")
-            echo "Config: release=$RELEASE_LINE, pre-release=$PREVIEW_LINE"
-
-            if [ "$MINOR" = "$RELEASE_LINE" ]; then
-              CHANNEL="release"
-            elif [ "$MINOR" = "$PREVIEW_LINE" ]; then
-              CHANNEL="pre-release"
-            fi
+          if gh release view "${{ env.RELEASE_TAG }}" --repo "${{ github.repository }}" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Release ${{ env.RELEASE_TAG }} already exists — will upload new artifacts to it"
           else
-            echo "⚠️ No release-channels.json found, defaulting to dev"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "📦 Release ${{ env.RELEASE_TAG }} does not exist — will create draft"
           fi
 
-          IS_STABLE="false"
-          if [ "$CHANNEL" = "release" ]; then
-            IS_STABLE="true"
-          fi
-
-          echo "is_stable=${IS_STABLE}" >> "$GITHUB_OUTPUT"
-          echo "channel=${CHANNEL}" >> "$GITHUB_OUTPUT"
-          echo "✅ Channel: ${CHANNEL} (is_stable=${IS_STABLE})"
-
-      - name: Create or update draft release
+      - name: Create draft release
+        if: steps.check_release.outputs.exists != 'true'
         id: gh_release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           draft: true
           generate_release_notes: true
-          prerelease: ${{ steps.detect_channel.outputs.is_stable != 'true' }}
 
   # ── Job 2a: Python 包发布 ──
   python_release:
@@ -89,12 +68,12 @@ jobs:
       PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
     
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ env.CHECKOUT_REF }}
       
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: pip
@@ -104,7 +83,7 @@ jobs:
         run: python scripts/version.py check --expected "${GITHUB_REF_NAME#v}"
 
       - name: Set up Node (for web frontend build)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "20"
           cache: npm
@@ -121,32 +100,58 @@ jobs:
           python -m pip install --upgrade pip
           pip install build
       
-      - name: Build package
+      - name: Build user docs (VitePress)
+        working-directory: docs-site
+        run: |
+          npm ci
+          npx vitepress build
+        continue-on-error: true
+
+      - name: Ensure docs dist dir exists
+        run: mkdir -p docs-site/.vitepress/dist
+
+      - name: Build main package
         run: python -m build --wheel
-      
+
+      - name: Build Plugin SDK package
+        run: python -m build --wheel openakita-plugin-sdk/ --outdir dist-sdk/
+
       - name: Upload Python artifacts to GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          files: dist/*
-          draft: true
-          overwrite_files: true
-      
-      - name: Publish to PyPI (Trusted Publishing / OIDC)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ env.RELEASE_TAG }}" dist/* --clobber
+          gh release upload "${{ env.RELEASE_TAG }}" dist-sdk/* --clobber
+
+      - name: Publish main package to PyPI (Trusted Publishing / OIDC)
         if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags') && env.PYPI_API_TOKEN == '' }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
 
-      - name: Publish to PyPI (API token)
+      - name: Publish main package to PyPI (API token)
         if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags') && env.PYPI_API_TOKEN != '' }}
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ env.PYPI_API_TOKEN }}
         run: |
-          python -m pip install --upgrade pip
           pip install twine
           twine upload dist/* --skip-existing
+
+      - name: Publish Plugin SDK to PyPI (Trusted Publishing / OIDC)
+        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags') && env.PYPI_API_TOKEN == '' }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist-sdk/
+
+      - name: Publish Plugin SDK to PyPI (API token)
+        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags') && env.PYPI_API_TOKEN != '' }}
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ env.PYPI_API_TOKEN }}
+        run: |
+          pip install twine
+          twine upload dist-sdk/* --skip-existing
 
   # ── Job 2b: Desktop 安装包构建（多平台矩阵） ──
   desktop_release:
@@ -195,7 +200,7 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ env.CHECKOUT_REF }}
 
@@ -212,12 +217,12 @@ jobs:
             rpm
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "20"
           cache: npm
@@ -235,6 +240,7 @@ jobs:
         with:
           workspaces: |
             apps/setup-center/src-tauri -> target
+          prefix-key: "release-${{ matrix.suffix }}"
 
       - name: Build web frontend for remote browser access
         working-directory: apps/setup-center
@@ -245,6 +251,7 @@ jobs:
       - name: Install Python project and PyInstaller
         shell: bash
         run: |
+          mkdir -p docs-site/.vitepress/dist
           pip install -e ".[all]"
           pip install "pyinstaller>=6.18.0"
 
@@ -332,14 +339,35 @@ jobs:
       - name: Preflight Rust dependency check
         working-directory: apps/setup-center/src-tauri
         shell: bash
+        env:
+          CARGO_HTTP_MULTIPLEXING: "false"
         run: |
           set -euo pipefail
+          # Clear cached build-scripts to avoid glibc mismatch across Ubuntu versions
+          rm -rf target/debug/build
           cargo fetch --locked
+          CHECK_ARGS=""
           if [ -n "${{ matrix.rust_target }}" ]; then
-            cargo check --target "${{ matrix.rust_target }}"
-          else
-            cargo check
+            CHECK_ARGS="--target ${{ matrix.rust_target }}"
           fi
+          MAX_ATTEMPTS=3
+          ATTEMPT=1
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            echo "=== Preflight attempt $ATTEMPT/$MAX_ATTEMPTS ==="
+            if cargo check $CHECK_ARGS; then
+              echo "Preflight succeeded"
+              exit 0
+            fi
+            echo "Preflight failed (attempt $ATTEMPT)"
+            if [ $ATTEMPT -eq 1 ]; then
+              echo "::warning::Stale cache detected, running cargo clean before retry"
+              cargo clean
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+            [ $ATTEMPT -le $MAX_ATTEMPTS ] && { echo "Retrying in 30s..."; sleep 30; }
+          done
+          echo "All preflight attempts failed"
+          exit 1
 
       - name: Clean Rust release intermediates for current target
         shell: bash
@@ -856,12 +884,10 @@ jobs:
 
       - name: Upload signature files as artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: signatures-${{ matrix.suffix }}
           path: apps/setup-center/src-tauri/target/**/bundle/_upload/*.sig
           if-no-files-found: ignore
           retention-days: 5
 
-  # ── NOTE: manifest 生成、OSS 上传、发布 Release 均由 publish-release.yml 处理 ──
-  # ── 构建完成后，Release 保持 draft 状态，需手动触发 publish-release.yml 发布 ──

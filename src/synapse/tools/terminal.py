@@ -56,7 +56,7 @@ class TerminalSession:
     def _get_terminal_dir(self) -> Path:
         from ..config import settings
 
-        terminal_dir = Path(settings.synapse_home) / "data" / "terminals"
+        terminal_dir = Path(settings.openakita_home) / "data" / "terminals"
         terminal_dir.mkdir(parents=True, exist_ok=True)
         return terminal_dir
 

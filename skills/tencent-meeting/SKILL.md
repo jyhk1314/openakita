@@ -1,9 +1,9 @@
 ---
-name: synapse/skills@tencent-meeting
+name: openakita/skills@tencent-meeting
 description: "Tencent Meeting MCP assistant for meeting lifecycle management. Create, modify, cancel meetings, track attendance, export recordings, query transcripts, and generate smart minutes. Use when user mentions online meetings, video conferencing, or Tencent Meeting operations."
 license: MIT
 metadata:
-  author: synapse
+  author: openakita
   version: "1.0.6"
   openclaw:
     requires:
@@ -86,16 +86,16 @@ requires:
 python3 scripts/tencent_meeting_mcp.py tools/list
 
 # 查询会议详情（通过会议号）
-python3 scripts/tencent_meeting_mcp.py tools/call '{"name": "get_meeting_by_code", "arguments": {"meeting_code": "904854736", "_client_info": {"os": "auto", "agent": "synapse", "model": "claude"}}}'
+python3 scripts/tencent_meeting_mcp.py tools/call '{"name": "get_meeting_by_code", "arguments": {"meeting_code": "904854736", "_client_info": {"os": "auto", "agent": "openakita", "model": "claude"}}}'
 
 # 获取当前时间戳（用于相对时间计算）
-python3 scripts/tencent_meeting_mcp.py tools/call '{"name": "convert_timestamp", "arguments": {"_client_info": {"os": "auto", "agent": "synapse", "model": "claude"}}}'
+python3 scripts/tencent_meeting_mcp.py tools/call '{"name": "convert_timestamp", "arguments": {"_client_info": {"os": "auto", "agent": "openakita", "model": "claude"}}}'
 
 # 查看即将开始/进行中的会议
-python3 scripts/tencent_meeting_mcp.py tools/call '{"name": "get_user_meetings", "arguments": {"_client_info": {"os": "auto", "agent": "synapse", "model": "claude"}}}'
+python3 scripts/tencent_meeting_mcp.py tools/call '{"name": "get_user_meetings", "arguments": {"_client_info": {"os": "auto", "agent": "openakita", "model": "claude"}}}'
 
 # 查看已结束的会议
-python3 scripts/tencent_meeting_mcp.py tools/call '{"name": "get_user_ended_meetings", "arguments": {"_client_info": {"os": "auto", "agent": "synapse", "model": "claude"}}}'
+python3 scripts/tencent_meeting_mcp.py tools/call '{"name": "get_user_ended_meetings", "arguments": {"_client_info": {"os": "auto", "agent": "openakita", "model": "claude"}}}'
 ```
 
 ### scripts/tencent_meeting.py（旧版 REST 封装）

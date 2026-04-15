@@ -3,9 +3,9 @@ Setup Center Bridge
 
 该模块用于给 Setup Center（Tauri App）提供一个稳定的 Python 入口：
 
-- `python -m synapse.setup_center.bridge list-providers`
-- `python -m synapse.setup_center.bridge list-models --api-type ... --base-url ... [--provider-slug ...]`
-- `python -m synapse.setup_center.bridge list-skills --workspace-dir ...`
+- `python -m openakita.setup_center.bridge list-providers`
+- `python -m openakita.setup_center.bridge list-models --api-type ... --base-url ... [--provider-slug ...]`
+- `python -m openakita.setup_center.bridge list-skills --workspace-dir ...`
 
 输出均为 JSON（stdout），错误输出到 stderr 并以非 0 退出码返回。
 """
@@ -1148,7 +1148,7 @@ def list_skills(workspace_dir: str) -> None:
         source_url = None
         if skill_path:
             try:
-                origin_file = Path(skill_path) / ".synapse-source"
+                origin_file = Path(skill_path) / ".openakita-source"
                 if origin_file.exists():
                     source_url = origin_file.read_text(encoding="utf-8").strip()
             except Exception:
@@ -1211,7 +1211,7 @@ def _resolve_skills_dir(workspace_dir: str) -> Path:
     root = os.environ.get("SYNAPSE_ROOT", "").strip()
     if root:
         return Path(root) / "workspaces" / "default" / "skills"
-    return Path.home() / ".synapse" / "workspaces" / "default" / "skills"
+    return Path.home() / ".openakita" / "workspaces" / "default" / "skills"
 
 
 def _has_git() -> bool:
@@ -1310,7 +1310,7 @@ def _download_github_zip(repo_owner: str, repo_name: str, dest_dir: Path) -> Non
 
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         _validate_zip_members(zf)
-        tmp_extract = Path(tempfile.mkdtemp(prefix="synapse_zip_"))
+        tmp_extract = Path(tempfile.mkdtemp(prefix="openakita_zip_"))
         try:
             zf.extractall(tmp_extract)
             children = list(tmp_extract.iterdir())
@@ -1410,7 +1410,7 @@ def _download_gitee_zip(repo_owner: str, repo_name: str, dest_dir: Path) -> None
 
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         _validate_zip_members(zf)
-        tmp_extract = Path(tempfile.mkdtemp(prefix="synapse_gitee_"))
+        tmp_extract = Path(tempfile.mkdtemp(prefix="openakita_gitee_"))
         try:
             zf.extractall(tmp_extract)
             children = list(tmp_extract.iterdir())
@@ -1428,7 +1428,7 @@ def _is_valid_skill_dir(d: Path) -> bool:
 def _read_skill_source(d: Path) -> str:
     """读取技能目录的安装来源标记。"""
     try:
-        return (d / ".synapse-source").read_text(encoding="utf-8").strip()
+        return (d / ".openakita-source").read_text(encoding="utf-8").strip()
     except Exception:
         return ""
 
@@ -1462,7 +1462,7 @@ def _ensure_target_available(target: Path, url: str) -> None:
 
 
 _CMD_PREFIXES = re.compile(
-    r"^(?:npx\s+skills?\s+(?:add|install)|synapse\s+(?:install[- ]skill|skill\s+install))\s+",
+    r"^(?:npx\s+skills?\s+(?:add|install)|openakita\s+(?:install[- ]skill|skill\s+install))\s+",
     re.IGNORECASE,
 )
 
@@ -1510,7 +1510,7 @@ def install_skill(workspace_dir: str, url: str) -> None:
                 import shutil
                 import tempfile
 
-                tmp_parent = Path(tempfile.mkdtemp(prefix="synapse_gh_"))
+                tmp_parent = Path(tempfile.mkdtemp(prefix="openakita_gh_"))
                 tmp_dir = tmp_parent / "repo"
                 try:
                     repo_url = f"https://github.com/{owner}/{repo}.git"
@@ -1574,7 +1574,7 @@ def install_skill(workspace_dir: str, url: str) -> None:
         platform_skill_id = f"{owner}-{repo}-{skill_name}".lower().replace("/", "-")
         if _try_platform_skill_download(platform_skill_id, target):
             try:
-                origin_file = target / ".synapse-source"
+                origin_file = target / ".openakita-source"
                 origin_file.write_text(url, encoding="utf-8")
             except Exception:
                 pass
@@ -1582,7 +1582,7 @@ def install_skill(workspace_dir: str, url: str) -> None:
             return
 
         # Strategy 2: git clone / ZIP download
-        tmp_parent = Path(tempfile.mkdtemp(prefix="synapse_skill_"))
+        tmp_parent = Path(tempfile.mkdtemp(prefix="openakita_skill_"))
         tmp_dir = tmp_parent / "repo"
         try:
             if _has_git():
@@ -1627,18 +1627,12 @@ def install_skill(workspace_dir: str, url: str) -> None:
         finally:
             shutil.rmtree(str(tmp_parent), ignore_errors=True)
     else:
-        # Local path — only allowed from within the workspace
+        # Local path — copy into workspace skills directory
         src = Path(url).expanduser().resolve()
-        ws = Path(workspace_dir).resolve()
-        try:
-            src.relative_to(ws)
-        except ValueError:
-            raise ValueError(
-                f"安全限制: 本地路径必须位于工作区目录内 ({ws})。"
-                f"如需从外部安装，请使用 Git URL 或 GitHub 简写。"
-            )
         if not src.exists():
             raise ValueError(f"源路径不存在: {url}")
+        if not src.is_dir():
+            raise ValueError(f"源路径不是目录: {url}")
         import shutil
 
         target = skills_dir / src.name
@@ -1647,7 +1641,7 @@ def install_skill(workspace_dir: str, url: str) -> None:
 
     # Record install origin for marketplace matching (Issue #15)
     try:
-        origin_file = target / ".synapse-source"
+        origin_file = target / ".openakita-source"
         origin_file.write_text(url, encoding="utf-8")
     except Exception:
         pass
@@ -1691,32 +1685,32 @@ def list_marketplace() -> None:
         {
             "name": "web-search",
             "description": "使用 Serper/Google 进行网络搜索",
-            "author": "synapse",
-            "url": "github:synapse/skills/web-search",
+            "author": "openakita",
+            "url": "github:openakita/skills/web-search",
             "stars": 42,
             "tags": ["搜索", "网络"],
         },
         {
             "name": "code-interpreter",
             "description": "Python 代码解释器，支持数据分析和可视化",
-            "author": "synapse",
-            "url": "github:synapse/skills/code-interpreter",
+            "author": "openakita",
+            "url": "github:openakita/skills/code-interpreter",
             "stars": 38,
             "tags": ["代码", "数据分析"],
         },
         {
             "name": "browser-use",
             "description": "浏览器自动化，支持网页操作和数据抓取",
-            "author": "synapse",
-            "url": "github:synapse/skills/browser-use",
+            "author": "openakita",
+            "url": "github:openakita/skills/browser-use",
             "stars": 25,
             "tags": ["浏览器", "自动化"],
         },
         {
             "name": "image-gen",
             "description": "AI 图片生成，支持 DALL-E / Stable Diffusion",
-            "author": "synapse",
-            "url": "github:synapse/skills/image-gen",
+            "author": "openakita",
+            "url": "github:openakita/skills/image-gen",
             "stars": 19,
             "tags": ["图片", "生成"],
         },
@@ -1747,7 +1741,7 @@ def get_skill_config(workspace_dir: str, skill_name: str) -> None:
 def main(argv: list[str] | None = None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
 
-    p = argparse.ArgumentParser(prog="synapse.setup_center.bridge")
+    p = argparse.ArgumentParser(prog="openakita.setup_center.bridge")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("list-providers", help="列出服务商（JSON）")

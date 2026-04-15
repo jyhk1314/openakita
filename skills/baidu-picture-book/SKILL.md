@@ -1,5 +1,5 @@
 ---
-name: synapse/skills@baidu-picture-book
+name: openakita/skills@baidu-picture-book
 description: "AI Picture Book generation skill. Transform short text descriptions into coherent picture book stories with visual compositions. Use when user wants to create illustrated stories or picture books from text."
 license: MIT
 metadata:

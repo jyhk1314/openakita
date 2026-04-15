@@ -12,6 +12,7 @@ on:
       - 'v*'
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   RELEASE_TAG: ${{ (github.event_name == 'workflow_dispatch' && inputs.tag != '' && inputs.tag) || github.ref_name }}
 
 jobs:
@@ -24,9 +25,9 @@ jobs:
       run:
         working-directory: apps/setup-center
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -99,7 +100,7 @@ jobs:
           echo "Found APK: $APK"
 
       - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: android-apk
           path: apps/setup-center/${{ steps.find_apk.outputs.apk_path }}
@@ -107,7 +108,7 @@ jobs:
       - name: Upload APK to Release
         if: startsWith(env.RELEASE_TAG, 'v')
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           APK="${{ steps.find_apk.outputs.apk_path }}"
           BASENAME="OpenAkita-${{ env.RELEASE_TAG }}-android.apk"
@@ -123,9 +124,9 @@ jobs:
       run:
         working-directory: apps/setup-center
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -291,7 +292,7 @@ jobs:
 
       - name: Upload IPA artifact
         if: steps.ios_signing.outputs.has_signing == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ios-ipa
           path: ${{ runner.temp }}/ipa/*.ipa
@@ -299,7 +300,7 @@ jobs:
       - name: Upload IPA to Release
         if: steps.ios_signing.outputs.has_signing == 'true' && startsWith(env.RELEASE_TAG, 'v')
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           IPA=$(find $RUNNER_TEMP/ipa -name '*.ipa' | head -1)
           BASENAME="OpenAkita-${{ env.RELEASE_TAG }}-ios.ipa"
@@ -309,3 +310,4 @@ jobs:
       - name: Clean up keychain
         if: always()
         run: security delete-keychain $RUNNER_TEMP/app-signing.keychain-db 2>/dev/null || true
+

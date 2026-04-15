@@ -35,8 +35,10 @@ from .routes import (
     chat,
     chat_models,
     config,
+    dev_iwhalecloud,
     feishu_onboard,
     files,
+    gitnexus,
     health,
     hub,
     identity,
@@ -55,8 +57,6 @@ from .routes import (
     wecom_onboard,
     workspace_io,
     yuque,
-    gitnexus,
-    dev_iwhalecloud,
 )
 
 try:
@@ -240,9 +240,9 @@ def create_app(
         {"name": "反馈", "description": "Bug 报告与功能建议"},
         {"name": "WebSocket", "description": "实时事件推送"},
         {"name": "系统", "description": "根路径、关机等系统操作"},
-		{"name": "语雀", "description": "语雀知识库文档管理"},
+        {"name": "语雀", "description": "语雀知识库文档管理"},
         {"name": "KAG知识库", "description": "KAG 知识库管理"},
-		{"name": "研发云", "description": "研发云CICD"},
+        {"name": "研发云", "description": "研发云CICD"},
     ]
 
     app = FastAPI(
@@ -276,6 +276,7 @@ def create_app(
     # responses (including 401) carry proper CORS headers.
     try:
         from synapse.config import settings
+
         data_dir = Path(settings.project_root) / "data"
     except Exception:
         data_dir = Path.cwd() / "data"
@@ -369,6 +370,7 @@ def create_app(
     from synapse.orgs.manager import OrgManager
     from synapse.orgs.runtime import OrgRuntime
     from synapse.orgs.templates import ensure_builtin_templates
+
     org_manager = OrgManager(data_dir)
     ensure_builtin_templates(data_dir / "org_templates")
     app.state.org_manager = org_manager
@@ -410,13 +412,14 @@ def create_app(
 
     if plugins_routes is not None:
         app.include_router(plugins_routes.router)
-		
+
     @app.get("/", tags=["系统"])
     async def root():
         # If web frontend is available, redirect to it
         web_dist = _find_web_dist()
         if web_dist:
             from fastapi.responses import RedirectResponse
+
             return RedirectResponse(url="/web/")
         return {
             "service": "synapse",
@@ -426,7 +429,9 @@ def create_app(
 
     # ── Serve uploaded avatar files ──
     from fastapi.staticfiles import StaticFiles as _StaticFiles
+
     from synapse.config import settings as _settings
+
     _avatar_dir = _settings.data_dir / "avatars"
     _avatar_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/api/avatars", _StaticFiles(directory=str(_avatar_dir)), name="avatars")
@@ -464,6 +469,7 @@ def create_app(
         path as SIGINT/SIGTERM (sessions saved, IM adapters stopped, etc.).
         """
         from .auth import get_client_ip
+
         trust_proxy = os.environ.get("TRUST_PROXY", "").lower() in ("1", "true", "yes")
         real_ip = get_client_ip(request, trust_proxy=trust_proxy)
         is_local = real_ip in ("127.0.0.1", "::1", "localhost") or (

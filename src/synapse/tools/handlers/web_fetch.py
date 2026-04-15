@@ -37,22 +37,27 @@ class WebFetchHandler:
         if not parsed.scheme or not parsed.netloc:
             return f"❌ 无效 URL：{url}（需要完整 URL，包含 https:// 等协议前缀）"
 
-        if parsed.hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
-            return "❌ web_fetch 不支持 localhost/本地 IP。请使用浏览器工具访问本地服务。"
+        from ...utils.url_safety import is_safe_url
+
+        safe, reason = await is_safe_url(url)
+        if not safe:
+            return f"❌ URL 安全检查失败：{reason}。请使用浏览器工具访问本地/内网服务。"
 
         try:
             import httpx
         except ImportError:
             return "❌ web_fetch 需要 httpx 库。请运行: pip install httpx"
 
+        from ...llm.providers.proxy_utils import get_httpx_client_kwargs
+
         try:
             async with httpx.AsyncClient(
+                **get_httpx_client_kwargs(timeout=30),
                 follow_redirects=True,
-                timeout=30.0,
                 headers={
                     "User-Agent": (
                         "Mozilla/5.0 (compatible; Synapse/1.0; "
-                        "+https://github.com/jyhk1314/synapse)"
+                        "+https://github.com/openakita/openakita)"
                     ),
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 },

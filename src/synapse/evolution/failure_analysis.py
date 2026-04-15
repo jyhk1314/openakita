@@ -162,6 +162,7 @@ class FailureAnalyzer:
         # Decision Trace
         try:
             from ..tracing.tracer import get_tracer
+
             tracer = get_tracer()
             tracer.record_decision(
                 decision_type="failure_analysis",

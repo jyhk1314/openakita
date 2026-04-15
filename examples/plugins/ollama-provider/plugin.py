@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 class Plugin(PluginBase):
     def on_load(self, api: PluginAPI) -> None:
-        # Import here so plugin.json load does not pull `synapse.llm` at import time.
+        # Import here so plugin.json load does not pull `openakita.llm` at import time.
         from collections.abc import AsyncIterator
 
         import httpx

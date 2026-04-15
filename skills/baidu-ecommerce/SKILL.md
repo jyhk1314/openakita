@@ -1,5 +1,5 @@
 ---
-name: synapse/skills@baidu-ecommerce
+name: openakita/skills@baidu-ecommerce
 description: "Baidu E-commerce skill for cross-platform price comparison, review analysis, and purchase knowledge. Complete workflow from product discovery to purchase decision. Use when user wants to compare prices, read reviews, or make purchase decisions."
 license: MIT
 metadata:

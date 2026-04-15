@@ -115,7 +115,7 @@ class MemoryManager:
             self.vector_store = None
 
         # v2: Unified Store + Search Backend
-        db_path = self.data_dir / "synapse.db"
+        db_path = self.data_dir / "openakita.db"
         self.store = UnifiedStore(
             db_path,
             vector_store=self.vector_store,

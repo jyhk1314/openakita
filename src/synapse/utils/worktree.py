@@ -19,7 +19,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-WORKTREE_BASE = ".synapse/worktrees"
+WORKTREE_BASE = ".openakita/worktrees"
 STALE_THRESHOLD_HOURS = 24
 
 

@@ -9,7 +9,7 @@
     "collection_name": {
       "type": "string",
       "description": "Qdrant collection name for vector storage",
-      "default": "synapse_memory"
+      "default": "openakita_memory"
     }
   }
 }

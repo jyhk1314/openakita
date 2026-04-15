@@ -1,5 +1,5 @@
 ---
-name: synapse/skills@baidu-paddleocr-doc
+name: openakita/skills@baidu-paddleocr-doc
 description: "PaddleOCR document parsing skill based on PaddleOCR-VL-1.5. Provides SOTA-level document understanding with ultra-high precision recognition and parsing. Use when user needs to parse, extract, or understand document content."
 license: MIT
 metadata:

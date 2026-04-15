@@ -39,7 +39,7 @@ def test_permission_fail_closed_for_risky_tools(monkeypatch: pytest.MonkeyPatch)
     def _boom():
         raise RuntimeError("policy unavailable")
 
-    monkeypatch.setattr("synapse.core.policy.get_policy_engine", _boom)
+    monkeypatch.setattr("openakita.core.policy.get_policy_engine", _boom)
     result = check_permission("run_shell", {"command": "echo hi"})
     assert result.behavior == "deny"
     assert "安全策略暂时不可用" in result.reason
@@ -49,7 +49,7 @@ def test_permission_still_allows_safe_reads_when_policy_unavailable(monkeypatch:
     def _boom():
         raise RuntimeError("policy unavailable")
 
-    monkeypatch.setattr("synapse.core.policy.get_policy_engine", _boom)
+    monkeypatch.setattr("openakita.core.policy.get_policy_engine", _boom)
     result = check_permission("read_file", {"path": "README.md"})
     assert result.behavior == "allow"
 
@@ -57,7 +57,7 @@ def test_permission_still_allows_safe_reads_when_policy_unavailable(monkeypatch:
 @pytest.mark.asyncio
 async def test_execute_batch_only_runs_policy_once_in_non_agent_mode(monkeypatch: pytest.MonkeyPatch):
     engine = _CountingPolicyEngine()
-    monkeypatch.setattr("synapse.core.policy.get_policy_engine", lambda: engine)
+    monkeypatch.setattr("openakita.core.policy.get_policy_engine", lambda: engine)
 
     executor = ToolExecutor(_DummyRegistry())
     executor._current_mode = "plan"
@@ -74,7 +74,7 @@ async def test_execute_batch_only_runs_policy_once_in_non_agent_mode(monkeypatch
 @pytest.mark.asyncio
 async def test_execute_batch_blocks_plan_denials_before_policy(monkeypatch: pytest.MonkeyPatch):
     engine = _CountingPolicyEngine()
-    monkeypatch.setattr("synapse.core.policy.get_policy_engine", lambda: engine)
+    monkeypatch.setattr("openakita.core.policy.get_policy_engine", lambda: engine)
 
     executor = ToolExecutor(_DummyRegistry())
     executor._current_mode = "plan"
