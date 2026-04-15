@@ -33,6 +33,7 @@ import {
   getProdProcessInfo,
   gitNexusAnalysis,
   gitNexusInitialize,
+  orderInitialize,
 } from "@/api/rdUnifiedService";
 import type { ProdProcessDataPayload } from "@/api/rdUnifiedService";
 import "./product-workbench.css";
@@ -87,6 +88,7 @@ export function ProductDetail({ product, open, onClose, synapseApiBase, onProces
   const [expandedKnowledge, setExpandedKnowledge] = useState<string[]>([]);
   const [activeRepoIdx, setActiveRepoIdx] = useState<number>(0);
   const [gitnexusBusyIdx, setGitnexusBusyIdx] = useState<number | null>(null);
+  const [orderTicketBusy, setOrderTicketBusy] = useState(false);
   const [devserviceHost, setDevserviceHost] = useState<string | null>(null);
 
   const productRef = useRef(product);
@@ -542,14 +544,40 @@ export function ProductDetail({ product, open, onClose, synapseApiBase, onProces
                   <div className="mb-3" onClick={(e) => e.stopPropagation()}>
                     <Button
                       type="button"
+                      disabled={orderTicketBusy || !IS_TAURI}
                       title={t("workbench.products.detail.autoAnalysisTicketCardHint")}
                       className="w-full h-8 gap-1.5 text-xs font-medium bg-gradient-to-r from-primary/10 to-primary/5 hover:from-primary/20 hover:to-primary/10 text-primary border border-primary/20 shadow-sm transition-all rounded-md"
                       onClick={(e) => {
                         e.stopPropagation();
-                        toast.message(t("workbench.products.detail.autoAnalysisTicketPending"));
+                        if (!IS_TAURI) {
+                          toast.message(t("workbench.products.tauriOnlyAction"));
+                          return;
+                        }
+                        const prodKey = product.name.trim();
+                        if (!prodKey) return;
+                        setOrderTicketBusy(true);
+                        void (async () => {
+                          try {
+                            const resp = await orderInitialize(synapseApiBase, { prod: prodKey });
+                            const msg =
+                              typeof resp.message === "string" && resp.message.trim() !== ""
+                                ? resp.message.trim()
+                                : t("workbench.products.detail.gitnexusInitDefaultSuccess");
+                            toast.success(msg);
+                            await fetchProcessOnce();
+                          } catch (err) {
+                            const msg = err instanceof Error ? err.message : String(err);
+                            toast.error(t("workbench.products.detail.orderInitializeFailed", { message: msg }));
+                          } finally {
+                            setOrderTicketBusy(false);
+                          }
+                        })();
                       }}
                     >
-                      <Zap className="size-3.5 shrink-0" strokeWidth={2.5} />
+                      <Zap
+                        className={`size-3.5 shrink-0 ${orderTicketBusy ? "animate-pulse" : ""}`}
+                        strokeWidth={2.5}
+                      />
                       {t("workbench.products.detail.autoAnalysisCta")}
                     </Button>
                   </div>

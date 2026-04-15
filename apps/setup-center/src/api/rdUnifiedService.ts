@@ -18,6 +18,7 @@ export const RD_UNIFIED_PATHS = {
   getProdProcessInfo: "/dev/iwhalecloud/synapse/get_prod_process_info",
   gitNexusInitialize: "/dev/iwhalecloud/synapse/gitnexus_initialize",
   gitNexusAnalysis: "/dev/iwhalecloud/synapse/gitnexus_analysis",
+  orderInitialize: "/dev/iwhalecloud/synapse/order_initialize",
   changeRepoInfo: "/dev/iwhalecloud/synapse/change_repo_info",
   destroyProd: "/dev/iwhalecloud/synapse/destroy_prod",
 } as const;
@@ -146,6 +147,11 @@ export type GitNexusInitializeBody = {
 
 /** gitnexus_analysis：按产品与分支重新分析（异步任务）；请求体与 {@link GitNexusInitializeBody} 相同 */
 export type GitNexusAnalysisBody = GitNexusInitializeBody;
+
+/** order_initialize：按产品启动工单分析初始化（异步任务） */
+export type OrderInitializeBody = {
+  prod: string;
+};
 
 /** change_repo_info：服务端若需产品标识可一并传 prod */
 export type ChangeRepoInfoBody = {
@@ -472,6 +478,32 @@ export async function gitNexusAnalysis(
   );
   if (resp.code !== 0) {
     throw new Error(resp.message || "gitnexus_analysis_failed");
+  }
+  return resp;
+}
+
+/**
+ * 工单分析初始化：研发统一服务 order_initialize（异步执行，成功仅表示任务已提交）。
+ * 仅应在 Tauri 下调用。
+ */
+export async function orderInitialize(
+  _synapseApiBase: string,
+  body: OrderInitializeBody,
+): Promise<DevServiceResponse> {
+  if (!IS_TAURI) {
+    throw new Error("rd_unified_tauri_only");
+  }
+  const host = await getDevserviceHost();
+  if (!host) {
+    throw new Error("missing_devservice_ip");
+  }
+  const resp = await postRdUnifiedJson<DevServiceResponse>(
+    host,
+    RD_UNIFIED_PATHS.orderInitialize,
+    body,
+  );
+  if (resp.code !== 0) {
+    throw new Error(resp.message || "order_initialize_failed");
   }
   return resp;
 }

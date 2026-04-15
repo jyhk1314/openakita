@@ -199,6 +199,7 @@
         "autoAnalysisRepoPending": "已对仓库「{{branch}}」发起自动分析（待接入后端）",
         "gitnexusInitDefaultSuccess": "初始化任务已开始（异步执行），请稍后查询状态",
         "gitnexusInitFailed": "自动分析启动失败：{{message}}",
+        "orderInitializeFailed": "工单自动分析启动失败：{{message}}",
         "gitnexusAnalysisFailed": "重新分析启动失败：{{message}}",
         "autoAnalysisTicketPending": "已发起工单自动分析（待接入后端）",
         "autoGenerateHint": "仓库与工单分析已启动，五类文档均未创建时可一键自动生成。",

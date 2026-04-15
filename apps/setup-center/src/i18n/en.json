@@ -199,6 +199,7 @@
         "autoAnalysisRepoPending": "Auto-analysis requested for branch “{{branch}}” (backend pending)",
         "gitnexusInitDefaultSuccess": "Initialization started (async). Check status later.",
         "gitnexusInitFailed": "Failed to start auto-analysis: {{message}}",
+        "orderInitializeFailed": "Failed to start ticket auto-analysis: {{message}}",
         "gitnexusAnalysisFailed": "Failed to start re-analysis: {{message}}",
         "autoAnalysisTicketPending": "Ticket auto-analysis requested (backend pending)",
         "autoGenerateHint": "Analysis has started for repos and tickets, and all five document types are still empty — generate automatically.",
